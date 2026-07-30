@@ -1,4 +1,4 @@
-import type { StemName, Track, TrackAnalysis } from '../types'
+import type { LyricsLine, StemName, Track, TrackAnalysis } from '../types'
 
 export interface NewAudioTrack {
   id: string
@@ -30,6 +30,10 @@ export class AudioTrack {
 
   attachAnalysis(analysis: TrackAnalysis) {
     this.props.analysis = { ...analysis }
+  }
+
+  attachLyrics(lyrics: LyricsLine[]) {
+    this.props.lyrics = lyrics.map((line) => ({ ...line }))
   }
 
   snapshot(): Track {

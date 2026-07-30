@@ -17,6 +17,8 @@ import { ProjectApplicationService } from './application/project-service'
 import { TrackAnalysisApplicationService } from './application/analysis-service'
 import { registerProjectHandlers } from './presentation/ipc/project-handlers'
 import { registerAnalysisHandlers } from './presentation/ipc/analysis-handlers'
+import { LyricsApplicationService } from './application/lyrics-service'
+import { registerLyricsHandlers } from './presentation/ipc/lyrics-handlers'
 
 let window: BrowserWindow | undefined
 
@@ -56,6 +58,7 @@ app.whenReady().then(async () => {
   const separationService = new SeparationApplicationService(trackRepository, separator)
   const projectService = new ProjectApplicationService(projectRepository)
   const analysisService = new TrackAnalysisApplicationService(trackRepository, new FileAudioGateway(), new LocalTrackAnalyzer())
+  const lyricsService = new LyricsApplicationService(trackRepository)
   const libraryHandlers = registerLibraryHandlers(libraryService)
   ipcMain.handle('library:list', libraryHandlers.list)
   ipcMain.handle('library:import', (_event, path?: string) => libraryHandlers.import(path))
@@ -68,6 +71,9 @@ app.whenReady().then(async () => {
   const analysis = registerAnalysisHandlers(analysisService)
   ipcMain.handle('analysis:analyze', analysis.analyze)
   ipcMain.handle('analysis:update', analysis.update)
+  const lyrics = registerLyricsHandlers(lyricsService)
+  ipcMain.handle('lyrics:get', lyrics.get)
+  ipcMain.handle('lyrics:update', lyrics.update)
   const settings = registerSettingsHandlers(new JsonSettingsRepository())
   ipcMain.handle('settings:get', settings.get)
   ipcMain.handle('settings:set', (_event, key: string, value: unknown) => settings.set(key, value))

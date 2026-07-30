@@ -8,6 +8,14 @@ export interface Track {
   duration?: number
   stems?: Record<StemName, string>
   analysis?: TrackAnalysis
+  lyrics?: LyricsLine[]
+}
+
+export interface LyricsLine {
+  id: string
+  text: string
+  start: number
+  end: number
 }
 
 export interface TrackAnalysis {
@@ -88,6 +96,10 @@ export interface GriffinAPI {
   analysis: {
     analyze: (trackId: string) => Promise<Track>
     update: (trackId: string, changes: Partial<TrackAnalysis>) => Promise<Track>
+  }
+  lyrics: {
+    get: (trackId: string) => Promise<LyricsLine[]>
+    update: (trackId: string, lines: LyricsLine[]) => Promise<Track>
   }
 }
 

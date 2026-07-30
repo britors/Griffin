@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { GriffinAPI, SeparationProgress, Track, TrackAnalysis } from '../shared/types'
+import type { GriffinAPI, LyricsLine, SeparationProgress, Track, TrackAnalysis } from '../shared/types'
 
 const api: GriffinAPI = {
   window: {
@@ -25,6 +25,10 @@ const api: GriffinAPI = {
   analysis: {
     analyze: (trackId: string) => ipcRenderer.invoke('analysis:analyze', trackId),
     update: (trackId: string, changes: Partial<TrackAnalysis>) => ipcRenderer.invoke('analysis:update', trackId, changes),
+  },
+  lyrics: {
+    get: (trackId: string) => ipcRenderer.invoke('lyrics:get', trackId),
+    update: (trackId: string, lines: LyricsLine[]) => ipcRenderer.invoke('lyrics:update', trackId, lines),
   },
   separation: {
     status: () => ipcRenderer.invoke('separation:status'),
