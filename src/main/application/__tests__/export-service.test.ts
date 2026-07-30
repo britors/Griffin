@@ -16,8 +16,10 @@ class InMemoryTrackRepository implements TrackRepository {
 
 class FixedProcessor implements AudioExportProcessor {
   received: Record<StemName, string> | null = null
+  receivedHistory: Array<Record<StemName, string>> = []
   async render(stems: Record<StemName, string>, _options: AudioExportOptions, _report: (progress: number, stage: string) => void, _isCancelled: () => boolean) {
     this.received = stems
+    this.receivedHistory.push(stems)
     return { bytes: new Uint8Array([82, 73, 70, 70]), duration: 2.5 }
   }
 }
@@ -25,6 +27,7 @@ class FixedProcessor implements AudioExportProcessor {
 class FixedDestination implements AudioExportDestination {
   written: { path: string; bytes: Uint8Array } | null = null
   async choose(defaultName: string) { return `/exports/${defaultName}` }
+  async chooseDirectory() { return '/exports' }
   async write(path: string, bytes: Uint8Array) { this.written = { path, bytes } }
 }
 
@@ -65,5 +68,17 @@ describe('AudioExportApplicationService', () => {
     await service.export(track.id, { ...options, solo: 'drums' })
 
     expect(processor.received).toEqual({ drums: '/stems/drums.wav' })
+  })
+
+  it('exports each selected stem into a separate file', async () => {
+    const track = AudioTrack.restore({ id: 'track-1', name: 'Song.wav', path: '/music/song.wav', importedAt: 'now', stems: { vocals: '/stems/vocals.wav', drums: '/stems/drums.wav', bass: '/stems/bass.wav', other: '/stems/other.wav' } })
+    const processor = new FixedProcessor()
+    const destination = new FixedDestination()
+    const service = new AudioExportApplicationService(new InMemoryTrackRepository(track), processor, destination)
+
+    const result = await service.export(track.id, { ...options, mode: 'individual', stems: ['vocals', 'bass'] })
+
+    expect(processor.receivedHistory).toEqual([{ vocals: '/stems/vocals.wav' }, { bass: '/stems/bass.wav' }])
+    expect(result.paths).toEqual(['/exports/Song - Vocal.wav', '/exports/Song - Baixo.wav'])
   })
 })

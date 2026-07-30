@@ -35,6 +35,7 @@ export interface AudioDecoder {
 
 export interface AudioExportDestination {
   choose(defaultName: string): Promise<string | null>
+  chooseDirectory(): Promise<string | null>
   write(path: string, bytes: Uint8Array): Promise<void>
 }
 
