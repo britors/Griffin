@@ -108,7 +108,14 @@ export class OnnxDemucsSeparator implements StemSeparator {
       const output = await this.run(this.session('htdemucs-6s'), input, 0, true)
       return extendedModelStemOrder.map((stem) => output.subarray(extendedModelStemOrder.indexOf(stem) * 2 * chunkSize, (extendedModelStemOrder.indexOf(stem) + 1) * 2 * chunkSize))
     }
-    if (mode === 'ft') return Promise.all(CORE_STEMS.map((stem) => this.run(this.session(stem), input, modelStemOrder.indexOf(stem))))
+    if (mode === 'ft') {
+      const outputs: Float32Array[] = []
+      // Specialist models are intentionally executed one at a time. Running all
+      // four ONNX sessions concurrently can make libonnxruntime allocate more
+      // native memory than Electron can safely recover from on desktop systems.
+      for (const stem of CORE_STEMS) outputs.push(await this.run(this.session(stem), input, modelStemOrder.indexOf(stem)))
+      return outputs
+    }
     const output = await this.run(this.session('htdemucs'), input, 0, true)
     return CORE_STEMS.map((stem) => {
       const targetIndex = modelStemOrder.indexOf(stem)
@@ -147,7 +154,7 @@ export class OnnxDemucsSeparator implements StemSeparator {
     if (existing) return existing
     const modelPath = this.modelPath(model === 'htdemucs' || model === 'htdemucs-6s' ? model : model as StemName)
     const promise = this.resolveProvider(modelPath).then(async (provider) => {
-      const options = { executionProviders: [provider], ...(this.processingThreads > 0 ? { intraOpNumThreads: this.processingThreads, interOpNumThreads: 1 } : {}) }
+      const options = { executionProviders: [provider], executionMode: 'sequential' as const, enableCpuMemArena: false, enableMemPattern: false, ...(this.processingThreads > 0 ? { intraOpNumThreads: this.processingThreads, interOpNumThreads: 1 } : {}) }
       return (await this.ort()).InferenceSession.create(modelPath, options)
     })
     this.sessions.set(model, promise)
