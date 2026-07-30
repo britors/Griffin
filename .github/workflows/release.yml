@@ -25,11 +25,18 @@ jobs:
           cache: npm
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y rpm
+      - run: npm ci
       - name: Download ONNX models
         shell: bash
         run: bash scripts/download-models.sh
-      - run: npm ci
       - run: ${{ matrix.package_command }}
+      - name: Validate Linux packages
+        if: runner.os == 'Linux'
+        run: npm run validate:packages
+      - name: Validate Windows installer
+        if: runner.os == 'Windows'
+        shell: bash
+        run: bash scripts/validate-packages.sh release windows
       - uses: actions/upload-artifact@v4
         with:
           name: packages-${{ runner.os }}
