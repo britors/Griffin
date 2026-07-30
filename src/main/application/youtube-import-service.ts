@@ -21,7 +21,7 @@ export class YoutubeImportApplicationService {
     const asset = await this.downloader.download(preview.url)
     try {
       await mkdir(this.importDirectory, { recursive: true })
-      const permanentPath = join(this.importDirectory, `${asset.mediaHash}.wav`)
+      const permanentPath = join(this.importDirectory, `${safeFileName(preview.title)}-${asset.mediaHash.slice(0, 12)}.wav`)
       await copyFile(asset.tempPath, permanentPath)
       const track = await this.library.import(permanentPath)
       if (!track) throw new Error('O áudio do YouTube não pôde ser importado.')
@@ -33,4 +33,9 @@ export class YoutubeImportApplicationService {
   }
 
   cancel(previewId: string) { this.previews.delete(previewId); return Promise.resolve() }
+}
+
+function safeFileName(title: string) {
+  const normalized = title.normalize('NFKD').replace(/[^\p{L}\p{N} _-]/gu, '').trim().replace(/\s+/g, '-')
+  return (normalized || 'audio-do-youtube').slice(0, 100)
 }
