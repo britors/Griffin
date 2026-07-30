@@ -1,23 +1,27 @@
 import { SoundTouch } from '@soundtouchjs/core'
 import type { AudioExportOptions, StemName } from '../../../shared/types'
 import type { AudioDecoder, AudioExportProcessor, AudioFileGateway } from '../../application/ports'
-import { resampleTo44100, toStereo } from './audio-resampler'
+import { resampleTo, toStereo } from './audio-resampler'
 import { encodeStereoWav } from './wav-encoder'
-
-const sampleRate = 44100
 
 export class WavAudioExportProcessor implements AudioExportProcessor {
   constructor(private readonly files: AudioFileGateway, private readonly decoder: AudioDecoder) {}
 
-  async render(stems: Record<StemName, string>, options: AudioExportOptions) {
-    const decoded = await Promise.all(Object.entries(stems).map(async ([stem, path]) => {
+  async render(stems: Record<StemName, string>, options: AudioExportOptions, report: (progress: number, stage: string) => void, isCancelled: () => boolean) {
+    const entries = Object.entries(stems)
+    const decoded = await Promise.all(entries.map(async ([stem, path], index) => {
+      if (isCancelled()) throw new Error('Exportação cancelada.')
       const bytes = await this.files.read(path)
-      const audio = resampleTo44100(await this.decoder.decode(bytes))
-      return { stem: stem as StemName, audio: applyEqualizer(audio, options.equalizer[stem as StemName] ?? []) }
+      const audio = resampleTo(await this.decoder.decode(bytes), options.sampleRate)
+      report(0.1 + ((index + 1) / entries.length) * 0.25, `Lendo ${stem}`)
+      return { stem: stem as StemName, audio: applyEqualizer(audio, options.equalizer[stem as StemName] ?? [], options.sampleRate) }
     }))
+    if (isCancelled()) throw new Error('Exportação cancelada.')
     const [left, right] = mix(decoded, options)
-    const processed = processOffline(left, right, options.pitch, options.tempo)
-    return { bytes: encodeStereoWav(processed.left, processed.right, sampleRate), duration: processed.left.length / sampleRate }
+    report(0.45, 'Mixando stems')
+    const processed = processOffline(left, right, options.pitch, options.tempo, options.sampleRate, isCancelled)
+    report(0.9, 'Codificando WAV')
+    return { bytes: encodeStereoWav(processed.left, processed.right, options.sampleRate, options.bitDepth), duration: processed.left.length / options.sampleRate }
   }
 }
 
@@ -43,7 +47,7 @@ function mix(decoded: Array<{ stem: StemName; audio: DecodedAudio }>, options: A
   return [left, right]
 }
 
-function processOffline(left: Float32Array, right: Float32Array, pitch: number, tempo: number): { left: Float32Array; right: Float32Array } {
+function processOffline(left: Float32Array, right: Float32Array, pitch: number, tempo: number, sampleRate: number, isCancelled: () => boolean): { left: Float32Array; right: Float32Array } {
   const normalizedTempo = Math.max(0.5, Math.min(1.5, tempo))
   if (pitch === 0 && normalizedTempo === 1) return { left, right }
   const interleaved = new Float32Array(left.length * 2)
@@ -60,6 +64,7 @@ function processOffline(left: Float32Array, right: Float32Array, pitch: number, 
   processor.inputBuffer.putSamples(new Float32Array(Math.max(processor.stretch.sampleReq, sampleRate / 2) * 2))
   let previousFrames = -1
   while (processor.inputBuffer.frameCount > 0 && processor.inputBuffer.frameCount !== previousFrames) {
+    if (isCancelled()) throw new Error('Exportação cancelada.')
     previousFrames = processor.inputBuffer.frameCount
     processor.process()
   }
@@ -78,13 +83,13 @@ function processOffline(left: Float32Array, right: Float32Array, pitch: number, 
 
 function clamp(value: number) { return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0)) }
 
-function applyEqualizer(audio: DecodedAudio, gains: number[]): DecodedAudio {
+function applyEqualizer(audio: DecodedAudio, gains: number[], sampleRate: number): DecodedAudio {
   const frequencies = [32, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000, 20000]
-  const channelData = audio.channelData.map((channel) => frequencies.reduce((samples, frequency, index) => applyPeakingFilter(samples, frequency, gains[index] ?? 0), channel))
+  const channelData = audio.channelData.map((channel) => frequencies.reduce((samples, frequency, index) => applyPeakingFilter(samples, frequency, gains[index] ?? 0, sampleRate), channel))
   return { ...audio, channelData }
 }
 
-function applyPeakingFilter(input: Float32Array, frequency: number, gainDb: number): Float32Array {
+function applyPeakingFilter(input: Float32Array, frequency: number, gainDb: number, sampleRate: number): Float32Array {
   if (gainDb === 0) return input
   const omega = 2 * Math.PI * frequency / sampleRate
   const alpha = Math.sin(omega) / 2

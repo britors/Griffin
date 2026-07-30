@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AudioExportOptions, ChordExportFormat, GriffinAPI, LyricsLine, PlayerSnapshot, SeparationProgress, Track, TrackAnalysis } from '../shared/types'
+import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, GriffinAPI, LyricsLine, PlayerSnapshot, SeparationProgress, Track, TrackAnalysis } from '../shared/types'
 
 const api: GriffinAPI = {
   window: {
@@ -36,6 +36,12 @@ const api: GriffinAPI = {
     update: (trackId: string, lines: LyricsLine[]) => ipcRenderer.invoke('lyrics:update', trackId, lines),
   },
   exportAudio: (trackId: string, options: AudioExportOptions) => ipcRenderer.invoke('export:audio', trackId, options),
+  cancelExport: (requestId: string) => ipcRenderer.invoke('export:cancel', requestId),
+  onExportProgress: (callback: (progress: AudioExportProgress) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: AudioExportProgress) => callback(progress)
+    ipcRenderer.on('export:progress', listener)
+    return () => ipcRenderer.removeListener('export:progress', listener)
+  },
   performance: { save: (name: string, bytes: Uint8Array) => ipcRenderer.invoke('performance:save', name, bytes) },
   chords: { export: (trackId: string, format: ChordExportFormat) => ipcRenderer.invoke('chords:export', trackId, format) },
   separation: {
