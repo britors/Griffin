@@ -1,6 +1,7 @@
 export type StemName = 'vocals' | 'drums' | 'bass' | 'other' | 'guitar' | 'piano'
 export const CORE_STEMS: StemName[] = ['vocals', 'drums', 'bass', 'other']
 export const ALL_STEMS: StemName[] = [...CORE_STEMS, 'guitar', 'piano']
+export type SeparationTarget = StemName | 'all'
 export type OutputRoute = 'stereo' | 'left' | 'right'
 
 export const EQUALIZER_FREQUENCIES = [32, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000, 20000] as const
@@ -228,7 +229,7 @@ export interface GriffinAPI {
   }
   separation: {
     status: () => Promise<SeparationStatus>
-    start: (track: Track) => Promise<Track>
+    start: (track: Track, target?: StemName) => Promise<Track>
     cancel: (trackId: string) => Promise<void>
     onProgress: (callback: (progress: SeparationProgress) => void) => () => void
   }

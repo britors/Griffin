@@ -61,4 +61,14 @@ describe('ProjectApplicationService', () => {
     expect(restored.trackIds).toEqual(['track-1'])
     expect(restored.player.tempo).toBe(0.8)
   })
+
+  it('persists the current project state for explicit saves', async () => {
+    const service = new ProjectApplicationService(new InMemoryProjectRepository())
+    const project = await service.create('Ensaio')
+    const player = { selectedTrackId: 'track-1', position: 0.2, pitch: 0, tempo: 1, loopEnabled: false, loopStart: 0, loopEnd: 1, volumes: {}, pans: {}, routes: {}, equalizer: {}, muted: {}, solo: null }
+
+    await service.updatePlayerState(project.id, player)
+
+    expect((await service.list())[0].playerState).toEqual(player)
+  })
 })

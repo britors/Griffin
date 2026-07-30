@@ -61,7 +61,7 @@ export interface AudioExportProcessor {
 export interface StemSeparator {
   init(): Promise<void>
   status(): Promise<SeparationStatus>
-  separate(track: AudioTrack, report: (progress: SeparationProgress) => void): Promise<Partial<Record<StemName, string>>>
+  separate(track: AudioTrack, report: (progress: SeparationProgress) => void, target?: StemName): Promise<Partial<Record<StemName, string>>>
   cancel(trackId: string): void
 }
 
