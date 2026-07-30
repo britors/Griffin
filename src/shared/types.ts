@@ -1,0 +1,53 @@
+export type StemName = 'vocals' | 'drums' | 'bass' | 'other'
+
+export interface Track {
+  id: string
+  name: string
+  path: string
+  importedAt: string
+  duration?: number
+  stems?: Record<StemName, string>
+}
+
+export interface SeparationProgress {
+  trackId: string
+  progress: number
+  stage: string
+}
+
+export interface SeparationStatus {
+  available: boolean
+  message: string
+}
+
+export interface GriffinAPI {
+  window: {
+    minimize: () => Promise<void>
+    toggleMaximize: () => Promise<boolean>
+    close: () => Promise<void>
+  }
+  library: {
+    list: () => Promise<Track[]>
+    import: (filePath?: string) => Promise<Track | null>
+    read: (filePath: string) => Promise<Uint8Array>
+    remove: (trackId: string) => Promise<void>
+    chooseFile: () => Promise<Track | null>
+  }
+  separation: {
+    status: () => Promise<SeparationStatus>
+    start: (track: Track) => Promise<Track>
+    cancel: (trackId: string) => Promise<void>
+    onProgress: (callback: (progress: SeparationProgress) => void) => () => void
+  }
+  settings: {
+    get: () => Promise<Record<string, unknown>>
+    set: (key: string, value: unknown) => Promise<void>
+  }
+}
+
+export const STEM_LABELS: Record<StemName, string> = {
+  vocals: 'Vocal',
+  drums: 'Bateria',
+  bass: 'Baixo',
+  other: 'Outros',
+}
