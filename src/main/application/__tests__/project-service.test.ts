@@ -35,4 +35,16 @@ describe('ProjectApplicationService', () => {
     await service.remove(project.id)
     expect(await service.list()).toHaveLength(0)
   })
+
+  it('reorders tracks and persists the setlist order', async () => {
+    const service = new ProjectApplicationService(new InMemoryProjectRepository())
+    const project = await service.create('Aula')
+    await service.addTrack(project.id, 'track-1')
+    await service.addTrack(project.id, 'track-2')
+    await service.addTrack(project.id, 'track-3')
+
+    const reordered = await service.moveTrack(project.id, 'track-3', 'up')
+
+    expect(reordered.trackIds).toEqual(['track-1', 'track-3', 'track-2'])
+  })
 })

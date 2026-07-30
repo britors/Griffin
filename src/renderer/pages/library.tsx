@@ -13,7 +13,7 @@ export function LibraryPage({ filter = 'all' }: { filter?: LibraryFilter }) {
   useEffect(() => { void api.library.list().then(setTracks) }, [setTracks])
 
   const activeProject = projects.find((project) => project.id === activeProjectId)
-  const projectTracks = activeProject ? tracks.filter((track) => activeProject.trackIds.includes(track.id)) : tracks
+  const projectTracks = activeProject ? activeProject.trackIds.map((id) => tracks.find((track) => track.id === id)).filter((track): track is Track => Boolean(track)) : tracks
   const filteredTracks = filter === 'favorites' ? projectTracks.filter((track) => favoriteIds.includes(track.id)) : filter === 'recent' ? projectTracks.filter((track) => recentTrackIds.includes(track.id)).sort((a, b) => recentTrackIds.indexOf(a.id) - recentTrackIds.indexOf(b.id)) : projectTracks
   const visible = filteredTracks.filter((track) => track.name.toLowerCase().includes(search.toLowerCase()))
   const heading = filter === 'favorites' ? 'Faixas favoritas' : filter === 'recent' ? 'Reproduzidas recentemente' : 'Seu espaço de música'
@@ -44,6 +44,12 @@ export function LibraryPage({ filter = 'all' }: { filter?: LibraryFilter }) {
     void api.settings.set('favoriteTrackIds', next)
   }
 
+  const moveTrack = async (trackId: string, direction: 'up' | 'down') => {
+    if (!activeProjectId) return
+    const updated = await api.projects.moveTrack(activeProjectId, trackId, direction)
+    setProjects(projects.map((project) => project.id === updated.id ? updated : project))
+  }
+
   const onTrackKeyDown = (event: React.KeyboardEvent<HTMLDivElement>, track: Track) => {
     if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(track) }
   }
@@ -53,6 +59,6 @@ export function LibraryPage({ filter = 'all' }: { filter?: LibraryFilter }) {
   return <main className="library-page">
     <div className="page-heading"><div><span className="eyebrow">LIBRARY</span><h1>{heading}</h1><p>Separe, pratique e encontre o som certo.</p></div><button className="primary-button" onClick={() => void importTrack()}>＋ Importar faixa</button></div>
     <div className="library-tools"><div className="search">⌕<input placeholder="Buscar na biblioteca" value={search} onChange={(event) => setSearch(event.target.value)} /></div><span>{filteredTracks.length} {filteredTracks.length === 1 ? 'faixa' : 'faixas'}</span></div>
-    {projectTracks.length === 0 ? <ImportDropzone /> : visible.length === 0 ? <div className="empty-state">{emptyMessage}</div> : <div className="track-list">{visible.map((track, index) => <div className={`track-row ${selected?.id === track.id ? 'selected' : ''}`} key={track.id} role="button" tabIndex={0} onClick={() => select(track)} onKeyDown={(event) => onTrackKeyDown(event, track)}><span className="track-number">{String(index + 1).padStart(2, '0')}</span><span className="track-art">{track.name.slice(0, 1).toUpperCase()}</span><span className="track-name"><strong>{track.name}</strong><small>{track.stems ? 'Stems prontos' : 'Ainda não separado'}</small></span><span className="track-duration">{formatDuration(track.duration)}</span><button className="track-favorite" title={favoriteIds.includes(track.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'} aria-label={favoriteIds.includes(track.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'} aria-pressed={favoriteIds.includes(track.id)} onClick={(event) => { event.stopPropagation(); updateFavorite(track.id) }}>{favoriteIds.includes(track.id) ? '★' : '☆'}</button><button className="track-remove" title={`Remover ${track.name}`} aria-label={`Remover ${track.name}`} onClick={(event) => { event.stopPropagation(); void removeTrack(track) }}>×</button></div>)}</div>}
+    {projectTracks.length === 0 ? <ImportDropzone /> : visible.length === 0 ? <div className="empty-state">{emptyMessage}</div> : <div className="track-list">{visible.map((track, index) => <div className={`track-row ${selected?.id === track.id ? 'selected' : ''}`} key={track.id} role="button" tabIndex={0} onClick={() => select(track)} onKeyDown={(event) => onTrackKeyDown(event, track)}><span className="track-number">{String(index + 1).padStart(2, '0')}</span><span className="track-art">{track.name.slice(0, 1).toUpperCase()}</span><span className="track-name"><strong>{track.name}</strong><small>{track.stems ? 'Stems prontos' : 'Ainda não separado'}</small></span><span className="track-duration">{formatDuration(track.duration)}</span>{activeProjectId && filter === 'all' && <span className="queue-actions"><button title="Mover para cima" aria-label={`Mover ${track.name} para cima`} disabled={index === 0} onClick={(event) => { event.stopPropagation(); void moveTrack(track.id, 'up') }}>↑</button><button title="Mover para baixo" aria-label={`Mover ${track.name} para baixo`} disabled={index === projectTracks.length - 1} onClick={(event) => { event.stopPropagation(); void moveTrack(track.id, 'down') }}>↓</button></span>}<button className="track-favorite" title={favoriteIds.includes(track.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'} aria-label={favoriteIds.includes(track.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'} aria-pressed={favoriteIds.includes(track.id)} onClick={(event) => { event.stopPropagation(); updateFavorite(track.id) }}>{favoriteIds.includes(track.id) ? '★' : '☆'}</button><button className="track-remove" title={`Remover ${track.name}`} aria-label={`Remover ${track.name}`} onClick={(event) => { event.stopPropagation(); void removeTrack(track) }}>×</button></div>)}</div>}
   </main>
 }

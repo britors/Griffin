@@ -2,6 +2,17 @@ import { useEffect, useRef } from 'react'
 import { StemAudioPlayer } from '../audio-player'
 import { usePlayer } from '../store'
 
+function advanceQueue() {
+  const state = usePlayer.getState()
+  const project = state.projects.find((item) => item.id === state.activeProjectId)
+  const queue = project?.trackIds.map((id) => state.tracks.find((track) => track.id === id)).filter((track): track is NonNullable<typeof track> => Boolean(track)) ?? []
+  const currentIndex = queue.findIndex((track) => track.id === state.selected?.id)
+  const next = currentIndex >= 0 ? queue[currentIndex + 1] : undefined
+  if (!next) { state.setPosition(1); state.setPlaying(false); return }
+  state.select(next)
+  state.setPlaying(true)
+}
+
 export function AudioPlayback() {
   const engine = useRef<StemAudioPlayer | null>(null)
   const selected = usePlayer((state) => state.selected)
@@ -32,6 +43,8 @@ export function AudioPlayback() {
     const requestedPosition = position
     void player.load(selected).then(() => {
       if (!resetPlaybackOnTrackChange && player.length > 0) player.seek(requestedPosition * player.length, false, tempo, pitch)
+      const state = usePlayer.getState()
+      if (state.playing && state.selected?.id === selected.id) void player.play(state.position * player.length, state.tempo, state.pitch, advanceQueue)
     }).catch(() => setPlaying(false))
   }, [selected, resetPlaybackOnTrackChange, setPlaying])
 
@@ -46,7 +59,7 @@ export function AudioPlayback() {
     const player = engine.current
     if (!player || !selected?.stems || !player.isLoaded) return
     if (playing) {
-      void player.play(position * player.length, tempo, pitch, () => { setPosition(1); setPlaying(false) })
+      void player.play(position * player.length, tempo, pitch, advanceQueue)
     } else {
       setPosition(player.pause() / player.length)
     }
@@ -55,7 +68,7 @@ export function AudioPlayback() {
   useEffect(() => {
     const player = engine.current
     if (!player || !player.isLoaded || seekVersion === 0) return
-    player.seek(position * player.length, playing, tempo, pitch, () => { setPosition(1); setPlaying(false) })
+    player.seek(position * player.length, playing, tempo, pitch, advanceQueue)
   }, [seekVersion, playing, setPlaying, setPosition, tempo, pitch])
 
   useEffect(() => {
@@ -65,7 +78,7 @@ export function AudioPlayback() {
       const current = player.currentTime() / player.length
       if (loopEnabled && current >= loopEnd) {
         setPosition(loopStart)
-        player.seek(loopStart * player.length, true, tempo, pitch, () => { setPosition(1); setPlaying(false) })
+        player.seek(loopStart * player.length, true, tempo, pitch, advanceQueue)
       } else {
         setPosition(current)
       }

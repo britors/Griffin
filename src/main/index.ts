@@ -93,6 +93,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('projects:remove', (_event, id: string) => projects.remove(_event, id))
   ipcMain.handle('projects:add-track', (_event, projectId: string, trackId: string) => projects.addTrack(_event, projectId, trackId))
   ipcMain.handle('projects:remove-track', (_event, projectId: string, trackId: string) => projects.removeTrack(_event, projectId, trackId))
+  ipcMain.handle('projects:move-track', (_event, projectId: string, trackId: string, direction: 'up' | 'down') => projects.moveTrack(_event, projectId, trackId, direction))
   registerSeparationHandlers(separationService, () => window?.webContents)
   await createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow() })

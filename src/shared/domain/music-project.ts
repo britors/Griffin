@@ -33,6 +33,16 @@ export class MusicProject {
     this.touch()
   }
 
+  moveTrack(trackId: string, direction: 'up' | 'down'): void {
+    const index = this.data.trackIds.indexOf(trackId)
+    if (index < 0) throw new Error('A faixa não pertence a este projeto.')
+    const target = direction === 'up' ? index - 1 : index + 1
+    if (target < 0 || target >= this.data.trackIds.length) return
+    const [item] = this.data.trackIds.splice(index, 1)
+    this.data.trackIds.splice(target, 0, item)
+    this.touch()
+  }
+
   snapshot(): Project { return structuredClone(this.data) }
   private touch(): void { this.data.updatedAt = new Date().toISOString() }
 }
