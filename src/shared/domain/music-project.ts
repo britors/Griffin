@@ -3,7 +3,7 @@ import type { PlayerSnapshot, Project, ProjectSnapshot } from '../types'
 export class MusicProject {
   private constructor(private readonly data: Project) {}
 
-  static create(input: { id: string; name: string; createdAt?: string; updatedAt?: string; trackIds?: string[]; snapshots?: ProjectSnapshot[] }): MusicProject {
+  static create(input: { id: string; name: string; createdAt?: string; updatedAt?: string; trackIds?: string[]; snapshots?: ProjectSnapshot[]; playerState?: PlayerSnapshot }): MusicProject {
     const now = new Date().toISOString()
     return new MusicProject({
       id: input.id,
@@ -12,6 +12,7 @@ export class MusicProject {
       updatedAt: input.updatedAt ?? now,
       trackIds: [...new Set(input.trackIds ?? [])],
       snapshots: input.snapshots?.map((snapshot) => structuredClone(snapshot)) ?? [],
+      playerState: input.playerState ? structuredClone(input.playerState) : undefined,
     })
   }
 
@@ -51,6 +52,11 @@ export class MusicProject {
 
   removeSnapshot(snapshotId: string): void {
     this.data.snapshots = (this.data.snapshots ?? []).filter((snapshot) => snapshot.id !== snapshotId)
+    this.touch()
+  }
+
+  updatePlayerState(player: PlayerSnapshot): void {
+    this.data.playerState = structuredClone(player)
     this.touch()
   }
 

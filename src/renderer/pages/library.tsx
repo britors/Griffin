@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { usePlayer } from '../store'
 import { ImportDropzone } from '../components/import-dropzone'
@@ -9,8 +9,16 @@ type LibraryFilter = 'all' | 'favorites' | 'recent'
 
 export function LibraryPage({ filter = 'all' }: { filter?: LibraryFilter }) {
   const { tracks, projects, activeProjectId, favoriteIds, recentTrackIds, selected, setTracks, setProjects, setFavoriteIds, setRecentTrackIds, select, toggleFavorite } = usePlayer()
+  const restoredProject = useRef<string | null>(null)
   const [search, setSearch] = useState('')
   useEffect(() => { void api.library.list().then(setTracks) }, [setTracks])
+  useEffect(() => {
+    if (!activeProjectId || restoredProject.current === activeProjectId || tracks.length === 0) return
+    const project = projects.find((item) => item.id === activeProjectId)
+    if (!project?.playerState) return
+    usePlayer.getState().applyPlayerState(project.playerState)
+    restoredProject.current = activeProjectId
+  }, [activeProjectId, projects, tracks.length])
 
   const activeProject = projects.find((project) => project.id === activeProjectId)
   const projectTracks = activeProject ? activeProject.trackIds.map((id) => tracks.find((track) => track.id === id)).filter((track): track is Track => Boolean(track)) : tracks

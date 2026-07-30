@@ -13,5 +13,6 @@ export function registerProjectHandlers(service: ProjectApplicationService) {
     createSnapshot: (_event: unknown, projectId: string, name: string, player: PlayerSnapshot) => service.createSnapshot(projectId, name, player),
     restoreSnapshot: (_event: unknown, projectId: string, snapshotId: string) => service.restoreSnapshot(projectId, snapshotId),
     removeSnapshot: (_event: unknown, projectId: string, snapshotId: string) => service.removeSnapshot(projectId, snapshotId),
+    updatePlayerState: (_event: unknown, projectId: string, player: PlayerSnapshot) => service.updatePlayerState(projectId, player),
   }
 }

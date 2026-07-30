@@ -62,6 +62,7 @@ interface PlayerState {
   toggleMute: (stem: StemName) => void
   toggleMuteAll: () => void
   toggleSolo: (stem: StemName) => void
+  applyPlayerState: (player: PlayerSnapshot) => void
   applySnapshot: (snapshot: ProjectSnapshot) => void
 }
 
@@ -103,8 +104,13 @@ export const usePlayer = create<PlayerState>((set) => ({
     return { muted: { vocals: nextMuted, drums: nextMuted, bass: nextMuted, other: nextMuted } }
   }),
   toggleSolo: (stem) => set((state) => ({ solo: state.solo === stem ? null : stem })),
-  applySnapshot: (snapshot) => set((state) => ({ selected: state.tracks.find((track) => track.id === snapshot.player.selectedTrackId) ?? null, position: snapshot.player.position, pitch: snapshot.player.pitch, tempo: snapshot.player.tempo, loopEnabled: snapshot.player.loopEnabled, loopStart: snapshot.player.loopStart, loopEnd: snapshot.player.loopEnd, volumes: snapshot.player.volumes, pans: snapshot.player.pans, equalizer: snapshot.player.equalizer ?? state.equalizer, muted: snapshot.player.muted, solo: snapshot.player.solo })),
+  applyPlayerState: (player) => set((state) => restorePlayerState(state, player)),
+  applySnapshot: (snapshot) => set((state) => restorePlayerState(state, snapshot.player)),
 }))
+
+function restorePlayerState(state: PlayerState, player: PlayerSnapshot): Partial<PlayerState> {
+  return { selected: state.tracks.find((track) => track.id === player.selectedTrackId) ?? null, position: player.position, pitch: player.pitch, tempo: player.tempo, loopEnabled: player.loopEnabled, loopStart: player.loopStart, loopEnd: player.loopEnd, volumes: player.volumes, pans: player.pans, equalizer: player.equalizer ?? state.equalizer, muted: player.muted, solo: player.solo }
+}
 
 export function playerSnapshot(state: PlayerState): PlayerSnapshot {
   return { selectedTrackId: state.selected?.id ?? null, position: state.position, pitch: state.pitch, tempo: state.tempo, loopEnabled: state.loopEnabled, loopStart: state.loopStart, loopEnd: state.loopEnd, volumes: state.volumes, pans: state.pans, equalizer: state.equalizer, muted: state.muted, solo: state.solo }
