@@ -9,7 +9,7 @@
     "email": "opensource@w3ti.com"
   },
   "homepage": "https://github.com/w3ti/griffin-music",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
@@ -21,6 +21,7 @@
     "package": "npm run build && electron-builder"
   },
   "dependencies": {
+    "@soundtouchjs/audio-worklet": "^2.1.0",
     "audio-decode": "^3.11.4",
     "onnxruntime-node": "^1.22.0",
     "zustand": "^5.0.6"

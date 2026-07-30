@@ -9,6 +9,7 @@ export function AudioPlayback() {
   const position = usePlayer((state) => state.position)
   const seekVersion = usePlayer((state) => state.seekVersion)
   const tempo = usePlayer((state) => state.tempo)
+  const pitch = usePlayer((state) => state.pitch)
   const volumes = usePlayer((state) => state.volumes)
   const muted = usePlayer((state) => state.muted)
   const solo = usePlayer((state) => state.solo)
@@ -36,17 +37,17 @@ export function AudioPlayback() {
     const player = engine.current
     if (!player || !selected?.stems || !player.isLoaded) return
     if (playing) {
-      void player.play(position * player.length, tempo, () => { setPosition(1); setPlaying(false) })
+      void player.play(position * player.length, tempo, pitch, () => { setPosition(1); setPlaying(false) })
     } else {
       setPosition(player.pause() / player.length)
     }
-  }, [playing, selected, setPlaying, setPosition, tempo])
+  }, [playing, selected, setPlaying, setPosition])
 
   useEffect(() => {
     const player = engine.current
     if (!player || !player.isLoaded || seekVersion === 0) return
-    player.seek(position * player.length, playing, tempo, () => { setPosition(1); setPlaying(false) })
-  }, [seekVersion, playing, setPlaying, setPosition, tempo])
+    player.seek(position * player.length, playing, tempo, pitch, () => { setPosition(1); setPlaying(false) })
+  }, [seekVersion, playing, setPlaying, setPosition, tempo, pitch])
 
   useEffect(() => {
     const player = engine.current
@@ -56,5 +57,6 @@ export function AudioPlayback() {
   }, [playing, setPosition])
 
   useEffect(() => { engine.current?.setTempo(tempo) }, [tempo])
+  useEffect(() => { engine.current?.setPitch(pitch) }, [pitch])
   return null
 }
