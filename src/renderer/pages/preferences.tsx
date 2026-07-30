@@ -81,6 +81,11 @@ function PlaybackSection({ settings, onChange }: { settings: Settings; onChange:
     <PreferenceRow label="Processamento de áudio" description="Pitch e tempo são aplicados localmente, sem enviar áudio para a nuvem.">
       <span className="preference-value">100% local</span>
     </PreferenceRow>
+    <PreferenceRow label="Atalhos do player" description="Use o teclado para controlar a reprodução sem tirar as mãos do instrumento.">
+      <div className="shortcut-list" aria-label="Atalhos do player">
+        <span><kbd>Space</kbd> Play/Pause</span><span><kbd>←</kbd> <kbd>→</kbd> Navegar</span><span><kbd>Home</kbd> Início</span><span><kbd>L</kbd> Loop</span><span><kbd>A</kbd> / <kbd>B</kbd> Marcar loop</span><span><kbd>M</kbd> Silenciar</span><span><kbd>[</kbd> <kbd>]</kbd> Tempo</span>
+      </div>
+    </PreferenceRow>
   </PreferenceSection>
 }
 
