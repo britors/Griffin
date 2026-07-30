@@ -27,6 +27,7 @@ interface PlayerState {
   loopEnd: number
   progress: SeparationProgress | null
   volumes: Record<StemName, number>
+  pans: Record<StemName, number>
   muted: Record<StemName, boolean>
   solo: StemName | null
   setTracks: (tracks: Track[]) => void
@@ -55,6 +56,7 @@ interface PlayerState {
   clearLoop: () => void
   setProgress: (progress: SeparationProgress | null) => void
   setVolume: (stem: StemName, volume: number) => void
+  setPan: (stem: StemName, pan: number) => void
   toggleMute: (stem: StemName) => void
   toggleMuteAll: () => void
   toggleSolo: (stem: StemName) => void
@@ -63,6 +65,7 @@ interface PlayerState {
 export const usePlayer = create<PlayerState>((set) => ({
   tracks: [], projects: [], activeProjectId: null, favoriteIds: [], recentTrackIds: [], resetPlaybackOnTrackChange: true, metronomeEnabled: false, metronomeSubdivision: 1, metronomeVolume: 0.5, countInEnabled: false, countInBars: 1, countingIn: false, selected: null, playing: false, position: 0, seekVersion: 0, pitch: 0, tempo: 1, loopEnabled: false, loopStart: 0, loopEnd: 1, progress: null,
   volumes: { vocals: 0.82, drums: 0.82, bass: 0.82, other: 0.82 },
+  pans: { vocals: 0, drums: 0, bass: 0, other: 0 },
   muted: { vocals: false, drums: false, bass: false, other: false }, solo: null,
   setTracks: (tracks) => set({ tracks }),
   setProjects: (projects) => set((state) => ({ projects, activeProjectId: projects.some((project) => project.id === state.activeProjectId) ? state.activeProjectId : projects[0]?.id ?? null })),
@@ -88,6 +91,7 @@ export const usePlayer = create<PlayerState>((set) => ({
   clearLoop: () => set({ loopEnabled: false, loopStart: 0, loopEnd: 1 }),
   setProgress: (progress) => set({ progress }),
   setVolume: (stem, volume) => set((state) => ({ volumes: { ...state.volumes, [stem]: volume } })),
+  setPan: (stem, pan) => set((state) => ({ pans: { ...state.pans, [stem]: Math.max(-1, Math.min(1, pan)) } })),
   toggleMute: (stem) => set((state) => ({ muted: { ...state.muted, [stem]: !state.muted[stem] } })),
   toggleMuteAll: () => set((state) => {
     const nextMuted = !Object.values(state.muted).every(Boolean)

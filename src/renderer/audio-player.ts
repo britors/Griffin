@@ -13,6 +13,7 @@ function asArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 export class StemAudioPlayer {
   private readonly context = new AudioContext()
   private readonly gains = new Map<StemName, GainNode>()
+  private readonly panners = new Map<StemName, StereoPannerNode>()
   private readonly buffers = new Map<StemName, AudioBuffer>()
   private readonly sources = new Map<StemName, AudioBufferSourceNode>()
   private readonly processors = new Map<StemName, SoundTouchNode>()
@@ -25,8 +26,10 @@ export class StemAudioPlayer {
   constructor() {
     for (const stem of stems) {
       const gain = this.context.createGain()
-      gain.connect(this.context.destination)
+      const panner = this.context.createStereoPanner()
+      gain.connect(panner).connect(this.context.destination)
       this.gains.set(stem, gain)
+      this.panners.set(stem, panner)
     }
   }
 
@@ -96,6 +99,10 @@ export class StemAudioPlayer {
   setMix(stem: StemName, volume: number, muted: boolean, solo: StemName | null) {
     const audible = !muted && (solo === null || solo === stem)
     this.gains.get(stem)!.gain.value = audible ? volume : 0
+  }
+
+  setPan(stem: StemName, pan: number) {
+    this.panners.get(stem)!.pan.value = Math.max(-1, Math.min(1, pan))
   }
 
   setTempo(tempo: number) {
