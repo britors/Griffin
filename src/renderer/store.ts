@@ -5,6 +5,8 @@ interface PlayerState {
   tracks: Track[]
   projects: Project[]
   activeProjectId: string | null
+  favoriteIds: string[]
+  recentTrackIds: string[]
   selected: Track | null
   playing: boolean
   position: number
@@ -21,6 +23,9 @@ interface PlayerState {
   setTracks: (tracks: Track[]) => void
   setProjects: (projects: Project[]) => void
   setActiveProject: (projectId: string | null) => void
+  setFavoriteIds: (ids: string[]) => void
+  setRecentTrackIds: (ids: string[]) => void
+  toggleFavorite: (trackId: string) => void
   select: (track: Track | null) => void
   setPlaying: (playing: boolean) => void
   setPosition: (position: number) => void
@@ -38,12 +43,15 @@ interface PlayerState {
 }
 
 export const usePlayer = create<PlayerState>((set) => ({
-  tracks: [], projects: [], activeProjectId: null, selected: null, playing: false, position: 0, seekVersion: 0, pitch: 0, tempo: 1, loopEnabled: false, loopStart: 0, loopEnd: 1, progress: null,
+  tracks: [], projects: [], activeProjectId: null, favoriteIds: [], recentTrackIds: [], selected: null, playing: false, position: 0, seekVersion: 0, pitch: 0, tempo: 1, loopEnabled: false, loopStart: 0, loopEnd: 1, progress: null,
   volumes: { vocals: 0.82, drums: 0.82, bass: 0.82, other: 0.82 },
   muted: { vocals: false, drums: false, bass: false, other: false }, solo: null,
   setTracks: (tracks) => set({ tracks }),
   setProjects: (projects) => set((state) => ({ projects, activeProjectId: projects.some((project) => project.id === state.activeProjectId) ? state.activeProjectId : projects[0]?.id ?? null })),
   setActiveProject: (activeProjectId) => set({ activeProjectId, selected: null, playing: false, position: 0 }),
+  setFavoriteIds: (favoriteIds) => set({ favoriteIds }),
+  setRecentTrackIds: (recentTrackIds) => set({ recentTrackIds }),
+  toggleFavorite: (trackId) => set((state) => ({ favoriteIds: state.favoriteIds.includes(trackId) ? state.favoriteIds.filter((id) => id !== trackId) : [trackId, ...state.favoriteIds] })),
   select: (selected) => set({ selected, playing: false, position: 0 }),
   setPlaying: (playing) => set({ playing }), setPosition: (position) => set({ position }),
   seekTo: (position) => set((state) => ({ position, seekVersion: state.seekVersion + 1 })),
