@@ -27,6 +27,10 @@ import { registerExportHandlers } from './presentation/ipc/export-handlers'
 import { PerformanceApplicationService } from './application/performance-service'
 import { ElectronRecordingDestination } from './infrastructure/electron/electron-recording-destination'
 import { registerPerformanceHandlers } from './presentation/ipc/performance-handlers'
+import { ChordExportApplicationService } from './application/chord-export-service'
+import { ChordNotationExportService } from './infrastructure/audio/chord-notation-exporter'
+import { ElectronChordExportDestination } from './infrastructure/electron/electron-chord-export-destination'
+import { registerChordExportHandlers } from './presentation/ipc/chord-export-handlers'
 
 let window: BrowserWindow | undefined
 
@@ -69,6 +73,7 @@ app.whenReady().then(async () => {
   const lyricsService = new LyricsApplicationService(trackRepository)
   const exportService = new AudioExportApplicationService(trackRepository, new WavAudioExportProcessor(new FileAudioGateway(), new AudioFileDecoder()), new ElectronAudioExportDestination())
   const performance = registerPerformanceHandlers(new PerformanceApplicationService(new ElectronRecordingDestination()))
+  const chordExport = registerChordExportHandlers(new ChordExportApplicationService(trackRepository, new ChordNotationExportService(), new ElectronChordExportDestination()))
   const libraryHandlers = registerLibraryHandlers(libraryService)
   ipcMain.handle('library:list', libraryHandlers.list)
   ipcMain.handle('library:import', (_event, path?: string) => libraryHandlers.import(path))
@@ -87,6 +92,7 @@ app.whenReady().then(async () => {
   const audioExport = registerExportHandlers(exportService)
   ipcMain.handle('export:audio', audioExport.audio)
   ipcMain.handle('performance:save', performance.save)
+  ipcMain.handle('chords:export', chordExport.export)
   const settings = registerSettingsHandlers(new JsonSettingsRepository())
   ipcMain.handle('settings:get', settings.get)
   ipcMain.handle('settings:set', (_event, key: string, value: unknown) => settings.set(key, value))

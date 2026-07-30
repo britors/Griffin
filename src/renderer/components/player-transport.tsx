@@ -64,6 +64,8 @@ function TrackAnalysisEditor() {
 function ChordTimeline() {
   const { selected, position, seekTo, setTracks, replaceSelected } = usePlayer()
   const [chords, setChords] = useState<ChordEvent[]>(selected?.analysis?.chords ?? [])
+  const [exporting, setExporting] = useState<'midi' | 'pdf' | null>(null)
+  const [exportMessage, setExportMessage] = useState<string | null>(null)
   useEffect(() => { setChords(selected?.analysis?.chords?.map((chord) => ({ ...chord })) ?? []) }, [selected?.id, selected?.analysis?.chords])
   if (!selected?.analysis?.chords?.length) return null
   const currentIndex = Math.max(0, chords.findIndex((chord) => position >= chord.start && position < chord.end))
@@ -73,5 +75,9 @@ function ChordTimeline() {
     setTracks(usePlayer.getState().tracks.map((track) => track.id === updated.id ? updated : track))
     replaceSelected(updated)
   }
-  return <div className="chord-timeline"><div className="chord-current"><span className="sections-title">ACORDES</span><strong>{chords[currentIndex]?.name ?? '—'}</strong><small>{chords[currentIndex + 1] ? `Próximo: ${chords[currentIndex + 1].name}` : 'Último acorde'}</small></div><div className="chord-list">{chords.map((chord, index) => <div className={`chord-row ${index === currentIndex ? 'active' : ''}`} key={chord.id}><button onClick={() => seekTo(chord.start)}>{chord.name}</button><input aria-label="Editar acorde" value={chord.name} onChange={(event) => setChords(chords.map((item) => item.id === chord.id ? { ...item, name: event.target.value } : item))} onBlur={() => void save(chords)} /></div>)}</div></div>
+  const exportChords = async (format: 'midi' | 'pdf') => {
+    setExporting(format); setExportMessage(null)
+    try { const result = await api.chords.export(selected.id, format); setExportMessage(`Exportado: ${result.path}`) } catch (reason) { setExportMessage(reason instanceof Error ? reason.message : 'Não foi possível exportar os acordes.') } finally { setExporting(null) }
+  }
+  return <div className="chord-timeline"><div className="chord-current"><span className="sections-title">ACORDES</span><strong>{chords[currentIndex]?.name ?? '—'}</strong><small>{chords[currentIndex + 1] ? `Próximo: ${chords[currentIndex + 1].name}` : 'Último acorde'}</small></div><div className="chord-list">{chords.map((chord, index) => <div className={`chord-row ${index === currentIndex ? 'active' : ''}`} key={chord.id}><button onClick={() => seekTo(chord.start)}>{chord.name}</button><input aria-label="Editar acorde" value={chord.name} onChange={(event) => setChords(chords.map((item) => item.id === chord.id ? { ...item, name: event.target.value } : item))} onBlur={() => void save(chords)} /></div>)}</div><div className="chord-export"><button className="secondary-button" disabled={exporting !== null} onClick={() => void exportChords('midi')}>{exporting === 'midi' ? '…' : 'MIDI'}</button><button className="secondary-button" disabled={exporting !== null} onClick={() => void exportChords('pdf')}>{exporting === 'pdf' ? '…' : 'PDF'}</button>{exportMessage && <small>{exportMessage}</small>}</div></div>
 }
