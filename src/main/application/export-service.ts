@@ -18,7 +18,7 @@ export class AudioExportApplicationService {
     if (!track) throw new Error('Faixa não encontrada na biblioteca.')
     const snapshot = track.snapshot()
     if (!snapshot.stems) throw new Error('Separe os stems antes de exportar uma mixagem.')
-    if (options.format !== 'wav') throw new Error('O formato WAV é o único formato disponível nesta versão.')
+    if (options.format !== 'wav') throw new Error(`O formato ${options.format.toUpperCase()} exige um encoder local que ainda não está disponível. Use WAV PCM.`)
 
     const activeStems = this.resolveStems(snapshot, options)
     const stems = Object.fromEntries(activeStems.map((stem) => [stem, snapshot.stems![stem]])) as Record<StemName, string>
