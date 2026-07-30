@@ -84,6 +84,7 @@ export interface Project {
   updatedAt: string
   trackIds: string[]
   snapshots?: ProjectSnapshot[]
+  playerState?: PlayerSnapshot
 }
 
 export interface PlayerSnapshot {
@@ -143,7 +144,8 @@ export interface GriffinAPI {
     moveTrack: (projectId: string, trackId: string, direction: 'up' | 'down') => Promise<Project>
     createSnapshot: (projectId: string, name: string, player: PlayerSnapshot) => Promise<Project>
     restoreSnapshot: (projectId: string, snapshotId: string) => Promise<ProjectSnapshot>
-    removeSnapshot: (projectId: string, snapshotId: string) => Promise<Project>
+  removeSnapshot: (projectId: string, snapshotId: string) => Promise<Project>
+    updatePlayerState: (projectId: string, player: PlayerSnapshot) => Promise<Project>
   }
   separation: {
     status: () => Promise<SeparationStatus>

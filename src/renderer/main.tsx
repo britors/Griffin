@@ -2,7 +2,7 @@ import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { api } from './api'
 import { applyVisualPreferences } from './preferences'
-import { usePlayer } from './store'
+import { playerSnapshot, usePlayer } from './store'
 import { LibraryPage } from './pages/library'
 import { PlayerPage } from './pages/player'
 import { PreferencesPage } from './pages/preferences'
@@ -22,6 +22,18 @@ function App() {
   const [view, setView] = useState<View>('library')
   const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>('all')
   const { selected, recentTrackIds, setProgress, setFavoriteIds, setRecentTrackIds, setResetPlaybackOnTrackChange, setMetronomeEnabled, setMetronomeSubdivision, setMetronomeVolume, setCountInEnabled, setCountInBars } = usePlayer()
+  const activeProjectId = usePlayer((state) => state.activeProjectId)
+  const position = usePlayer((state) => state.position)
+  const pitch = usePlayer((state) => state.pitch)
+  const tempo = usePlayer((state) => state.tempo)
+  const loopEnabled = usePlayer((state) => state.loopEnabled)
+  const loopStart = usePlayer((state) => state.loopStart)
+  const loopEnd = usePlayer((state) => state.loopEnd)
+  const volumes = usePlayer((state) => state.volumes)
+  const pans = usePlayer((state) => state.pans)
+  const equalizer = usePlayer((state) => state.equalizer)
+  const muted = usePlayer((state) => state.muted)
+  const solo = usePlayer((state) => state.solo)
 
   useEffect(() => {
     void api.settings.get().then((settings) => {
@@ -45,6 +57,12 @@ function App() {
   // Read the current list from this effect's closure only when the selected track changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id])
+
+  useEffect(() => {
+    if (!activeProjectId) return
+    const timer = window.setTimeout(() => { void api.projects.updatePlayerState(activeProjectId, playerSnapshot(usePlayer.getState())) }, 350)
+    return () => window.clearTimeout(timer)
+  }, [activeProjectId, selected?.id, position, pitch, tempo, loopEnabled, loopStart, loopEnd, volumes, pans, equalizer, muted, solo])
 
   useEffect(() => api.separation.onProgress(setProgress), [setProgress])
 

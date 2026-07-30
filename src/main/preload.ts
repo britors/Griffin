@@ -25,6 +25,7 @@ const api: GriffinAPI = {
     createSnapshot: (projectId: string, name: string, player: PlayerSnapshot) => ipcRenderer.invoke('projects:create-snapshot', projectId, name, player),
     restoreSnapshot: (projectId: string, snapshotId: string) => ipcRenderer.invoke('projects:restore-snapshot', projectId, snapshotId),
     removeSnapshot: (projectId: string, snapshotId: string) => ipcRenderer.invoke('projects:remove-snapshot', projectId, snapshotId),
+    updatePlayerState: (projectId: string, player: PlayerSnapshot) => ipcRenderer.invoke('projects:update-player-state', projectId, player),
   },
   analysis: {
     analyze: (trackId: string) => ipcRenderer.invoke('analysis:analyze', trackId),

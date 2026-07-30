@@ -108,6 +108,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('projects:create-snapshot', (_event, projectId: string, name: string, player) => projects.createSnapshot(_event, projectId, name, player))
   ipcMain.handle('projects:restore-snapshot', (_event, projectId: string, snapshotId: string) => projects.restoreSnapshot(_event, projectId, snapshotId))
   ipcMain.handle('projects:remove-snapshot', (_event, projectId: string, snapshotId: string) => projects.removeSnapshot(_event, projectId, snapshotId))
+  ipcMain.handle('projects:update-player-state', (_event, projectId: string, player) => projects.updatePlayerState(_event, projectId, player))
   registerSeparationHandlers(separationService, () => window?.webContents)
   await createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow() })

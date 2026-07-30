@@ -27,6 +27,7 @@ export class ProjectApplicationService {
     return structuredClone(snapshot)
   }
   async removeSnapshot(id: string, snapshotId: string) { return this.mutate(id, (project) => project.removeSnapshot(snapshotId)) }
+  async updatePlayerState(id: string, player: PlayerSnapshot) { return this.mutate(id, (project) => project.updatePlayerState(player)) }
 
   async remove(id: string) {
     const project = await this.repository.findById(id)
