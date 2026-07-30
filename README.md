@@ -68,6 +68,10 @@ Os artefatos são gravados em `release/`. O RPM local exige o executável `rpmbu
 
 O painel de exportação permite salvar uma mixagem combinada ou cada stem selecionado separadamente em WAV PCM. A exportação aplica o estado atual do mixer, EQ, pitch, tempo e loop, sem sobrescrever arquivos existentes. MP3 e FLAC ficam reservados para quando um encoder local compatível for distribuído; o aplicativo informa essa indisponibilidade sem enviar áudio para a nuvem.
 
+### Importação remota e YouTube
+
+A importação remota exige uma fonte pública suportada e confirmação de que o usuário possui os direitos ou autorização. A integração do YouTube é opcional, depende de `yt-dlp` instalado pelo usuário, aceita apenas vídeos individuais e não contorna DRM, playlists ou restrições técnicas. Verifique os Termos de Serviço do YouTube e a legislação aplicável antes de usar ou distribuir essa funcionalidade.
+
 ## Instalação por release
 
 Quando uma release estiver publicada:

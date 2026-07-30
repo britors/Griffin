@@ -18,6 +18,9 @@ const api: GriffinAPI = {
     previewUrl: (url: string) => ipcRenderer.invoke('library:preview-url', url),
     importUrl: (assetId: string) => ipcRenderer.invoke('library:import-url', assetId),
     cancelRemoteImport: (assetId: string) => ipcRenderer.invoke('library:cancel-remote-import', assetId),
+    youtubePreview: (url: string) => ipcRenderer.invoke('library:youtube-preview', url),
+    youtubeImport: (previewId: string) => ipcRenderer.invoke('library:youtube-import', previewId),
+    youtubeCancel: (previewId: string) => ipcRenderer.invoke('library:youtube-cancel', previewId),
   },
   projects: {
     list: () => ipcRenderer.invoke('projects:list'),

@@ -169,6 +169,14 @@ export interface RemoteAudioAsset {
 
 export type RemoteAudioPreview = Omit<RemoteAudioAsset, 'tempPath' | 'mediaHash'>
 
+export interface YoutubeAudioPreview {
+  id: string
+  url: string
+  title: string
+  duration?: number
+  format: 'wav'
+}
+
 export interface GriffinAPI {
   window: {
     minimize: () => Promise<void>
@@ -186,6 +194,9 @@ export interface GriffinAPI {
     previewUrl: (url: string) => Promise<RemoteAudioPreview>
     importUrl: (assetId: string) => Promise<Track>
     cancelRemoteImport: (assetId: string) => Promise<void>
+    youtubePreview: (url: string) => Promise<YoutubeAudioPreview>
+    youtubeImport: (previewId: string) => Promise<Track>
+    youtubeCancel: (previewId: string) => Promise<void>
   }
   projects: {
     list: () => Promise<Project[]>
