@@ -10,6 +10,7 @@ import { AudioPlayback } from './components/audio-playback'
 import { Splash } from './components/splash'
 import { ProjectPicker } from './components/project-picker'
 import { KeyboardShortcuts } from './components/keyboard-shortcuts'
+import { Metronome } from './components/metronome'
 import './styles.css'
 
 type View = 'library' | 'preferences'
@@ -20,7 +21,7 @@ function App() {
 
   const [view, setView] = useState<View>('library')
   const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>('all')
-  const { selected, recentTrackIds, setProgress, setFavoriteIds, setRecentTrackIds, setResetPlaybackOnTrackChange } = usePlayer()
+  const { selected, recentTrackIds, setProgress, setFavoriteIds, setRecentTrackIds, setResetPlaybackOnTrackChange, setMetronomeEnabled, setMetronomeSubdivision, setMetronomeVolume, setCountInEnabled, setCountInBars } = usePlayer()
 
   useEffect(() => {
     void api.settings.get().then((settings) => {
@@ -28,8 +29,13 @@ function App() {
       setFavoriteIds(Array.isArray(settings.favoriteTrackIds) ? settings.favoriteTrackIds.filter((id): id is string => typeof id === 'string') : [])
       setRecentTrackIds(Array.isArray(settings.recentTrackIds) ? settings.recentTrackIds.filter((id): id is string => typeof id === 'string') : [])
       setResetPlaybackOnTrackChange(settings.resetPlaybackOnTrackChange !== false)
+      setMetronomeEnabled(settings.metronomeEnabled === true)
+      setMetronomeSubdivision(settings.metronomeSubdivision === 2 ? 2 : settings.metronomeSubdivision === 4 ? 4 : 1)
+      setMetronomeVolume(typeof settings.metronomeVolume === 'number' ? Math.min(1, Math.max(0, settings.metronomeVolume)) : 0.5)
+      setCountInEnabled(settings.countInEnabled === true)
+      setCountInBars(settings.countInBars === 2 ? 2 : 1)
     })
-  }, [setFavoriteIds, setRecentTrackIds, setResetPlaybackOnTrackChange])
+  }, [setFavoriteIds, setRecentTrackIds, setResetPlaybackOnTrackChange, setMetronomeEnabled, setMetronomeSubdivision, setMetronomeVolume, setCountInEnabled, setCountInBars])
 
   useEffect(() => {
     if (!selected) return
@@ -47,6 +53,7 @@ function App() {
 
   return <div className="app-shell">
     <KeyboardShortcuts />
+    <Metronome />
     <AudioPlayback />
     <aside className="sidebar">
       <div className="brand"><img className="brand-logo" src="./logo.svg" alt="Griffin Music" /><div><strong>Griffin</strong><span>Music</span></div></div>

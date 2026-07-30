@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { formatDuration } from '../../shared/utils'
 import type { TrackAnalysis } from '../../shared/types'
 import { api } from '../api'
@@ -6,9 +6,22 @@ import { usePlayer } from '../store'
 import { Waveform } from './waveform'
 
 export function PlayerTransport() {
-  const { selected, playing, position, pitch, tempo, loopEnabled, loopStart, loopEnd, setPlaying, seekTo, setPitch, setTempo, setLoopEnabled, setLoopStart, setLoopEnd, clearLoop } = usePlayer()
+  const { selected, playing, position, pitch, tempo, loopEnabled, loopStart, loopEnd, metronomeEnabled, countInEnabled, countInBars, countingIn, setPlaying, setCountingIn, seekTo, setPitch, setTempo, setLoopEnabled, setLoopStart, setLoopEnd, clearLoop } = usePlayer()
   const duration = selected?.duration ?? 216
-  return <section className="panel transport"><div className="track-title"><div><span className="eyebrow">NOW PLAYING</span><h2>{selected?.name ?? 'Nenhuma faixa selecionada'}</h2></div><span className="time">{formatDuration(position * duration)} <i>/ {formatDuration(duration)}</i></span></div><TrackAnalysisEditor /><Waveform /><div className="transport-controls"><button className="transport-button" onClick={() => seekTo(Math.max(0, position - 0.05))}>↶</button><button className="play-button" onClick={() => setPlaying(!playing)}>{playing ? 'Ⅱ' : '▶'}</button><button className="transport-button" onClick={() => seekTo(Math.min(1, position + 0.05))}>↷</button><button className={`loop-button ${loopEnabled ? 'active' : ''}`} onClick={() => setLoopEnabled(!loopEnabled)}>↻ <span>Loop</span></button></div><div className="loop-range-controls"><button className="loop-marker" onClick={() => setLoopStart(position)}>A <small>{formatDuration(loopStart * duration)}</small></button><span>até</span><button className="loop-marker" onClick={() => setLoopEnd(position)}>B <small>{formatDuration(loopEnd * duration)}</small></button><button className="loop-clear" onClick={clearLoop}>Limpar</button></div><div className="adjustments"><label>Pitch <output>{pitch > 0 ? '+' : ''}{pitch} st</output><input type="range" min="-12" max="12" step="1" value={pitch} onChange={(event) => setPitch(Number(event.target.value))} /></label><label>Tempo <output>{Math.round(tempo * 100)}%</output><input type="range" min="0.5" max="1.5" step="0.01" value={tempo} onChange={(event) => setTempo(Number(event.target.value))} /></label></div></section>
+  const countInTimer = useRef<number | null>(null)
+  const requestPlay = () => {
+    if (countInTimer.current !== null) { window.clearTimeout(countInTimer.current); countInTimer.current = null; setCountingIn(false) }
+    if (playing) { setPlaying(false); return }
+    if (!metronomeEnabled || !countInEnabled) { setPlaying(true); return }
+    setCountingIn(true)
+    countInTimer.current = window.setTimeout(() => { setCountingIn(false); setPlaying(true); countInTimer.current = null }, countInBars * 4 * (60_000 / (selected?.analysis?.bpm ?? 120)) / tempo)
+  }
+  useEffect(() => {
+    const onToggle = () => requestPlay()
+    window.addEventListener('griffin:toggle-play', onToggle)
+    return () => { window.removeEventListener('griffin:toggle-play', onToggle); if (countInTimer.current !== null) window.clearTimeout(countInTimer.current) }
+  })
+  return <section className="panel transport"><div className="track-title"><div><span className="eyebrow">NOW PLAYING</span><h2>{selected?.name ?? 'Nenhuma faixa selecionada'}</h2></div><span className="time">{formatDuration(position * duration)} <i>/ {formatDuration(duration)}</i></span></div><TrackAnalysisEditor />{countingIn && <div className="count-in-status">Contagem de entrada…</div>}<Waveform /><div className="transport-controls"><button className="transport-button" onClick={() => seekTo(Math.max(0, position - 0.05))}>↶</button><button className="play-button" onClick={requestPlay}>{playing ? 'Ⅱ' : '▶'}</button><button className="transport-button" onClick={() => seekTo(Math.min(1, position + 0.05))}>↷</button><button className={`loop-button ${loopEnabled ? 'active' : ''}`} onClick={() => setLoopEnabled(!loopEnabled)}>↻ <span>Loop</span></button></div><div className="loop-range-controls"><button className="loop-marker" onClick={() => setLoopStart(position)}>A <small>{formatDuration(loopStart * duration)}</small></button><span>até</span><button className="loop-marker" onClick={() => setLoopEnd(position)}>B <small>{formatDuration(loopEnd * duration)}</small></button><button className="loop-clear" onClick={clearLoop}>Limpar</button></div><div className="adjustments"><label>Pitch <output>{pitch > 0 ? '+' : ''}{pitch} st</output><input type="range" min="-12" max="12" step="1" value={pitch} onChange={(event) => setPitch(Number(event.target.value))} /></label><label>Tempo <output>{Math.round(tempo * 100)}%</output><input type="range" min="0.5" max="1.5" step="0.01" value={tempo} onChange={(event) => setTempo(Number(event.target.value))} /></label></div></section>
 }
 
 function TrackAnalysisEditor() {
