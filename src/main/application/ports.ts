@@ -27,6 +27,7 @@ export interface AudioFileGateway {
 
 export interface AudioFilePicker {
   pick(): Promise<string | null>
+  pickMany(): Promise<string[]>
 }
 
 export interface AudioDecoder {

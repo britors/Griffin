@@ -23,6 +23,12 @@ export class LibraryApplicationService {
     return (await this.repository.save(track)).snapshot()
   }
 
+  async importMany(paths?: string[]) {
+    const selectedPaths = paths ?? await this.picker.pickMany()
+    const imported = await Promise.all(selectedPaths.map((path) => this.import(path)))
+    return imported.filter((track): track is NonNullable<typeof track> => Boolean(track))
+  }
+
   async read(path: string) {
     const track = await this.repository.findByPath(path)
     if (!track && !(await this.repository.list()).some((item) => Object.values(item.stems ?? {}).includes(path))) throw new Error('Arquivo de áudio não pertence à biblioteca.')
