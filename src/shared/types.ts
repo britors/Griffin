@@ -7,6 +7,14 @@ export interface Track {
   importedAt: string
   duration?: number
   stems?: Record<StemName, string>
+  analysis?: TrackAnalysis
+}
+
+export interface TrackAnalysis {
+  bpm: number
+  key: string
+  tuningHz: number
+  confidence: number
 }
 
 export interface Project {
@@ -58,6 +66,10 @@ export interface GriffinAPI {
   settings: {
     get: () => Promise<Record<string, unknown>>
     set: (key: string, value: unknown) => Promise<void>
+  }
+  analysis: {
+    analyze: (trackId: string) => Promise<Track>
+    update: (trackId: string, changes: Partial<TrackAnalysis>) => Promise<Track>
   }
 }
 

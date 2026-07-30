@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { LibraryApplicationService } from './application/library-service'
 import { SeparationApplicationService } from './application/separation-service'
 import { FileAudioGateway } from './infrastructure/filesystem/file-audio-gateway'
+import { LocalTrackAnalyzer } from './infrastructure/audio/local-track-analyzer'
 import { ElectronAudioPicker } from './infrastructure/electron/electron-audio-picker'
 import { JsonSettingsRepository } from './infrastructure/persistence/json-settings-repository'
 import { JsonProjectRepository } from './infrastructure/persistence/json-project-repository'
@@ -13,7 +14,9 @@ import { registerSeparationHandlers } from './presentation/ipc/separation-handle
 import { registerSettingsHandlers } from './presentation/ipc/settings-handlers'
 import { registerWindowHandlers } from './presentation/ipc/window-handlers'
 import { ProjectApplicationService } from './application/project-service'
+import { TrackAnalysisApplicationService } from './application/analysis-service'
 import { registerProjectHandlers } from './presentation/ipc/project-handlers'
+import { registerAnalysisHandlers } from './presentation/ipc/analysis-handlers'
 
 let window: BrowserWindow | undefined
 
@@ -52,6 +55,7 @@ app.whenReady().then(async () => {
   const libraryService = new LibraryApplicationService(trackRepository, new FileAudioGateway(), new ElectronAudioPicker())
   const separationService = new SeparationApplicationService(trackRepository, separator)
   const projectService = new ProjectApplicationService(projectRepository)
+  const analysisService = new TrackAnalysisApplicationService(trackRepository, new FileAudioGateway(), new LocalTrackAnalyzer())
   const libraryHandlers = registerLibraryHandlers(libraryService)
   ipcMain.handle('library:list', libraryHandlers.list)
   ipcMain.handle('library:import', (_event, path?: string) => libraryHandlers.import(path))
@@ -61,6 +65,9 @@ app.whenReady().then(async () => {
     await Promise.all((await projectService.list()).map((project) => projectService.removeTrack(project.id, id)))
   })
   ipcMain.handle('library:choose-file', libraryHandlers.chooseFile)
+  const analysis = registerAnalysisHandlers(analysisService)
+  ipcMain.handle('analysis:analyze', analysis.analyze)
+  ipcMain.handle('analysis:update', analysis.update)
   const settings = registerSettingsHandlers(new JsonSettingsRepository())
   ipcMain.handle('settings:get', settings.get)
   ipcMain.handle('settings:set', (_event, key: string, value: unknown) => settings.set(key, value))
