@@ -19,6 +19,7 @@ export class StemAudioPlayer {
   private readonly gains = new Map<StemName, GainNode>()
   private readonly panners = new Map<StemName, StereoPannerNode>()
   private readonly equalizers = new Map<StemName, BiquadFilterNode[]>()
+  private microphoneAnalyser: AnalyserNode | null = null
   private readonly buffers = new Map<StemName, AudioBuffer>()
   private takeBuffer: AudioBuffer | null = null
   private takeSource: AudioBufferSourceNode | null = null
@@ -49,8 +50,19 @@ export class StemAudioPlayer {
 
   connectMicrophone(stream: MediaStream) {
     const source = this.context.createMediaStreamSource(stream)
-    source.connect(this.recordingDestination)
-    return () => { source.disconnect(); stream.getTracks().forEach((track) => track.stop()) }
+    const analyser = this.context.createAnalyser()
+    analyser.fftSize = 2048
+    source.connect(analyser).connect(this.recordingDestination)
+    this.microphoneAnalyser = analyser
+    return () => { source.disconnect(); analyser.disconnect(); if (this.microphoneAnalyser === analyser) this.microphoneAnalyser = null; stream.getTracks().forEach((track) => track.stop()) }
+  }
+
+  getMicrophoneLevel() {
+    if (!this.microphoneAnalyser) return 0
+    const samples = new Uint8Array(this.microphoneAnalyser.fftSize)
+    this.microphoneAnalyser.getByteTimeDomainData(samples)
+    const rms = Math.sqrt(samples.reduce((sum, sample) => sum + ((sample - 128) / 128) ** 2, 0) / samples.length)
+    return Math.min(1, rms * 2.2)
   }
 
   async load(track: Track, takePath?: string | null) {
