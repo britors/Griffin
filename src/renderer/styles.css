@@ -71,6 +71,9 @@ nav button.active { color: var(--gold-light); border-left: 2px solid var(--gold)
 .preference-control { min-width: 150px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 6px; background: #0d1b2d; color: #dce7f4; font-size: 14px; }
 .preference-control:focus { outline: 0; border-color: var(--gold); }
 .preference-value { color: #dce7f4; font-size: 14px; }
+.shortcut-list { display: grid; grid-template-columns: repeat(2, max-content); gap: 7px 15px; color: #8ea2b8; font-size: 11px; }
+.shortcut-list span { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+kbd { min-width: 20px; padding: 3px 5px; border: 1px solid #38536f; border-bottom-width: 2px; border-radius: 4px; background: #0d1b2d; color: #dce7f4; font: 600 10px 'DM Sans'; text-align: center; }
 .accent-options { display: flex; gap: 10px; }
 .accent-option { width: 28px; height: 28px; border-radius: 50%; border: 3px solid transparent; box-shadow: 0 0 0 1px rgba(255,255,255,.16); }
 .accent-option.selected { border-color: #fff; box-shadow: 0 0 0 1px var(--gold); }
@@ -143,6 +146,8 @@ body.light-theme .preference-section-heading p, body.light-theme .preference-row
 body.light-theme .preference-row strong { color: #25384b; }
 body.light-theme .preference-control { background: #fff; border-color: #bdcfdd; color: #25384b; }
 body.light-theme .preference-value { color: #405b70; }
+body.light-theme .shortcut-list { color: #60778c; }
+body.light-theme kbd { background: #fff; border-color: #bdcfdd; color: #25384b; }
 body.light-theme .window-control.close:hover { background: #c9584d; color: #fff; }
 .project-picker { margin: -35px 10px 38px; padding-top: 12px; border-top: 1px solid rgba(122,153,186,.14); }
 .project-picker-heading { display: flex; align-items: center; justify-content: space-between; color: #718aa4; font-size: 9px; letter-spacing: 1.4px; font-weight: 700; }

@@ -41,6 +41,7 @@ interface PlayerState {
   setProgress: (progress: SeparationProgress | null) => void
   setVolume: (stem: StemName, volume: number) => void
   toggleMute: (stem: StemName) => void
+  toggleMuteAll: () => void
   toggleSolo: (stem: StemName) => void
 }
 
@@ -66,5 +67,9 @@ export const usePlayer = create<PlayerState>((set) => ({
   setProgress: (progress) => set({ progress }),
   setVolume: (stem, volume) => set((state) => ({ volumes: { ...state.volumes, [stem]: volume } })),
   toggleMute: (stem) => set((state) => ({ muted: { ...state.muted, [stem]: !state.muted[stem] } })),
+  toggleMuteAll: () => set((state) => {
+    const nextMuted = !Object.values(state.muted).every(Boolean)
+    return { muted: { vocals: nextMuted, drums: nextMuted, bass: nextMuted, other: nextMuted } }
+  }),
   toggleSolo: (stem) => set((state) => ({ solo: state.solo === stem ? null : stem })),
 }))
