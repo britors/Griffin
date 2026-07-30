@@ -44,6 +44,17 @@ describe('LibraryApplicationService', () => {
     expect(await service.list()).toHaveLength(0)
   })
 
+  it('removes only the requested library entry', async () => {
+    const repository = new InMemoryTrackRepository()
+    const service = new LibraryApplicationService(repository, new InMemoryAudioFiles(), new FixedPicker(null), () => '2026-01-01T00:00:00.000Z')
+    const first = await service.import('/music/first.wav')
+    await service.import('/music/second.wav')
+
+    await service.remove(first!.id)
+
+    expect((await service.list()).map((track) => track.name)).toEqual(['second.wav'])
+  })
+
   it('keeps the aggregate responsible for stem assignment', () => {
     const track = AudioTrack.import({ id: 'track-1', name: 'song.wav', path: '/music/song.wav', importedAt: 'now' })
     track.attachStems({ vocals: '/cache/vocals.wav', drums: '/cache/drums.wav', bass: '/cache/bass.wav', other: '/cache/other.wav' })
