@@ -24,7 +24,7 @@ describe.skipIf(!modelsAvailable)('OnnxDemucsSeparator integration', () => {
       }
       const inputPath = join(folder, 'test.wav')
       await writeFile(inputPath, encodeStereoWav(left, right, 44100))
-      const separator = new OnnxDemucsSeparator(join(folder, 'cache'), modelsDirectory)
+      const separator = new OnnxDemucsSeparator(join(folder, 'cache'), modelsDirectory, true)
       await separator.init()
       const track = AudioTrack.import({ id: 'integration-track', name: 'test.wav', path: inputPath, importedAt: new Date().toISOString() })
       const result = await separator.separate(track, () => undefined)
