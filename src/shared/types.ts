@@ -167,6 +167,8 @@ export interface RemoteAudioAsset {
   cacheKey: string
 }
 
+export type RemoteAudioPreview = Omit<RemoteAudioAsset, 'tempPath' | 'mediaHash'>
+
 export interface GriffinAPI {
   window: {
     minimize: () => Promise<void>
@@ -181,6 +183,9 @@ export interface GriffinAPI {
     remove: (trackId: string) => Promise<void>
     chooseFile: () => Promise<Track | null>
     chooseFiles: () => Promise<Track[]>
+    previewUrl: (url: string) => Promise<RemoteAudioPreview>
+    importUrl: (assetId: string) => Promise<Track>
+    cancelRemoteImport: (assetId: string) => Promise<void>
   }
   projects: {
     list: () => Promise<Project[]>

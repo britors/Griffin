@@ -33,6 +33,8 @@ import { ElectronChordExportDestination } from './infrastructure/electron/electr
 import { registerChordExportHandlers } from './presentation/ipc/chord-export-handlers'
 import { LocalResourcesApplicationService } from './application/local-resources-service'
 import type { ExecutionProviderPreference, SeparationProfile } from '../shared/types'
+import { RemoteAudioImportApplicationService } from './application/remote-audio-import-service'
+import { ElectronRemoteAudioDownloader } from './infrastructure/electron/remote-audio-downloader'
 
 let window: BrowserWindow | undefined
 
@@ -76,6 +78,7 @@ app.whenReady().then(async () => {
   separator.setExecutionProvider(isExecutionProvider(initialSettings.executionProvider) ? initialSettings.executionProvider : 'auto')
   await separator.init()
   const libraryService = new LibraryApplicationService(trackRepository, new FileAudioGateway(), new ElectronAudioPicker())
+  const remoteImport = new RemoteAudioImportApplicationService(new ElectronRemoteAudioDownloader(), libraryService, join(app.getPath('userData'), 'imports'))
   const separationService = new SeparationApplicationService(trackRepository, separator)
   const projectService = new ProjectApplicationService(projectRepository)
   const analysisService = new TrackAnalysisApplicationService(trackRepository, new FileAudioGateway(), new LocalTrackAnalyzer())
@@ -95,6 +98,9 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle('library:choose-file', libraryHandlers.chooseFile)
   ipcMain.handle('library:choose-files', libraryHandlers.chooseFiles)
+  ipcMain.handle('library:preview-url', (_event, url: string) => remoteImport.preview(url))
+  ipcMain.handle('library:import-url', (_event, assetId: string) => remoteImport.import(assetId))
+  ipcMain.handle('library:cancel-remote-import', (_event, assetId: string) => remoteImport.cancel(assetId))
   const analysis = registerAnalysisHandlers(analysisService)
   ipcMain.handle('analysis:analyze', analysis.analyze)
   ipcMain.handle('analysis:update', analysis.update)

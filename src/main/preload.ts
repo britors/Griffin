@@ -15,6 +15,9 @@ const api: GriffinAPI = {
     remove: (trackId: string) => ipcRenderer.invoke('library:remove', trackId),
     chooseFile: () => ipcRenderer.invoke('library:choose-file'),
     chooseFiles: () => ipcRenderer.invoke('library:choose-files'),
+    previewUrl: (url: string) => ipcRenderer.invoke('library:preview-url', url),
+    importUrl: (assetId: string) => ipcRenderer.invoke('library:import-url', assetId),
+    cancelRemoteImport: (assetId: string) => ipcRenderer.invoke('library:cancel-remote-import', assetId),
   },
   projects: {
     list: () => ipcRenderer.invoke('projects:list'),
