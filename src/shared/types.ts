@@ -157,9 +157,11 @@ export interface GriffinAPI {
   library: {
     list: () => Promise<Track[]>
     import: (filePath?: string) => Promise<Track | null>
+    importMany: (filePaths?: string[]) => Promise<Track[]>
     read: (filePath: string) => Promise<Uint8Array>
     remove: (trackId: string) => Promise<void>
     chooseFile: () => Promise<Track | null>
+    chooseFiles: () => Promise<Track[]>
   }
   projects: {
     list: () => Promise<Project[]>

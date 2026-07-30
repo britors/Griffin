@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { usePlayer } from '../store'
 import { ImportDropzone } from '../components/import-dropzone'
+import { BatchSeparation } from '../components/batch-separation'
 import { formatDuration } from '../../shared/utils'
 import type { Track } from '../../shared/types'
 
@@ -67,6 +68,7 @@ export function LibraryPage({ filter = 'all' }: { filter?: LibraryFilter }) {
   return <main className="library-page">
     <div className="page-heading"><div><span className="eyebrow">LIBRARY</span><h1>{heading}</h1><p>Separe, pratique e encontre o som certo.</p></div><button className="primary-button" onClick={() => void importTrack()}>＋ Importar faixa</button></div>
     <div className="library-tools"><div className="search">⌕<input placeholder="Buscar na biblioteca" value={search} onChange={(event) => setSearch(event.target.value)} /></div><span>{filteredTracks.length} {filteredTracks.length === 1 ? 'faixa' : 'faixas'}</span></div>
+    {filter === 'all' && <BatchSeparation tracks={tracks} activeProjectId={activeProjectId} onTracksChanged={setTracks} />}
     {projectTracks.length === 0 ? <ImportDropzone /> : visible.length === 0 ? <div className="empty-state">{emptyMessage}</div> : <div className="track-list">{visible.map((track, index) => <div className={`track-row ${selected?.id === track.id ? 'selected' : ''}`} key={track.id} role="button" tabIndex={0} onClick={() => select(track)} onKeyDown={(event) => onTrackKeyDown(event, track)}><span className="track-number">{String(index + 1).padStart(2, '0')}</span><span className="track-art">{track.name.slice(0, 1).toUpperCase()}</span><span className="track-name"><strong>{track.name}</strong><small>{track.stems ? 'Stems prontos' : 'Ainda não separado'}</small></span><span className="track-duration">{formatDuration(track.duration)}</span>{activeProjectId && filter === 'all' && <span className="queue-actions"><button title="Mover para cima" aria-label={`Mover ${track.name} para cima`} disabled={index === 0} onClick={(event) => { event.stopPropagation(); void moveTrack(track.id, 'up') }}>↑</button><button title="Mover para baixo" aria-label={`Mover ${track.name} para baixo`} disabled={index === projectTracks.length - 1} onClick={(event) => { event.stopPropagation(); void moveTrack(track.id, 'down') }}>↓</button></span>}<button className="track-favorite" title={favoriteIds.includes(track.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'} aria-label={favoriteIds.includes(track.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'} aria-pressed={favoriteIds.includes(track.id)} onClick={(event) => { event.stopPropagation(); updateFavorite(track.id) }}>{favoriteIds.includes(track.id) ? '★' : '☆'}</button><button className="track-remove" title={`Remover ${track.name}`} aria-label={`Remover ${track.name}`} onClick={(event) => { event.stopPropagation(); void removeTrack(track) }}>×</button></div>)}</div>}
   </main>
 }

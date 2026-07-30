@@ -22,6 +22,7 @@ class InMemoryAudioFiles implements AudioFileGateway {
 class FixedPicker implements AudioFilePicker {
   constructor(private readonly path: string | null) {}
   async pick() { return this.path }
+  async pickMany() { return this.path ? [this.path] : [] }
 }
 
 describe('LibraryApplicationService', () => {

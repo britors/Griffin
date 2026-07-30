@@ -10,9 +10,11 @@ const api: GriffinAPI = {
   library: {
     list: () => ipcRenderer.invoke('library:list'),
     import: (filePath?: string) => ipcRenderer.invoke('library:import', filePath),
+    importMany: (filePaths?: string[]) => ipcRenderer.invoke('library:import-many', filePaths),
     read: (filePath: string) => ipcRenderer.invoke('library:read', filePath),
     remove: (trackId: string) => ipcRenderer.invoke('library:remove', trackId),
     chooseFile: () => ipcRenderer.invoke('library:choose-file'),
+    chooseFiles: () => ipcRenderer.invoke('library:choose-files'),
   },
   projects: {
     list: () => ipcRenderer.invoke('projects:list'),
