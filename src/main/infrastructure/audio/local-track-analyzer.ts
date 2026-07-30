@@ -1,4 +1,4 @@
-import type { TrackAnalysis, TrackSection } from '../../../shared/types'
+import type { ChordEvent, TrackAnalysis, TrackSection } from '../../../shared/types'
 import type { AudioAnalyzer } from '../../application/ports'
 import { AudioFileDecoder, type DecodedAudio } from './audio-file-decoder'
 
@@ -20,6 +20,7 @@ export class LocalTrackAnalyzer implements AudioAnalyzer {
       tuningHz: detectTuning(samples),
       confidence: estimateConfidence(samples),
       sections: detectSections(samples),
+      chords: detectChords(samples),
     }
   }
 }
@@ -142,4 +143,36 @@ function detectSections(samples: Float32Array): TrackSection[] {
     const name = index === 0 ? 'Intro' : segmentIndex === highestEnergyIndex ? 'Refrão' : index === unique.length - 2 ? 'Outro' : index % 2 === 0 ? 'Verso' : 'Ponte'
     return { id: `section-${index + 1}`, name, start, end, confidence: 0.55 }
   })
+}
+
+function detectChords(samples: Float32Array): ChordEvent[] {
+  const windowSize = TARGET_RATE * 4
+  const chords: ChordEvent[] = []
+  for (let start = 0; start < samples.length; start += windowSize) {
+    const end = Math.min(samples.length, start + windowSize)
+    const chord = classifyChord(calculateChroma(samples, start, end - start))
+    const previous = chords[chords.length - 1]
+    if (previous?.name === chord.name) previous.end = end / Math.max(1, samples.length)
+    else chords.push({ id: `chord-${chords.length + 1}`, name: chord.name, start: start / Math.max(1, samples.length), end: end / Math.max(1, samples.length), confidence: chord.confidence })
+  }
+  return chords
+}
+
+function calculateChroma(samples: Float32Array, start: number, size: number): number[] {
+  const chroma = new Array<number>(12).fill(0)
+  for (let midi = 36; midi <= 84; midi += 1) chroma[midi % 12] += goertzel(samples, start, size, 440 * 2 ** ((midi - 69) / 12))
+  const total = chroma.reduce((sum, value) => sum + value, 0)
+  return total === 0 ? chroma : chroma.map((value) => value / total)
+}
+
+function classifyChord(chroma: number[]): { name: string; confidence: number } {
+  let best = { score: -Infinity, name: 'C maior' }
+  for (let tonic = 0; tonic < 12; tonic += 1) {
+    for (const [mode, profile] of [['maior', MAJOR_PROFILE], ['menor', MINOR_PROFILE]] as const) {
+      let score = 0
+      for (let offset = 0; offset < 12; offset += 1) score += chroma[(tonic + offset) % 12] * profile[offset]
+      if (score > best.score) best = { score, name: `${NOTE_NAMES[tonic]} ${mode}` }
+    }
+  }
+  return { name: best.name, confidence: Math.min(1, Math.max(0, best.score / 6)) }
 }

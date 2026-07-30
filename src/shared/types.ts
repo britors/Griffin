@@ -16,9 +16,18 @@ export interface TrackAnalysis {
   tuningHz: number
   confidence: number
   sections?: TrackSection[]
+  chords?: ChordEvent[]
 }
 
 export interface TrackSection {
+  id: string
+  name: string
+  start: number
+  end: number
+  confidence: number
+}
+
+export interface ChordEvent {
   id: string
   name: string
   start: number

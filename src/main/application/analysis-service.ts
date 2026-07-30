@@ -28,6 +28,7 @@ export class TrackAnalysisApplicationService {
       tuningHz: clampNumber(changes.tuningHz ?? existing.tuningHz, 430, 450),
       confidence: existing.confidence,
       sections: changes.sections ?? existing.sections,
+      chords: changes.chords ?? existing.chords,
     })
     return (await this.repository.save(current)).snapshot()
   }
