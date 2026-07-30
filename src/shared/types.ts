@@ -15,6 +15,15 @@ export interface TrackAnalysis {
   key: string
   tuningHz: number
   confidence: number
+  sections?: TrackSection[]
+}
+
+export interface TrackSection {
+  id: string
+  name: string
+  start: number
+  end: number
+  confidence: number
 }
 
 export interface Project {

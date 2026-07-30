@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { formatDuration } from '../../shared/utils'
-import type { TrackAnalysis } from '../../shared/types'
+import type { TrackAnalysis, TrackSection } from '../../shared/types'
 import { api } from '../api'
 import { usePlayer } from '../store'
 import { Waveform } from './waveform'
@@ -27,7 +27,8 @@ export function PlayerTransport() {
 function TrackAnalysisEditor() {
   const { selected, setTracks, replaceSelected } = usePlayer()
   const [draft, setDraft] = useState<TrackAnalysis | null>(null)
-  useEffect(() => { setDraft(selected?.analysis ? { ...selected.analysis } : null) }, [selected?.id, selected?.analysis])
+  const [sections, setSections] = useState<TrackSection[]>([])
+  useEffect(() => { setDraft(selected?.analysis ? { ...selected.analysis } : null); setSections(selected?.analysis?.sections ? selected.analysis.sections.map((section) => ({ ...section })) : []) }, [selected?.id, selected?.analysis])
   if (!selected) return null
   if (!draft) return <div className="analysis-pending">Analisando BPM, tonalidade e afinação localmente…</div>
 
@@ -37,10 +38,15 @@ function TrackAnalysisEditor() {
     replaceSelected(updated)
   }
 
-  return <div className="track-analysis" aria-label="Análise da faixa">
+  const saveSections = async (nextSections: TrackSection[]) => {
+    setSections(nextSections)
+    await save({ sections: nextSections })
+  }
+
+  return <div className="track-analysis-wrap"><div className="track-analysis" aria-label="Análise da faixa">
     <label><small>BPM</small><input type="number" min="30" max="300" value={draft.bpm} onChange={(event) => setDraft({ ...draft, bpm: Number(event.target.value) })} onBlur={() => void save({ bpm: draft.bpm })} /></label>
     <label><small>TONALIDADE</small><input value={draft.key} onChange={(event) => setDraft({ ...draft, key: event.target.value })} onBlur={() => void save({ key: draft.key })} /></label>
     <label><small>AFINAÇÃO</small><input type="number" min="430" max="450" value={draft.tuningHz} onChange={(event) => setDraft({ ...draft, tuningHz: Number(event.target.value) })} onBlur={() => void save({ tuningHz: draft.tuningHz })} /></label>
     <span className="analysis-confidence">{Math.round(draft.confidence * 100)}% confiança</span>
-  </div>
+  </div><div className="sections-editor" aria-label="Seções detectadas"><span className="sections-title">SEÇÕES</span>{sections.map((section) => <div className="section-edit-row" key={section.id}><button className="section-jump" title={`Ir para ${section.name}`} onClick={() => usePlayer.getState().seekTo(section.start)}>{section.name}</button><input aria-label={`Nome de ${section.name}`} value={section.name} onChange={(event) => setSections(sections.map((item) => item.id === section.id ? { ...item, name: event.target.value } : item))} onBlur={() => void saveSections(sections)} /><input aria-label={`Início de ${section.name} em porcentagem`} type="number" min="0" max="100" value={Math.round(section.start * 100)} onChange={(event) => setSections(sections.map((item) => item.id === section.id ? { ...item, start: Number(event.target.value) / 100 } : item))} onBlur={() => void saveSections(sections)} /><span>–</span><input aria-label={`Fim de ${section.name} em porcentagem`} type="number" min="0" max="100" value={Math.round(section.end * 100)} onChange={(event) => setSections(sections.map((item) => item.id === section.id ? { ...item, end: Number(event.target.value) / 100 } : item))} onBlur={() => void saveSections(sections)} /></div>)}</div></div>
 }
