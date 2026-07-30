@@ -32,6 +32,7 @@ import { ChordNotationExportService } from './infrastructure/audio/chord-notatio
 import { ElectronChordExportDestination } from './infrastructure/electron/electron-chord-export-destination'
 import { registerChordExportHandlers } from './presentation/ipc/chord-export-handlers'
 import { LocalResourcesApplicationService } from './application/local-resources-service'
+import type { ExecutionProviderPreference, SeparationProfile } from '../shared/types'
 
 let window: BrowserWindow | undefined
 
@@ -71,6 +72,8 @@ app.whenReady().then(async () => {
   const cacheDirectory = join(app.getPath('userData'), 'stems')
   const separator = new OnnxDemucsSeparator(cacheDirectory, modelsDirectory)
   separator.setProcessingThreads(typeof initialSettings.processingThreads === 'number' ? initialSettings.processingThreads : 0)
+  separator.setProcessingProfile(isSeparationProfile(initialSettings.processingProfile) ? initialSettings.processingProfile : 'quality')
+  separator.setExecutionProvider(isExecutionProvider(initialSettings.executionProvider) ? initialSettings.executionProvider : 'auto')
   await separator.init()
   const libraryService = new LibraryApplicationService(trackRepository, new FileAudioGateway(), new ElectronAudioPicker())
   const separationService = new SeparationApplicationService(trackRepository, separator)
@@ -103,7 +106,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('export:cancel', audioExport.cancel)
   ipcMain.handle('performance:save', performance.save)
   ipcMain.handle('chords:export', chordExport.export)
-  const settings = registerSettingsHandlers(settingsRepository, (key, value) => { if (key === 'processingThreads' && typeof value === 'number') separator.setProcessingThreads(value) })
+  const settings = registerSettingsHandlers(settingsRepository, (key, value) => {
+    if (key === 'processingThreads' && typeof value === 'number') separator.setProcessingThreads(value)
+    if (key === 'processingProfile' && isSeparationProfile(value)) separator.setProcessingProfile(value)
+    if (key === 'executionProvider' && isExecutionProvider(value)) separator.setExecutionProvider(value)
+  })
   ipcMain.handle('settings:get', settings.get)
   ipcMain.handle('settings:set', (_event, key: string, value: unknown) => settings.set(key, value))
   ipcMain.handle('resources:summary', resources.summary.bind(resources))
@@ -125,5 +132,8 @@ app.whenReady().then(async () => {
   await createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow() })
 })
+
+function isSeparationProfile(value: unknown): value is SeparationProfile { return value === 'quality' || value === 'balanced' || value === 'speed' }
+function isExecutionProvider(value: unknown): value is ExecutionProviderPreference { return value === 'auto' || value === 'cpu' || value === 'cuda' }
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })

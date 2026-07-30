@@ -5,6 +5,8 @@ export const EQUALIZER_FREQUENCIES = [32, 63, 125, 250, 500, 1000, 2000, 4000, 8
 export type EqualizerBands = number[]
 export type AudioExportMode = 'mix' | 'individual'
 export type AudioExportFormat = 'wav' | 'mp3' | 'flac'
+export type SeparationProfile = 'quality' | 'balanced' | 'speed'
+export type ExecutionProviderPreference = 'auto' | 'cpu' | 'cuda'
 
 export interface Track {
   id: string
@@ -139,6 +141,10 @@ export interface SeparationProgress {
 export interface SeparationStatus {
   available: boolean
   message: string
+  provider?: 'cpu' | 'cuda'
+  profile?: SeparationProfile
+  memoryBytes?: number
+  lastDurationMs?: number
 }
 
 export interface LocalResourcesSummary {
