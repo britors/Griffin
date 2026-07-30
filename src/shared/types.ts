@@ -1,5 +1,8 @@
 export type StemName = 'vocals' | 'drums' | 'bass' | 'other'
 
+export const EQUALIZER_FREQUENCIES = [32, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000, 20000] as const
+export type EqualizerBands = number[]
+
 export interface Track {
   id: string
   name: string
@@ -47,6 +50,7 @@ export interface AudioExportOptions {
   stems: StemName[]
   volumes: Record<StemName, number>
   pans: Record<StemName, number>
+  equalizer: Record<StemName, EqualizerBands>
   muted: Record<StemName, boolean>
   solo: StemName | null
   pitch: number
@@ -80,6 +84,7 @@ export interface PlayerSnapshot {
   loopEnd: number
   volumes: Record<StemName, number>
   pans: Record<StemName, number>
+  equalizer: Record<StemName, EqualizerBands>
   muted: Record<StemName, boolean>
   solo: StemName | null
 }

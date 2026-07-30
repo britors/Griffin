@@ -14,6 +14,7 @@ export class StemAudioPlayer {
   private readonly context = new AudioContext()
   private readonly gains = new Map<StemName, GainNode>()
   private readonly panners = new Map<StemName, StereoPannerNode>()
+  private readonly equalizers = new Map<StemName, BiquadFilterNode[]>()
   private readonly buffers = new Map<StemName, AudioBuffer>()
   private readonly sources = new Map<StemName, AudioBufferSourceNode>()
   private readonly processors = new Map<StemName, SoundTouchNode>()
@@ -30,6 +31,7 @@ export class StemAudioPlayer {
       gain.connect(panner).connect(this.context.destination)
       this.gains.set(stem, gain)
       this.panners.set(stem, panner)
+      this.equalizers.set(stem, [])
     }
   }
 
@@ -105,6 +107,10 @@ export class StemAudioPlayer {
     this.panners.get(stem)!.pan.value = Math.max(-1, Math.min(1, pan))
   }
 
+  setEqualizer(stem: StemName, gains: number[]) {
+    this.equalizers.get(stem)?.forEach((filter, index) => { filter.gain.value = gains[index] ?? 0 })
+  }
+
   setTempo(tempo: number) {
     if (this.sources.size > 0) {
       this.offset = this.currentTime()
@@ -139,7 +145,13 @@ export class StemAudioPlayer {
     await SoundTouchNode.register(this.context, processorUrl)
     for (const stem of stems) {
       const processor = new SoundTouchNode({ context: this.context })
-      processor.connect(this.gains.get(stem)!)
+      const filters = [32, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000, 20000].map((frequency) => {
+        const filter = this.context.createBiquadFilter()
+        filter.type = 'peaking'; filter.frequency.value = frequency; filter.Q.value = 1
+        return filter
+      })
+      filters.reduce<AudioNode>((output, filter) => output.connect(filter), processor).connect(this.gains.get(stem)!)
+      this.equalizers.set(stem, filters)
       this.processors.set(stem, processor)
     }
     this.workletReady = true

@@ -6,7 +6,7 @@ import { STEM_LABELS, type AudioExportOptions, type StemName } from '../../share
 const stemNames: StemName[] = ['vocals', 'drums', 'bass', 'other']
 
 export function ExportPanel() {
-  const { selected, volumes, pans, muted, solo, pitch, tempo, loopEnabled, loopStart, loopEnd } = usePlayer()
+  const { selected, volumes, pans, equalizer, muted, solo, pitch, tempo, loopEnabled, loopStart, loopEnd } = usePlayer()
   const [stems, setStems] = useState<StemName[]>(stemNames)
   const [useLoop, setUseLoop] = useState(false)
   const [working, setWorking] = useState(false)
@@ -25,7 +25,7 @@ export function ExportPanel() {
   const exportAudio = async () => {
     if (stems.length === 0 || working) return
     setWorking(true); setMessage(null); setError(null)
-    const options: AudioExportOptions = { stems, volumes, pans, muted, solo, pitch, tempo, format: 'wav', ...(useLoop && loopEnabled ? { loop: { start: loopStart, end: loopEnd } } : {}) }
+    const options: AudioExportOptions = { stems, volumes, pans, equalizer, muted, solo, pitch, tempo, format: 'wav', ...(useLoop && loopEnabled ? { loop: { start: loopStart, end: loopEnd } } : {}) }
     try {
       const result = await api.exportAudio(selected.id, options)
       setMessage(`Mix exportada: ${result.path}`)

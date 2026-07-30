@@ -52,7 +52,7 @@ describe('ProjectApplicationService', () => {
     const service = new ProjectApplicationService(new InMemoryProjectRepository())
     const project = await service.create('Prática')
     await service.addTrack(project.id, 'track-1')
-    const player = { selectedTrackId: 'track-1', position: 0.4, pitch: 2, tempo: 0.8, loopEnabled: true, loopStart: 0.2, loopEnd: 0.5, volumes: { vocals: 1, drums: 0.5, bass: 0.7, other: 0.6 }, pans: { vocals: 0, drums: -0.2, bass: 0.2, other: 0 }, muted: { vocals: false, drums: true, bass: false, other: false }, solo: null } as const
+    const player = { selectedTrackId: 'track-1', position: 0.4, pitch: 2, tempo: 0.8, loopEnabled: true, loopStart: 0.2, loopEnd: 0.5, volumes: { vocals: 1, drums: 0.5, bass: 0.7, other: 0.6 }, pans: { vocals: 0, drums: -0.2, bass: 0.2, other: 0 }, equalizer: { vocals: Array(12).fill(0), drums: Array(12).fill(0), bass: Array(12).fill(0), other: Array(12).fill(0) }, muted: { vocals: false, drums: true, bass: false, other: false }, solo: null } as const
 
     const updated = await service.createSnapshot(project.id, 'Refrão lento', player)
     const restored = await service.restoreSnapshot(project.id, updated.snapshots![0].id)
