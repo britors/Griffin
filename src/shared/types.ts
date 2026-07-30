@@ -65,6 +65,11 @@ export interface AudioExportResult {
   format: 'wav'
 }
 
+export interface PerformanceSaveResult {
+  path: string
+  name: string
+}
+
 export interface Project {
   id: string
   name: string
@@ -152,6 +157,9 @@ export interface GriffinAPI {
     update: (trackId: string, lines: LyricsLine[]) => Promise<Track>
   }
   exportAudio: (trackId: string, options: AudioExportOptions) => Promise<AudioExportResult>
+  performance: {
+    save: (name: string, bytes: Uint8Array) => Promise<PerformanceSaveResult>
+  }
 }
 
 export const STEM_LABELS: Record<StemName, string> = {

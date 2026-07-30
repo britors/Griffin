@@ -35,6 +35,7 @@ const api: GriffinAPI = {
     update: (trackId: string, lines: LyricsLine[]) => ipcRenderer.invoke('lyrics:update', trackId, lines),
   },
   exportAudio: (trackId: string, options: AudioExportOptions) => ipcRenderer.invoke('export:audio', trackId, options),
+  performance: { save: (name: string, bytes: Uint8Array) => ipcRenderer.invoke('performance:save', name, bytes) },
   separation: {
     status: () => ipcRenderer.invoke('separation:status'),
     start: (track: Track) => ipcRenderer.invoke('separation:start', track),
