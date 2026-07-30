@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, GriffinAPI, LyricsLine, PlayerSnapshot, SeparationProgress, Track, TrackAnalysis } from '../shared/types'
+import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, GriffinAPI, LyricsLine, PlayerSnapshot, SeparationProgress, Track, TrackAnalysis, YoutubeImportProgress } from '../shared/types'
 
 const api: GriffinAPI = {
   window: {
@@ -21,6 +21,11 @@ const api: GriffinAPI = {
     youtubePreview: (url: string) => ipcRenderer.invoke('library:youtube-preview', url),
     youtubeImport: (previewId: string) => ipcRenderer.invoke('library:youtube-import', previewId),
     youtubeCancel: (previewId: string) => ipcRenderer.invoke('library:youtube-cancel', previewId),
+    onYoutubeProgress: (callback: (progress: YoutubeImportProgress) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, progress: YoutubeImportProgress) => callback(progress)
+      ipcRenderer.on('library:youtube-progress', listener)
+      return () => ipcRenderer.removeListener('library:youtube-progress', listener)
+    },
   },
   projects: {
     list: () => ipcRenderer.invoke('projects:list'),

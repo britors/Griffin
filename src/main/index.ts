@@ -106,7 +106,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('library:import-url', (_event, assetId: string) => remoteImport.import(assetId))
   ipcMain.handle('library:cancel-remote-import', (_event, assetId: string) => remoteImport.cancel(assetId))
   ipcMain.handle('library:youtube-preview', (_event, url: string) => youtubeImport.preview(url))
-  ipcMain.handle('library:youtube-import', (_event, previewId: string) => youtubeImport.import(previewId))
+  ipcMain.handle('library:youtube-import', (event, previewId: string) => youtubeImport.import(previewId, (progress) => event.sender.send('library:youtube-progress', progress)))
   ipcMain.handle('library:youtube-cancel', (_event, previewId: string) => youtubeImport.cancel(previewId))
   const analysis = registerAnalysisHandlers(analysisService)
   ipcMain.handle('analysis:analyze', analysis.analyze)
