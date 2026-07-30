@@ -25,6 +25,7 @@ const options: AudioExportOptions = {
   stems: ['vocals'],
   volumes: { vocals: 1, drums: 0, bass: 0, other: 0 },
   pans: { vocals: 0, drums: 0, bass: 0, other: 0 },
+  equalizer: { vocals: Array(12).fill(0), drums: Array(12).fill(0), bass: Array(12).fill(0), other: Array(12).fill(0) },
   muted: { vocals: false, drums: false, bass: false, other: false },
   solo: null,
   pitch: 0,

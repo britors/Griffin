@@ -27,6 +27,7 @@ export function AudioPlayback() {
   const loopEnd = usePlayer((state) => state.loopEnd)
   const volumes = usePlayer((state) => state.volumes)
   const pans = usePlayer((state) => state.pans)
+  const equalizer = usePlayer((state) => state.equalizer)
   const muted = usePlayer((state) => state.muted)
   const solo = usePlayer((state) => state.solo)
   const setPlaying = usePlayer((state) => state.setPlaying)
@@ -42,8 +43,13 @@ export function AudioPlayback() {
     if (!player || !selected) return
     const requestedPosition = position
     void player.load(selected).then(() => {
-      if (!resetPlaybackOnTrackChange && player.length > 0) player.seek(requestedPosition * player.length, false, tempo, pitch)
       const state = usePlayer.getState()
+      for (const stem of ['vocals', 'drums', 'bass', 'other'] as const) {
+        player.setMix(stem, state.volumes[stem], state.muted[stem], state.solo)
+        player.setPan(stem, state.pans[stem])
+        player.setEqualizer(stem, state.equalizer[stem])
+      }
+      if (!resetPlaybackOnTrackChange && player.length > 0) player.seek(requestedPosition * player.length, false, tempo, pitch)
       if (state.playing && state.selected?.id === selected.id) void player.play(state.position * player.length, state.tempo, state.pitch, advanceQueue)
     }).catch(() => setPlaying(false))
   }, [selected, resetPlaybackOnTrackChange, setPlaying])
@@ -53,7 +59,8 @@ export function AudioPlayback() {
     if (!player) return
     for (const stem of ['vocals', 'drums', 'bass', 'other'] as const) player.setMix(stem, volumes[stem], muted[stem], solo)
     for (const stem of ['vocals', 'drums', 'bass', 'other'] as const) player.setPan(stem, pans[stem])
-  }, [volumes, pans, muted, solo])
+    for (const stem of ['vocals', 'drums', 'bass', 'other'] as const) player.setEqualizer(stem, equalizer[stem])
+  }, [volumes, pans, equalizer, muted, solo])
 
   useEffect(() => {
     const player = engine.current

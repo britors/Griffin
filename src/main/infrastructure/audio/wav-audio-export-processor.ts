@@ -12,7 +12,8 @@ export class WavAudioExportProcessor implements AudioExportProcessor {
   async render(stems: Record<StemName, string>, options: AudioExportOptions) {
     const decoded = await Promise.all(Object.entries(stems).map(async ([stem, path]) => {
       const bytes = await this.files.read(path)
-      return { stem: stem as StemName, audio: resampleTo44100(await this.decoder.decode(bytes)) }
+      const audio = resampleTo44100(await this.decoder.decode(bytes))
+      return { stem: stem as StemName, audio: applyEqualizer(audio, options.equalizer[stem as StemName] ?? []) }
     }))
     const [left, right] = mix(decoded, options)
     const processed = processOffline(left, right, options.pitch, options.tempo)
@@ -76,3 +77,31 @@ function processOffline(left: Float32Array, right: Float32Array, pitch: number, 
 }
 
 function clamp(value: number) { return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0)) }
+
+function applyEqualizer(audio: DecodedAudio, gains: number[]): DecodedAudio {
+  const frequencies = [32, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000, 20000]
+  const channelData = audio.channelData.map((channel) => frequencies.reduce((samples, frequency, index) => applyPeakingFilter(samples, frequency, gains[index] ?? 0), channel))
+  return { ...audio, channelData }
+}
+
+function applyPeakingFilter(input: Float32Array, frequency: number, gainDb: number): Float32Array {
+  if (gainDb === 0) return input
+  const omega = 2 * Math.PI * frequency / sampleRate
+  const alpha = Math.sin(omega) / 2
+  const amplitude = Math.pow(10, gainDb / 40)
+  const b0 = 1 + alpha * amplitude
+  const b1 = -2 * Math.cos(omega)
+  const b2 = 1 - alpha * amplitude
+  const a0 = 1 + alpha / amplitude
+  const a1 = -2 * Math.cos(omega)
+  const a2 = 1 - alpha / amplitude
+  const output = new Float32Array(input.length)
+  let x1 = 0; let x2 = 0; let y1 = 0; let y2 = 0
+  for (let index = 0; index < input.length; index += 1) {
+    const x0 = input[index]
+    const y0 = (b0 / a0) * x0 + (b1 / a0) * x1 + (b2 / a0) * x2 - (a1 / a0) * y1 - (a2 / a0) * y2
+    output[index] = y0
+    x2 = x1; x1 = x0; y2 = y1; y1 = y0
+  }
+  return output
+}
