@@ -17,7 +17,7 @@ export function KeyboardShortcuts() {
         case ' ':
           if (!state.selected) return
           event.preventDefault()
-          state.setPlaying(!state.playing)
+          window.dispatchEvent(new Event('griffin:toggle-play'))
           break
         case 'arrowleft':
           event.preventDefault()

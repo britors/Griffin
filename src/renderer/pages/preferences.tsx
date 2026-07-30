@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { ACCENT_PRESETS, applyVisualPreferences } from '../preferences'
-import { usePlayer } from '../store'
+import { usePlayer, type MetronomeSubdivision } from '../store'
 import type { SeparationStatus } from '../../shared/types'
 
 type Section = 'appearance' | 'playback' | 'processing' | 'about'
@@ -18,7 +18,7 @@ export function PreferencesPage() {
   const [settings, setSettings] = useState<Settings>({})
   const [activeSection, setActiveSection] = useState<Section>('appearance')
   const [modelStatus, setModelStatus] = useState<SeparationStatus | null>(null)
-  const setResetPlaybackOnTrackChange = usePlayer((state) => state.setResetPlaybackOnTrackChange)
+  const { setResetPlaybackOnTrackChange, setMetronomeEnabled, setMetronomeSubdivision, setMetronomeVolume, setCountInEnabled, setCountInBars } = usePlayer()
 
   useEffect(() => {
     void api.settings.get().then((loaded) => {
@@ -35,6 +35,11 @@ export function PreferencesPage() {
     applyVisualPreferences(next)
     await api.settings.set(key, value)
     if (key === 'resetPlaybackOnTrackChange' && typeof value === 'boolean') setResetPlaybackOnTrackChange(value)
+    if (key === 'metronomeEnabled' && typeof value === 'boolean') setMetronomeEnabled(value)
+    if (key === 'metronomeSubdivision' && (value === 1 || value === 2 || value === 4)) setMetronomeSubdivision(value as MetronomeSubdivision)
+    if (key === 'metronomeVolume' && typeof value === 'number') setMetronomeVolume(value)
+    if (key === 'countInEnabled' && typeof value === 'boolean') setCountInEnabled(value)
+    if (key === 'countInBars' && (value === 1 || value === 2)) setCountInBars(value)
   }
 
   return <main className="preferences-page">
@@ -74,12 +79,29 @@ function AppearanceSection({ settings, onChange }: { settings: Settings; onChang
 
 function PlaybackSection({ settings, onChange }: { settings: Settings; onChange: (key: string, value: unknown) => Promise<void> }) {
   const resetOnTrackChange = settings.resetPlaybackOnTrackChange !== false
+  const metronomeEnabled = settings.metronomeEnabled === true
+  const subdivision = settings.metronomeSubdivision === 2 || settings.metronomeSubdivision === 4 ? settings.metronomeSubdivision : 1
+  const countInEnabled = settings.countInEnabled === true
+  const countInBars = settings.countInBars === 2 ? 2 : 1
+  const metronomeVolume = typeof settings.metronomeVolume === 'number' ? settings.metronomeVolume : 0.5
   return <PreferenceSection title="Reprodução" description="Comportamento padrão do player de stems.">
     <PreferenceRow label="Reiniciar posição ao trocar de faixa" description="Começa a nova faixa do início quando ela é selecionada.">
       <label className="preference-toggle"><input type="checkbox" checked={resetOnTrackChange} onChange={(event) => void onChange('resetPlaybackOnTrackChange', event.target.checked)} /><span /></label>
     </PreferenceRow>
     <PreferenceRow label="Processamento de áudio" description="Pitch e tempo são aplicados localmente, sem enviar áudio para a nuvem.">
       <span className="preference-value">100% local</span>
+    </PreferenceRow>
+    <PreferenceRow label="Metrônomo" description="Acompanha o transporte, o tempo e o loop da faixa.">
+      <label className="preference-toggle"><input type="checkbox" checked={metronomeEnabled} onChange={(event) => void onChange('metronomeEnabled', event.target.checked)} /><span /></label>
+    </PreferenceRow>
+    <PreferenceRow label="Subdivisão" description="Escolha quantos cliques ouvir por batida.">
+      <select className="preference-control" value={subdivision} disabled={!metronomeEnabled} onChange={(event) => void onChange('metronomeSubdivision', Number(event.target.value))}><option value="1">1x — semínima</option><option value="2">2x — colcheia</option><option value="4">4x — semicolcheia</option></select>
+    </PreferenceRow>
+    <PreferenceRow label="Volume do metrônomo" description="Ajuste o volume dos cliques sem alterar os stems.">
+      <input className="preference-range" type="range" min="0" max="1" step="0.05" value={metronomeVolume} disabled={!metronomeEnabled} onChange={(event) => void onChange('metronomeVolume', Number(event.target.value))} />
+    </PreferenceRow>
+    <PreferenceRow label="Contagem antes de tocar" description="Conte uma ou duas barras antes de iniciar os stems.">
+      <div className="preference-inline-controls"><label className="preference-toggle"><input type="checkbox" checked={countInEnabled} disabled={!metronomeEnabled} onChange={(event) => void onChange('countInEnabled', event.target.checked)} /><span /></label><select className="preference-control compact-control" value={countInBars} disabled={!metronomeEnabled || !countInEnabled} onChange={(event) => void onChange('countInBars', Number(event.target.value))}><option value="1">1 barra</option><option value="2">2 barras</option></select></div>
     </PreferenceRow>
     <PreferenceRow label="Atalhos do player" description="Use o teclado para controlar a reprodução sem tirar as mãos do instrumento.">
       <div className="shortcut-list" aria-label="Atalhos do player">

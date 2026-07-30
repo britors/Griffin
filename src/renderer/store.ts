@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import type { Project, SeparationProgress, StemName, Track } from '../shared/types'
 
+export type MetronomeSubdivision = 1 | 2 | 4
+
 interface PlayerState {
   tracks: Track[]
   projects: Project[]
@@ -8,6 +10,12 @@ interface PlayerState {
   favoriteIds: string[]
   recentTrackIds: string[]
   resetPlaybackOnTrackChange: boolean
+  metronomeEnabled: boolean
+  metronomeSubdivision: MetronomeSubdivision
+  metronomeVolume: number
+  countInEnabled: boolean
+  countInBars: 1 | 2
+  countingIn: boolean
   selected: Track | null
   playing: boolean
   position: number
@@ -27,6 +35,12 @@ interface PlayerState {
   setFavoriteIds: (ids: string[]) => void
   setRecentTrackIds: (ids: string[]) => void
   setResetPlaybackOnTrackChange: (enabled: boolean) => void
+  setMetronomeEnabled: (enabled: boolean) => void
+  setMetronomeSubdivision: (subdivision: MetronomeSubdivision) => void
+  setMetronomeVolume: (volume: number) => void
+  setCountInEnabled: (enabled: boolean) => void
+  setCountInBars: (bars: 1 | 2) => void
+  setCountingIn: (active: boolean) => void
   toggleFavorite: (trackId: string) => void
   select: (track: Track | null) => void
   replaceSelected: (track: Track) => void
@@ -47,7 +61,7 @@ interface PlayerState {
 }
 
 export const usePlayer = create<PlayerState>((set) => ({
-  tracks: [], projects: [], activeProjectId: null, favoriteIds: [], recentTrackIds: [], resetPlaybackOnTrackChange: true, selected: null, playing: false, position: 0, seekVersion: 0, pitch: 0, tempo: 1, loopEnabled: false, loopStart: 0, loopEnd: 1, progress: null,
+  tracks: [], projects: [], activeProjectId: null, favoriteIds: [], recentTrackIds: [], resetPlaybackOnTrackChange: true, metronomeEnabled: false, metronomeSubdivision: 1, metronomeVolume: 0.5, countInEnabled: false, countInBars: 1, countingIn: false, selected: null, playing: false, position: 0, seekVersion: 0, pitch: 0, tempo: 1, loopEnabled: false, loopStart: 0, loopEnd: 1, progress: null,
   volumes: { vocals: 0.82, drums: 0.82, bass: 0.82, other: 0.82 },
   muted: { vocals: false, drums: false, bass: false, other: false }, solo: null,
   setTracks: (tracks) => set({ tracks }),
@@ -56,6 +70,12 @@ export const usePlayer = create<PlayerState>((set) => ({
   setFavoriteIds: (favoriteIds) => set({ favoriteIds }),
   setRecentTrackIds: (recentTrackIds) => set({ recentTrackIds }),
   setResetPlaybackOnTrackChange: (resetPlaybackOnTrackChange) => set({ resetPlaybackOnTrackChange }),
+  setMetronomeEnabled: (metronomeEnabled) => set({ metronomeEnabled }),
+  setMetronomeSubdivision: (metronomeSubdivision) => set({ metronomeSubdivision }),
+  setMetronomeVolume: (metronomeVolume) => set({ metronomeVolume }),
+  setCountInEnabled: (countInEnabled) => set({ countInEnabled }),
+  setCountInBars: (countInBars) => set({ countInBars }),
+  setCountingIn: (countingIn) => set({ countingIn }),
   toggleFavorite: (trackId) => set((state) => ({ favoriteIds: state.favoriteIds.includes(trackId) ? state.favoriteIds.filter((id) => id !== trackId) : [trackId, ...state.favoriteIds] })),
   select: (selected) => set((state) => ({ selected, playing: false, position: selected && !state.resetPlaybackOnTrackChange ? state.position : 0 })),
   replaceSelected: (selected) => set({ selected }),
