@@ -70,6 +70,13 @@ export interface PerformanceSaveResult {
   name: string
 }
 
+export type ChordExportFormat = 'midi' | 'pdf'
+
+export interface ChordExportResult {
+  path: string
+  format: ChordExportFormat
+}
+
 export interface Project {
   id: string
   name: string
@@ -159,6 +166,9 @@ export interface GriffinAPI {
   exportAudio: (trackId: string, options: AudioExportOptions) => Promise<AudioExportResult>
   performance: {
     save: (name: string, bytes: Uint8Array) => Promise<PerformanceSaveResult>
+  }
+  chords: {
+    export: (trackId: string, format: ChordExportFormat) => Promise<ChordExportResult>
   }
 }
 
