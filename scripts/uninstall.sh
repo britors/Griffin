@@ -10,8 +10,14 @@ case "${ID_LIKE:-$ID}" in
   *) echo "Distribuição não suportada: ${ID}" >&2; exit 1 ;;
 esac
 if [[ "${purge}" == "--purge" ]]; then
-  rm -rf "/root/.config/GriffinMusic"
-  echo "Dados locais removidos para o usuário root."
+  target_user="${SUDO_USER:-${USER}}"
+  target_home="$(getent passwd "${target_user}" | cut -d: -f6)"
+  if [[ -n "${target_home}" && "${target_home}" != "/" ]]; then
+    rm -rf "${target_home}/.config/GriffinMusic"
+    echo "Dados locais removidos para ${target_user}."
+  else
+    echo "Não foi possível determinar o diretório do usuário; dados preservados." >&2
+  fi
 else
   echo "Dados do usuário foram preservados. Use --purge para removê-los."
 fi

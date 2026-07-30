@@ -4,19 +4,47 @@ on:
   push:
     tags: ['v*']
 
+permissions:
+  contents: write
+
 jobs:
   package:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            package_command: npm run package:linux
+          - os: windows-latest
+            package_command: npm run package:win
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
+        with:
+          node-version: 22
+          cache: npm
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y rpm
+      - name: Download ONNX models
+        shell: bash
+        run: bash scripts/download-models.sh
       - run: npm ci
-      - run: npm run package
+      - run: ${{ matrix.package_command }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ runner.os }}
+          path: release/*
+          if-no-files-found: error
+
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
       - uses: softprops/action-gh-release@v2
-        with: { files: release/* }
+        with:
+          files: release/*
+          fail_on_unmatched_files: true
