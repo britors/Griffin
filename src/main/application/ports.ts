@@ -1,5 +1,5 @@
 import type { AudioTrack } from '../../shared/domain/audio-track'
-import type { SeparationProgress, SeparationStatus, StemName, Track, TrackAnalysis } from '../../shared/types'
+import type { AudioExportOptions, SeparationProgress, SeparationStatus, StemName, Track, TrackAnalysis } from '../../shared/types'
 import type { Project } from '../../shared/types'
 
 export interface TrackRepository {
@@ -27,6 +27,19 @@ export interface AudioFileGateway {
 
 export interface AudioFilePicker {
   pick(): Promise<string | null>
+}
+
+export interface AudioDecoder {
+  decode(bytes: Uint8Array): Promise<{ channelData: Float32Array[]; sampleRate: number }>
+}
+
+export interface AudioExportDestination {
+  choose(defaultName: string): Promise<string | null>
+  write(path: string, bytes: Uint8Array): Promise<void>
+}
+
+export interface AudioExportProcessor {
+  render(stems: Record<StemName, string>, options: AudioExportOptions): Promise<{ bytes: Uint8Array; duration: number }>
 }
 
 export interface StemSeparator {

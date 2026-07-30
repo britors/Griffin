@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { GriffinAPI, LyricsLine, SeparationProgress, Track, TrackAnalysis } from '../shared/types'
+import type { AudioExportOptions, GriffinAPI, LyricsLine, SeparationProgress, Track, TrackAnalysis } from '../shared/types'
 
 const api: GriffinAPI = {
   window: {
@@ -30,6 +30,7 @@ const api: GriffinAPI = {
     get: (trackId: string) => ipcRenderer.invoke('lyrics:get', trackId),
     update: (trackId: string, lines: LyricsLine[]) => ipcRenderer.invoke('lyrics:update', trackId, lines),
   },
+  exportAudio: (trackId: string, options: AudioExportOptions) => ipcRenderer.invoke('export:audio', trackId, options),
   separation: {
     status: () => ipcRenderer.invoke('separation:status'),
     start: (track: Track) => ipcRenderer.invoke('separation:start', track),

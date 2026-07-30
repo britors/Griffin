@@ -43,6 +43,23 @@ export interface ChordEvent {
   confidence: number
 }
 
+export interface AudioExportOptions {
+  stems: StemName[]
+  volumes: Record<StemName, number>
+  muted: Record<StemName, boolean>
+  solo: StemName | null
+  pitch: number
+  tempo: number
+  loop?: { start: number; end: number }
+  format: 'wav'
+}
+
+export interface AudioExportResult {
+  path: string
+  duration: number
+  format: 'wav'
+}
+
 export interface Project {
   id: string
   name: string
@@ -101,6 +118,7 @@ export interface GriffinAPI {
     get: (trackId: string) => Promise<LyricsLine[]>
     update: (trackId: string, lines: LyricsLine[]) => Promise<Track>
   }
+  exportAudio: (trackId: string, options: AudioExportOptions) => Promise<AudioExportResult>
 }
 
 export const STEM_LABELS: Record<StemName, string> = {
