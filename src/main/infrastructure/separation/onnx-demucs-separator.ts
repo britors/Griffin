@@ -2,15 +2,15 @@ import { access, readFile } from 'node:fs/promises'
 import { totalmem } from 'node:os'
 import { join } from 'node:path'
 import type { AudioTrack } from '../../../shared/domain/audio-track'
-import type { ExecutionProviderPreference, SeparationProgress, SeparationProfile, SeparationStatus, StemName } from '../../../shared/types'
+import { ALL_STEMS, CORE_STEMS, type ExecutionProviderPreference, type SeparationModelProfile, type SeparationProgress, type SeparationProfile, type SeparationStatus, type StemName } from '../../../shared/types'
 import type { StemSeparator } from '../../application/ports'
 import { AudioFileDecoder } from '../audio/audio-file-decoder'
 import { resampleTo44100, toStereo } from '../audio/audio-resampler'
 import { encodeStereoWav } from '../audio/wav-encoder'
 import { hashAudioFile, FileStemCache } from './stem-cache'
 
-const applicationStems: StemName[] = ['vocals', 'drums', 'bass', 'other']
 const modelStemOrder: StemName[] = ['drums', 'bass', 'other', 'vocals']
+const extendedModelStemOrder: StemName[] = ['drums', 'bass', 'other', 'vocals', 'guitar', 'piano']
 const sampleRate = 44100
 const chunkSize = 343980
 const hopSize = chunkSize / 2
@@ -26,6 +26,7 @@ export class OnnxDemucsSeparator implements StemSeparator {
   private ortPromise: Promise<typeof import('onnxruntime-node')> | null = null
   private processingThreads = 0
   private processingProfile: SeparationProfile = 'quality'
+  private modelProfile: SeparationModelProfile = 'four-stem'
   private providerPreference: ExecutionProviderPreference = 'auto'
   private activeProvider: 'cpu' | 'cuda' = 'cpu'
   private providerPromise: Promise<'cpu' | 'cuda'> | null = null
@@ -39,30 +40,34 @@ export class OnnxDemucsSeparator implements StemSeparator {
   cancel(trackId: string) { this.cancelled.add(trackId) }
   setProcessingThreads(threads: number) { this.processingThreads = Math.max(0, Math.min(64, Math.round(threads))); this.sessions.clear() }
   setProcessingProfile(profile: SeparationProfile) { this.processingProfile = profile; this.sessions.clear() }
+  setModelProfile(profile: SeparationModelProfile) { this.modelProfile = profile; this.sessions.clear() }
   setExecutionProvider(preference: ExecutionProviderPreference) { this.providerPreference = preference; this.providerPromise = null; this.sessions.clear() }
 
   async status(): Promise<SeparationStatus> {
     const mode = await this.availableMode()
-    const provider = mode ? await this.resolveProvider(mode === 'ft' ? this.specialistPath('vocals') : this.singlePath()) : 'cpu'
-    if (mode === 'ft') return { available: true, message: `Modelo htdemucs_ft pronto: máxima qualidade local (${provider.toUpperCase()}).`, provider, profile: this.processingProfile, memoryBytes: totalmem(), lastDurationMs: this.lastDurationMs }
-    if (mode === 'single') return { available: true, message: `Modelo htdemucs pronto para uso local (${provider.toUpperCase()}).`, provider, profile: this.processingProfile, memoryBytes: totalmem(), lastDurationMs: this.lastDurationMs }
-    return { available: false, message: 'Modelos ONNX não encontrados. Instale htdemucs_ft em src/main/models/htdemucs-ft.', provider, profile: this.processingProfile, memoryBytes: totalmem(), lastDurationMs: this.lastDurationMs }
+    const sixStemAvailable = await this.fileExists(this.sixStemPath())
+    const provider = mode ? await this.resolveProvider(this.modelPath(mode === 'six' ? 'htdemucs-6s' : mode === 'single' ? 'htdemucs' : 'vocals')) : 'cpu'
+    if (mode === 'six') return { available: true, message: `Modelo htdemucs-6s pronto: seis stems locais (${provider.toUpperCase()}).`, provider, profile: this.processingProfile, modelProfile: this.modelProfile, sixStemAvailable, memoryBytes: totalmem(), lastDurationMs: this.lastDurationMs }
+    if (mode === 'ft') return { available: true, message: `Modelo htdemucs_ft pronto: quatro stems (${provider.toUpperCase()}).`, provider, profile: this.processingProfile, modelProfile: this.modelProfile, sixStemAvailable, memoryBytes: totalmem(), lastDurationMs: this.lastDurationMs }
+    if (mode === 'single') return { available: true, message: `Modelo htdemucs pronto: quatro stems (${provider.toUpperCase()}).`, provider, profile: this.processingProfile, modelProfile: this.modelProfile, sixStemAvailable, memoryBytes: totalmem(), lastDurationMs: this.lastDurationMs }
+    return { available: false, message: this.modelProfile === 'six-stem' ? 'Modelo htdemucs-6s não encontrado; instale-o para ativar guitarra e piano.' : 'Modelos ONNX não encontrados. Instale htdemucs_ft em src/main/models/htdemucs-ft.', provider, profile: this.processingProfile, modelProfile: this.modelProfile, sixStemAvailable, memoryBytes: totalmem(), lastDurationMs: this.lastDurationMs }
   }
 
   async separate(track: AudioTrack, report: (progress: SeparationProgress) => void) {
     const startedAt = Date.now()
-    const key = await hashAudioFile(track.path)
-    const cached = await this.cache.get(key)
+    const key = `${await hashAudioFile(track.path)}-${this.modelProfile}`
+    const mode = await this.availableMode()
+    const stemNames = mode === 'six' ? ALL_STEMS : CORE_STEMS
+    const cached = await this.cache.get(key, stemNames)
     if (cached) return cached
     this.cancelled.delete(track.id)
-    const mode = await this.availableMode()
     if (!mode) throw new Error((await this.status()).message)
     report({ trackId: track.id, progress: 0.02, stage: `Preparando áudio (${mode === 'ft' ? 'alta qualidade' : 'rápido'})` })
 
     const decoded = resampleTo44100(await this.decoder.decode(await readFile(track.path)))
     const [left, right] = toStereo(decoded)
     const totalSamples = Math.max(left.length, right.length)
-    const stemChannels = applicationStems.map(() => [new Float32Array(totalSamples), new Float32Array(totalSamples)])
+    const stemChannels = stemNames.map(() => [new Float32Array(totalSamples), new Float32Array(totalSamples)])
     const weights = new Float32Array(totalSamples)
     const ort = await this.ort()
 
@@ -74,7 +79,7 @@ export class OnnxDemucsSeparator implements StemSeparator {
       report({ trackId: track.id, progress: Math.min(0.98, (Math.min(start + chunkSize, totalSamples) / totalSamples) * 0.95), stage: `Separando trecho ${Math.ceil((start + 1) / hopSize)}` })
     }
 
-    const encoded = Object.fromEntries(applicationStems.map((stem, index) => {
+    const encoded = Object.fromEntries(stemNames.map((stem, index) => {
       const [stemLeft, stemRight] = stemChannels[index]
       for (let sample = 0; sample < totalSamples; sample += 1) {
         const weight = weights[sample] || 1
@@ -82,25 +87,30 @@ export class OnnxDemucsSeparator implements StemSeparator {
         stemRight[sample] /= weight
       }
       return [stem, encodeStereoWav(stemLeft, stemRight, sampleRate)]
-    })) as Record<StemName, Uint8Array>
-    await this.cache.write(key, encoded)
+    })) as Partial<Record<StemName, Uint8Array>>
+    await this.cache.write(key, encoded, stemNames)
     this.lastDurationMs = Date.now() - startedAt
     report({ trackId: track.id, progress: 1, stage: 'Stems prontos' })
-    return this.cache.paths(key)
+    return this.cache.paths(key, stemNames)
   }
 
-  private async availableMode(): Promise<'ft' | 'single' | null> {
-    const specialists = await Promise.all(applicationStems.map((stem) => this.fileExists(this.specialistPath(stem))))
+  private async availableMode(): Promise<'ft' | 'single' | 'six' | null> {
+    if (this.modelProfile === 'six-stem' && await this.fileExists(this.sixStemPath())) return 'six'
+    const specialists = await Promise.all(CORE_STEMS.map((stem) => this.fileExists(this.specialistPath(stem))))
     const single = await this.fileExists(this.singlePath())
     if (this.processingProfile === 'speed' && single) return 'single'
     if (specialists.every(Boolean)) return 'ft'
     return single ? 'single' : null
   }
 
-  private async inferChunk(input: OnnxTensor, mode: 'ft' | 'single'): Promise<Float32Array[]> {
-    if (mode === 'ft') return Promise.all(applicationStems.map((stem) => this.run(this.session(stem), input, modelStemOrder.indexOf(stem))))
+  private async inferChunk(input: OnnxTensor, mode: 'ft' | 'single' | 'six'): Promise<Float32Array[]> {
+    if (mode === 'six') {
+      const output = await this.run(this.session('htdemucs-6s'), input, 0, true)
+      return extendedModelStemOrder.map((stem) => output.subarray(extendedModelStemOrder.indexOf(stem) * 2 * chunkSize, (extendedModelStemOrder.indexOf(stem) + 1) * 2 * chunkSize))
+    }
+    if (mode === 'ft') return Promise.all(CORE_STEMS.map((stem) => this.run(this.session(stem), input, modelStemOrder.indexOf(stem))))
     const output = await this.run(this.session('htdemucs'), input, 0, true)
-    return applicationStems.map((stem) => {
+    return CORE_STEMS.map((stem) => {
       const targetIndex = modelStemOrder.indexOf(stem)
       return output.subarray(targetIndex * 2 * chunkSize, (targetIndex + 1) * 2 * chunkSize)
     })
@@ -118,7 +128,7 @@ export class OnnxDemucsSeparator implements StemSeparator {
     for (let sample = 0; sample < chunkSize && start + sample < totalSamples; sample += 1) {
       const weight = Math.max(0.5 - 0.5 * Math.cos((2 * Math.PI * sample) / (chunkSize - 1)), 0.01)
       weights[start + sample] += weight
-      for (let stem = 0; stem < applicationStems.length; stem += 1) {
+      for (let stem = 0; stem < outputs.length; stem += 1) {
         stemChannels[stem][0][start + sample] += outputs[stem][sample] * weight
         stemChannels[stem][1][start + sample] += outputs[stem][chunkSize + sample] * weight
       }
@@ -135,7 +145,7 @@ export class OnnxDemucsSeparator implements StemSeparator {
   private session(model: string): Promise<OnnxSession> {
     const existing = this.sessions.get(model)
     if (existing) return existing
-    const modelPath = model === 'htdemucs' ? this.singlePath() : this.specialistPath(model as StemName)
+    const modelPath = this.modelPath(model === 'htdemucs' || model === 'htdemucs-6s' ? model : model as StemName)
     const promise = this.resolveProvider(modelPath).then(async (provider) => {
       const options = { executionProviders: [provider], ...(this.processingThreads > 0 ? { intraOpNumThreads: this.processingThreads, interOpNumThreads: 1 } : {}) }
       return (await this.ort()).InferenceSession.create(modelPath, options)
@@ -163,8 +173,11 @@ export class OnnxDemucsSeparator implements StemSeparator {
     return this.providerPromise
   }
 
+  private modelPath(model: 'htdemucs' | 'htdemucs-6s' | StemName) { return model === 'htdemucs' ? this.singlePath() : model === 'htdemucs-6s' ? this.sixStemPath() : this.specialistPath(model) }
+
   private specialistPath(stem: StemName) { return join(this.modelsDirectory(), 'htdemucs-ft', `htdemucs_ft_${stem}_fp16weights.onnx`) }
   private singlePath() { return join(this.modelsDirectory(), 'htdemucs.onnx') }
+  private sixStemPath() { return join(this.modelsDirectory(), 'htdemucs_6s.onnx') }
   private modelsDirectory() { return this.modelsDirectoryPath }
   private async fileExists(path: string) { return access(path).then(() => true).catch(() => false) }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { StemAudioPlayer } from '../audio-player'
 import { usePlayer } from '../store'
+import { ALL_STEMS } from '../../shared/types'
 
 function advanceQueue() {
   const state = usePlayer.getState()
@@ -46,10 +47,11 @@ export function AudioPlayback() {
     const requestedPosition = position
     void player.load(selected, takePath).then(() => {
       const state = usePlayer.getState()
-      for (const stem of ['vocals', 'drums', 'bass', 'other'] as const) {
-        player.setMix(stem, state.volumes[stem], state.muted[stem], state.solo)
-        player.setOutputRoute(stem, state.routes[stem], state.pans[stem])
-        player.setEqualizer(stem, state.equalizer[stem])
+      for (const stem of ALL_STEMS) {
+        if (!state.volumes[stem]) continue
+        player.setMix(stem, state.volumes[stem] ?? 0, state.muted[stem] ?? false, state.solo)
+        player.setOutputRoute(stem, state.routes[stem] ?? 'stereo', state.pans[stem] ?? 0)
+        player.setEqualizer(stem, state.equalizer[stem] ?? [])
       }
       if (!resetPlaybackOnTrackChange && player.length > 0) player.seek(requestedPosition * player.length, false, tempo, pitch)
       if (state.playing && state.selected?.id === selected.id) void player.play(state.position * player.length, state.tempo, state.pitch, advanceQueue)
@@ -59,9 +61,9 @@ export function AudioPlayback() {
   useEffect(() => {
     const player = engine.current
     if (!player) return
-    for (const stem of ['vocals', 'drums', 'bass', 'other'] as const) player.setMix(stem, volumes[stem], muted[stem], solo)
-    for (const stem of ['vocals', 'drums', 'bass', 'other'] as const) player.setOutputRoute(stem, routes[stem], pans[stem])
-    for (const stem of ['vocals', 'drums', 'bass', 'other'] as const) player.setEqualizer(stem, equalizer[stem])
+    for (const stem of ALL_STEMS) player.setMix(stem, volumes[stem] ?? 0, muted[stem] ?? false, solo)
+    for (const stem of ALL_STEMS) player.setOutputRoute(stem, routes[stem] ?? 'stereo', pans[stem] ?? 0)
+    for (const stem of ALL_STEMS) player.setEqualizer(stem, equalizer[stem] ?? [])
   }, [volumes, pans, routes, equalizer, muted, solo])
 
   useEffect(() => {

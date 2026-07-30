@@ -2,9 +2,7 @@ import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { StemName } from '../../../shared/types'
-
-const stemNames: StemName[] = ['vocals', 'drums', 'bass', 'other']
+import { CORE_STEMS, type StemName } from '../../../shared/types'
 
 export async function hashAudioFile(path: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -22,7 +20,7 @@ export class FileStemCache {
   async init() { await mkdir(this.root, { recursive: true }) }
   directory(key: string) { return join(this.root, key) }
 
-  async get(key: string): Promise<Record<StemName, string> | null> {
+  async get(key: string, stemNames: StemName[] = CORE_STEMS): Promise<Partial<Record<StemName, string>> | null> {
     try {
       const names = await readdir(this.directory(key))
       if (!stemNames.every((stem) => names.includes(`${stem}.wav`))) return null
@@ -30,13 +28,13 @@ export class FileStemCache {
     } catch { return null }
   }
 
-  async write(key: string, stems: Record<StemName, Uint8Array>) {
+  async write(key: string, stems: Partial<Record<StemName, Uint8Array>>, stemNames: StemName[] = CORE_STEMS) {
     const folder = this.directory(key)
     await mkdir(folder, { recursive: true })
-    for (const stem of stemNames) await writeFile(join(folder, `${stem}.wav`), stems[stem])
+    for (const stem of stemNames) await writeFile(join(folder, `${stem}.wav`), stems[stem]!)
   }
 
-  paths(key: string): Record<StemName, string> {
+  paths(key: string, stemNames: StemName[] = CORE_STEMS): Partial<Record<StemName, string>> {
     return Object.fromEntries(stemNames.map((stem) => [stem, join(this.directory(key), `${stem}.wav`)])) as Record<StemName, string>
   }
 

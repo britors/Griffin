@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { EqualizerBands, OutputRoute, PlayerSnapshot, Project, ProjectSnapshot, SeparationProgress, StemName, Track } from '../shared/types'
+import { ALL_STEMS, type EqualizerBands, type OutputRoute, type PlayerSnapshot, type Project, type ProjectSnapshot, type SeparationProgress, type StemName, type Track } from '../shared/types'
 
 export type MetronomeSubdivision = 1 | 2 | 4
 
@@ -32,11 +32,11 @@ interface PlayerState {
   loopStart: number
   loopEnd: number
   progress: SeparationProgress | null
-  volumes: Record<StemName, number>
-  pans: Record<StemName, number>
-  routes: Record<StemName, OutputRoute>
-  equalizer: Record<StemName, EqualizerBands>
-  muted: Record<StemName, boolean>
+  volumes: Partial<Record<StemName, number>>
+  pans: Partial<Record<StemName, number>>
+  routes: Partial<Record<StemName, OutputRoute>>
+  equalizer: Partial<Record<StemName, EqualizerBands>>
+  muted: Partial<Record<StemName, boolean>>
   solo: StemName | null
   setTracks: (tracks: Track[]) => void
   setProjects: (projects: Project[]) => void
@@ -78,11 +78,11 @@ interface PlayerState {
 
 export const usePlayer = create<PlayerState>((set) => ({
   tracks: [], projects: [], activeProjectId: null, favoriteIds: [], recentTrackIds: [], resetPlaybackOnTrackChange: true, metronomeEnabled: false, metronomeSubdivision: 1, metronomeVolume: 0.5, countInEnabled: false, countInBars: 1, countingIn: false, selected: null, takePath: null, takeName: null, playing: false, position: 0, seekVersion: 0, pitch: 0, tempo: 1, loopEnabled: false, loopStart: 0, loopEnd: 1, progress: null,
-  volumes: { vocals: 0.82, drums: 0.82, bass: 0.82, other: 0.82 },
-  pans: { vocals: 0, drums: 0, bass: 0, other: 0 },
-  routes: { vocals: 'stereo', drums: 'stereo', bass: 'stereo', other: 'stereo' },
-  equalizer: { vocals: Array(12).fill(0), drums: Array(12).fill(0), bass: Array(12).fill(0), other: Array(12).fill(0) },
-  muted: { vocals: false, drums: false, bass: false, other: false }, solo: null,
+  volumes: Object.fromEntries(ALL_STEMS.map((stem) => [stem, 0.82])),
+  pans: Object.fromEntries(ALL_STEMS.map((stem) => [stem, 0])),
+  routes: Object.fromEntries(ALL_STEMS.map((stem) => [stem, 'stereo'])),
+  equalizer: Object.fromEntries(ALL_STEMS.map((stem) => [stem, Array(12).fill(0)])),
+  muted: Object.fromEntries(ALL_STEMS.map((stem) => [stem, false])), solo: null,
   setTracks: (tracks) => set({ tracks }),
   setProjects: (projects) => set((state) => ({ projects, activeProjectId: projects.some((project) => project.id === state.activeProjectId) ? state.activeProjectId : projects[0]?.id ?? null })),
   setActiveProject: (activeProjectId) => set({ activeProjectId, selected: null, playing: false, position: 0 }),
@@ -109,11 +109,11 @@ export const usePlayer = create<PlayerState>((set) => ({
   setVolume: (stem, volume) => set((state) => ({ volumes: { ...state.volumes, [stem]: volume } })),
   setPan: (stem, pan) => set((state) => ({ pans: { ...state.pans, [stem]: Math.max(-1, Math.min(1, pan)) } })),
   setRoute: (stem, route) => set((state) => ({ routes: { ...state.routes, [stem]: route } })),
-  setEqualizerBand: (stem, band, gain) => set((state) => ({ equalizer: { ...state.equalizer, [stem]: state.equalizer[stem].map((value, index) => index === band ? Math.max(-12, Math.min(12, gain)) : value) } })),
-  toggleMute: (stem) => set((state) => ({ muted: { ...state.muted, [stem]: !state.muted[stem] } })),
+  setEqualizerBand: (stem, band, gain) => set((state) => ({ equalizer: { ...state.equalizer, [stem]: (state.equalizer[stem] ?? Array(12).fill(0)).map((value, index) => index === band ? Math.max(-12, Math.min(12, gain)) : value) } })),
+  toggleMute: (stem) => set((state) => ({ muted: { ...state.muted, [stem]: !(state.muted[stem] ?? false) } })),
   toggleMuteAll: () => set((state) => {
     const nextMuted = !Object.values(state.muted).every(Boolean)
-    return { muted: { vocals: nextMuted, drums: nextMuted, bass: nextMuted, other: nextMuted } }
+    return { muted: Object.fromEntries(ALL_STEMS.map((stem) => [stem, nextMuted])) }
   }),
   toggleSolo: (stem) => set((state) => ({ solo: state.solo === stem ? null : stem })),
   setTake: (takePath, takeName) => set({ takePath, takeName }),

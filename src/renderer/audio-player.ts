@@ -1,9 +1,9 @@
 import { api } from './api'
-import type { OutputRoute, StemName, Track } from '../shared/types'
+import { ALL_STEMS, type OutputRoute, type StemName, type Track } from '../shared/types'
 import { SoundTouchNode } from '@soundtouchjs/audio-worklet'
 import processorUrl from '@soundtouchjs/audio-worklet/processor?url'
 
-const stems: StemName[] = ['vocals', 'drums', 'bass', 'other']
+const stems: StemName[] = ALL_STEMS
 let activePlayer: StemAudioPlayer | null = null
 
 export function getActiveStemAudioPlayer() { return activePlayer }
@@ -45,7 +45,7 @@ export class StemAudioPlayer {
   }
 
   get length() { return this.duration }
-  get isLoaded() { return this.buffers.size === stems.length }
+  get isLoaded() { return this.buffers.size > 0 }
   get recordingStream() { return this.recordingDestination.stream }
 
   connectMicrophone(stream: MediaStream) {
@@ -72,8 +72,8 @@ export class StemAudioPlayer {
     this.duration = 0
     if (!track.stems) return
     await this.ensureWorklet()
-    const decoded = await Promise.all(stems.map(async (stem) => {
-      const bytes = await api.library.read(track.stems![stem])
+    const decoded = await Promise.all(stems.filter((stem) => Boolean(track.stems?.[stem])).map(async (stem) => {
+      const bytes = await api.library.read(track.stems![stem]!)
       return [stem, await this.context.decodeAudioData(asArrayBuffer(bytes))] as const
     }))
     for (const [stem, buffer] of decoded) {
@@ -95,7 +95,7 @@ export class StemAudioPlayer {
     const startAt = this.context.currentTime + 0.04
     this.startedAt = startAt
     let ended = false
-    for (const stem of stems) {
+    for (const stem of this.buffers.keys()) {
       const source = this.context.createBufferSource()
       source.buffer = this.buffers.get(stem)!
       source.playbackRate.value = tempo
@@ -140,12 +140,14 @@ export class StemAudioPlayer {
   }
 
   setMix(stem: StemName, volume: number, muted: boolean, solo: StemName | null) {
+    if (!this.gains.has(stem)) return
     const audible = !muted && (solo === null || solo === stem)
     this.gains.get(stem)!.gain.value = audible ? volume : 0
   }
 
   setPan(stem: StemName, pan: number) {
-    this.panners.get(stem)!.pan.value = Math.max(-1, Math.min(1, pan))
+    const panner = this.panners.get(stem)
+    if (panner) panner.pan.value = Math.max(-1, Math.min(1, pan))
   }
 
   setOutputRoute(stem: StemName, route: OutputRoute, pan: number) {

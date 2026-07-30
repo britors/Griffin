@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { ACCENT_PRESETS, applyVisualPreferences } from '../preferences'
 import { usePlayer, type MetronomeSubdivision } from '../store'
-import type { ExecutionProviderPreference, LocalResourcesSummary, SeparationProfile, SeparationStatus } from '../../shared/types'
+import type { ExecutionProviderPreference, LocalResourcesSummary, SeparationProfile, SeparationStatus, SeparationModelProfile } from '../../shared/types'
 
 type Section = 'appearance' | 'playback' | 'processing' | 'about'
 type Settings = Record<string, unknown>
@@ -117,12 +117,14 @@ function ProcessingSection({ settings, status, resources, onChange, onCacheClear
   const processingThreads = typeof settings.processingThreads === 'number' ? settings.processingThreads : 0
   const profile: SeparationProfile = settings.processingProfile === 'speed' || settings.processingProfile === 'balanced' ? settings.processingProfile : 'quality'
   const provider: ExecutionProviderPreference = settings.executionProvider === 'cpu' || settings.executionProvider === 'cuda' ? settings.executionProvider : 'auto'
+  const modelProfile: SeparationModelProfile = settings.modelProfile === 'six-stem' ? 'six-stem' : 'four-stem'
   const clearCache = async () => {
     if (!window.confirm('Limpar o cache de stems?\n\nAs faixas originais, projetos e modelos serão preservados.')) return
     onCacheCleared(await api.resources.clearCache())
   }
   return <PreferenceSection title="Processamento" description="Modelo e armazenamento usados pela separação local.">
     <PreferenceRow label="Modelo" description="Variante de maior qualidade para separar quatro stems."><span className="preference-value">htdemucs_ft</span></PreferenceRow>
+    <PreferenceRow label="Perfil de stems" description="O perfil de seis stems adiciona guitarra e piano quando htdemucs_6s.onnx estiver instalado; quatro stems é o fallback."><select className="preference-control" value={modelProfile} onChange={(event) => void onChange('modelProfile', event.target.value)}><option value="four-stem">4 stems · padrão</option><option value="six-stem" disabled={!status?.sixStemAvailable}>6 stems · guitarra/piano{status?.sixStemAvailable ? '' : ' · não instalado'}</option></select></PreferenceRow>
     <PreferenceRow label="Status do modelo" description="O modelo é carregado pelo processo principal do Electron."><span className={`status-pill ${status?.available ? 'ready' : ''}`}>{status?.available ? 'Disponível' : status?.message ?? 'Verificando…'}</span></PreferenceRow>
     <PreferenceRow label="Provider ONNX" description="GPU é testada automaticamente; se não estiver disponível, o processamento retorna para CPU."><span className="preference-value">{status?.provider === 'cuda' ? 'CUDA / GPU' : 'CPU'}{status?.memoryBytes ? ` · ${formatBytes(status.memoryBytes)}` : ''}{status?.lastDurationMs ? ` · último ${formatDurationMs(status.lastDurationMs)}` : ''}</span></PreferenceRow>
     <PreferenceRow label="Perfil de separação" description="Qualidade usa htdemucs_ft; Rápido prioriza velocidade com o modelo single-file quando disponível."><select className="preference-control" value={profile} onChange={(event) => void onChange('processingProfile', event.target.value)}><option value="quality">Qualidade máxima</option><option value="balanced">Balanceado</option><option value="speed">Velocidade</option></select></PreferenceRow>
