@@ -33,6 +33,7 @@ function App() {
   const loopEnd = usePlayer((state) => state.loopEnd)
   const volumes = usePlayer((state) => state.volumes)
   const pans = usePlayer((state) => state.pans)
+  const routes = usePlayer((state) => state.routes)
   const equalizer = usePlayer((state) => state.equalizer)
   const muted = usePlayer((state) => state.muted)
   const solo = usePlayer((state) => state.solo)
@@ -64,7 +65,7 @@ function App() {
     if (!activeProjectId) return
     const timer = window.setTimeout(() => { void api.projects.updatePlayerState(activeProjectId, playerSnapshot(usePlayer.getState())) }, 350)
     return () => window.clearTimeout(timer)
-  }, [activeProjectId, selected?.id, takePath, takeName, position, pitch, tempo, loopEnabled, loopStart, loopEnd, volumes, pans, equalizer, muted, solo])
+  }, [activeProjectId, selected?.id, takePath, takeName, position, pitch, tempo, loopEnabled, loopStart, loopEnd, volumes, pans, routes, equalizer, muted, solo])
 
   useEffect(() => api.separation.onProgress(setProgress), [setProgress])
 
