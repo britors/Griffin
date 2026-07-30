@@ -8,6 +8,7 @@ import { PlayerPage } from './pages/player'
 import { PreferencesPage } from './pages/preferences'
 import { AudioPlayback } from './components/audio-playback'
 import { Splash } from './components/splash'
+import { ProjectPicker } from './components/project-picker'
 import './styles.css'
 
 type View = 'library' | 'preferences'
@@ -31,6 +32,7 @@ function App() {
     <AudioPlayback />
     <aside className="sidebar">
       <div className="brand"><img className="brand-logo" src="./logo.svg" alt="Griffin Music" /><div><strong>Griffin</strong><span>Music</span></div></div>
+      <ProjectPicker />
       <nav>
         <button className={view === 'library' ? 'active' : ''} onClick={showLibrary}>⌂ <span>Biblioteca</span></button>
         <button>◈ <span>Favoritos</span></button>

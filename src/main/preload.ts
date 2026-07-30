@@ -14,6 +14,14 @@ const api: GriffinAPI = {
     remove: (trackId: string) => ipcRenderer.invoke('library:remove', trackId),
     chooseFile: () => ipcRenderer.invoke('library:choose-file'),
   },
+  projects: {
+    list: () => ipcRenderer.invoke('projects:list'),
+    create: (name: string) => ipcRenderer.invoke('projects:create', name),
+    rename: (projectId: string, name: string) => ipcRenderer.invoke('projects:rename', projectId, name),
+    remove: (projectId: string) => ipcRenderer.invoke('projects:remove', projectId),
+    addTrack: (projectId: string, trackId: string) => ipcRenderer.invoke('projects:add-track', projectId, trackId),
+    removeTrack: (projectId: string, trackId: string) => ipcRenderer.invoke('projects:remove-track', projectId, trackId),
+  },
   separation: {
     status: () => ipcRenderer.invoke('separation:status'),
     start: (track: Track) => ipcRenderer.invoke('separation:start', track),
