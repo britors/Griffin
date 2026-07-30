@@ -95,6 +95,6 @@ export function ProjectPicker() {
       <button disabled={busy || projects.length < 2} onClick={() => void removeProject()}>Remover</button>
     </div>
     <div className="snapshot-heading"><span>SNAPSHOTS</span><button title="Salvar snapshot" aria-label="Salvar snapshot" disabled={busy || projects.length === 0} onClick={() => void saveSnapshot()}>＋</button></div>
-    {snapshots.length > 0 && <div className="snapshot-list">{snapshots.map((snapshot) => <div className="snapshot-row" key={snapshot.id}><button disabled={busy} title={`Restaurar ${snapshot.name}`} onClick={() => void restoreSnapshot(snapshot.id)}>{snapshot.name}</button><button disabled={busy} aria-label={`Remover ${snapshot.name}`} title="Remover snapshot" onClick={() => void removeSnapshot(snapshot.id)}>×</button></div>)}</div>}
+    {snapshots.length > 0 && <div className="snapshot-list">{snapshots.map((snapshot) => <div className="snapshot-row" key={snapshot.id}><button disabled={busy} title={`Restaurar ${snapshot.name}`} onClick={() => void restoreSnapshot(snapshot.id)}><strong>{snapshot.name}</strong><small>{new Date(snapshot.createdAt).toLocaleDateString('pt-BR')} · {Math.round(snapshot.player.tempo * 100)}% · {snapshot.player.pitch > 0 ? '+' : ''}{snapshot.player.pitch} st</small></button><button disabled={busy} aria-label={`Remover ${snapshot.name}`} title="Remover snapshot" onClick={() => void removeSnapshot(snapshot.id)}>×</button></div>)}</div>}
   </section>
 }
