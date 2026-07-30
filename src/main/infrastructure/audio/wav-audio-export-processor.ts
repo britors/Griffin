@@ -33,8 +33,10 @@ function mix(decoded: Array<{ stem: StemName; audio: DecodedAudio }>, options: A
     const sourceIndex = start + outputIndex
     for (const { stem, channels } of stereo) {
       const volume = Math.max(0, Math.min(1, options.volumes[stem] ?? 0))
-      left[outputIndex] += channels[0][sourceIndex] * volume
-      right[outputIndex] += channels[1][sourceIndex] * volume
+      const pan = Math.max(-1, Math.min(1, options.pans[stem] ?? 0))
+      const angle = (pan + 1) * Math.PI / 4
+      left[outputIndex] += channels[0][sourceIndex] * volume * Math.cos(angle)
+      right[outputIndex] += channels[1][sourceIndex] * volume * Math.sin(angle)
     }
   }
   return [left, right]

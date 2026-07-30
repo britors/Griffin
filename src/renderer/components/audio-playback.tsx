@@ -15,6 +15,7 @@ export function AudioPlayback() {
   const loopStart = usePlayer((state) => state.loopStart)
   const loopEnd = usePlayer((state) => state.loopEnd)
   const volumes = usePlayer((state) => state.volumes)
+  const pans = usePlayer((state) => state.pans)
   const muted = usePlayer((state) => state.muted)
   const solo = usePlayer((state) => state.solo)
   const setPlaying = usePlayer((state) => state.setPlaying)
@@ -38,7 +39,8 @@ export function AudioPlayback() {
     const player = engine.current
     if (!player) return
     for (const stem of ['vocals', 'drums', 'bass', 'other'] as const) player.setMix(stem, volumes[stem], muted[stem], solo)
-  }, [volumes, muted, solo])
+    for (const stem of ['vocals', 'drums', 'bass', 'other'] as const) player.setPan(stem, pans[stem])
+  }, [volumes, pans, muted, solo])
 
   useEffect(() => {
     const player = engine.current

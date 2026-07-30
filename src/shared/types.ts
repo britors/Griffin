@@ -46,6 +46,7 @@ export interface ChordEvent {
 export interface AudioExportOptions {
   stems: StemName[]
   volumes: Record<StemName, number>
+  pans: Record<StemName, number>
   muted: Record<StemName, boolean>
   solo: StemName | null
   pitch: number
