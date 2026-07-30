@@ -1,0 +1,31 @@
+import { beforeEach, describe, expect, it } from 'vitest'
+import type { Track } from '../shared/types'
+import { usePlayer } from './store'
+
+const tracks: Track[] = [
+  { id: 'first', name: 'Primeira', path: '/audio/first.wav', importedAt: '2026-07-30T00:00:00.000Z' },
+  { id: 'second', name: 'Segunda', path: '/audio/second.wav', importedAt: '2026-07-30T00:00:00.000Z' },
+]
+
+describe('preferência de reprodução ao trocar de faixa', () => {
+  beforeEach(() => {
+    usePlayer.setState({ tracks, selected: tracks[0], playing: false, position: 0, resetPlaybackOnTrackChange: true })
+  })
+
+  it('reinicia a posição quando a preferência está ativa', () => {
+    usePlayer.getState().setPosition(0.42)
+    usePlayer.getState().select(tracks[1])
+
+    expect(usePlayer.getState().position).toBe(0)
+    expect(usePlayer.getState().playing).toBe(false)
+  })
+
+  it('preserva a posição quando a preferência está desativada', () => {
+    usePlayer.getState().setResetPlaybackOnTrackChange(false)
+    usePlayer.getState().setPosition(0.42)
+    usePlayer.getState().select(tracks[1])
+
+    expect(usePlayer.getState().position).toBe(0.42)
+    expect(usePlayer.getState().playing).toBe(false)
+  })
+})
