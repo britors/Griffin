@@ -118,7 +118,7 @@ kbd { min-width: 20px; padding: 3px 5px; border: 1px solid #38536f; border-botto
 .preference-toggle input:checked + span::after { transform: translateX(18px); background: #14213d; }
 .status-pill { padding: 6px 10px; border: 1px solid #38536f; border-radius: 20px; color: #9ab0c6; font-size: 12px; }
 .status-pill.ready { color: #9bd2ad; border-color: #3f7858; background: rgba(105,183,132,.1); }
-.separation-action { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; }
+.separation-action { display: flex; align-items: center; gap: 12px; min-width: 300px; color: var(--muted); font-size: 13px; }.separation-progress { display: grid; gap: 7px; min-width: 190px; flex: 1; }.separation-progress-meta { display: flex; justify-content: space-between; gap: 12px; color: #a8bacb; font-size: 11px; }.separation-progress-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.separation-progress-meta strong { color: var(--gold-light); font-weight: 600; }.separation-progress-track { height: 8px; overflow: hidden; border-radius: 999px; background: #1a3048; box-shadow: inset 0 0 0 1px rgba(122,153,186,.16); }.separation-progress-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--gold), var(--gold-light)); transition: width .25s ease; }
 .secondary-button { padding: 10px 14px; border: 1px solid #38536f; border-radius: 6px; background: rgba(16,31,52,.72); color: #c1d0df; font-size: 13px; }
 .secondary-button:hover { border-color: var(--gold); color: #fff; }
 .secondary-button:disabled { cursor: wait; opacity: .65; }

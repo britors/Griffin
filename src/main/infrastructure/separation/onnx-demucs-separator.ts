@@ -1,6 +1,7 @@
 import { access, readFile } from 'node:fs/promises'
 import { totalmem } from 'node:os'
 import { join } from 'node:path'
+import { Worker } from 'node:worker_threads'
 import type { AudioTrack } from '../../../shared/domain/audio-track'
 import { ALL_STEMS, CORE_STEMS, type ExecutionProviderPreference, type SeparationModelProfile, type SeparationProgress, type SeparationProfile, type SeparationStatus, type StemName } from '../../../shared/types'
 import type { StemSeparator } from '../../application/ports'
@@ -31,13 +32,14 @@ export class OnnxDemucsSeparator implements StemSeparator {
   private activeProvider: 'cpu' | 'cuda' = 'cpu'
   private providerPromise: Promise<'cpu' | 'cuda'> | null = null
   private lastDurationMs: number | undefined
+  private readonly workers = new Map<string, Worker>()
 
-  constructor(private readonly cacheDirectory: string, private readonly modelsDirectoryPath: string) {
+  constructor(private readonly cacheDirectory: string, private readonly modelsDirectoryPath: string, private readonly workerMode = false) {
     this.cache = new FileStemCache(cacheDirectory)
   }
 
   async init() { await this.cache.init() }
-  cancel(trackId: string) { this.cancelled.add(trackId) }
+  cancel(trackId: string) { this.cancelled.add(trackId); this.workers.get(trackId)?.postMessage({ type: 'cancel', trackId }) }
   setProcessingThreads(threads: number) { this.processingThreads = Math.max(0, Math.min(64, Math.round(threads))); this.sessions.clear() }
   setProcessingProfile(profile: SeparationProfile) { this.processingProfile = profile; this.sessions.clear() }
   setModelProfile(profile: SeparationModelProfile) { this.modelProfile = profile; this.sessions.clear() }
@@ -54,6 +56,49 @@ export class OnnxDemucsSeparator implements StemSeparator {
   }
 
   async separate(track: AudioTrack, report: (progress: SeparationProgress) => void) {
+    if (!this.workerMode) return this.separateInWorker(track, report)
+    return this.separateOnCurrentThread(track, report)
+  }
+
+  private async separateInWorker(track: AudioTrack, report: (progress: SeparationProgress) => void) {
+    const mode = await this.availableMode()
+    if (!mode) throw new Error((await this.status()).message)
+    this.cancelled.delete(track.id)
+    const worker = new Worker(join(__dirname, '..', 'onnx-separation-worker.js'), {
+      workerData: {
+        cacheDirectory: this.cacheDirectory,
+        modelsDirectoryPath: this.modelsDirectoryPath,
+        processingThreads: this.processingThreads,
+        processingProfile: this.processingProfile,
+        modelProfile: this.modelProfile,
+        providerPreference: this.providerPreference,
+        track: track.snapshot(),
+      },
+    })
+    this.workers.set(track.id, worker)
+    return new Promise<Partial<Record<StemName, string>>>((resolve, reject) => {
+      let settled = false
+      const finish = (callback: () => void) => {
+        if (settled) return
+        settled = true
+        this.workers.delete(track.id)
+        void worker.terminate()
+        callback()
+      }
+      worker.on('message', (message: { type: string; progress?: SeparationProgress; stems?: Partial<Record<StemName, string>>; durationMs?: number; message?: string }) => {
+        if (message.type === 'progress' && message.progress) report(message.progress)
+        if (message.type === 'done' && message.stems) {
+          this.lastDurationMs = message.durationMs
+          finish(() => resolve(message.stems!))
+        }
+        if (message.type === 'error') finish(() => reject(new Error(message.message ?? 'A separação ONNX falhou.')))
+      })
+      worker.on('error', (error) => finish(() => reject(error)))
+      worker.on('exit', (code) => { if (code !== 0) finish(() => reject(new Error(`O worker de separação encerrou com código ${code}.`))) })
+    })
+  }
+
+  private async separateOnCurrentThread(track: AudioTrack, report: (progress: SeparationProgress) => void) {
     const startedAt = Date.now()
     const key = `${await hashAudioFile(track.path)}-${this.modelProfile}`
     const mode = await this.availableMode()
