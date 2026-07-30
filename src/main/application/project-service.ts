@@ -15,6 +15,7 @@ export class ProjectApplicationService {
   async rename(id: string, name: string) { return this.mutate(id, (project) => project.rename(name)) }
   async addTrack(id: string, trackId: string) { return this.mutate(id, (project) => project.addTrack(trackId)) }
   async removeTrack(id: string, trackId: string) { return this.mutate(id, (project) => project.removeTrack(trackId)) }
+  async moveTrack(id: string, trackId: string, direction: 'up' | 'down') { return this.mutate(id, (project) => project.moveTrack(trackId, direction)) }
 
   async remove(id: string) {
     const project = await this.repository.findById(id)

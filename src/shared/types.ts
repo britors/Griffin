@@ -100,6 +100,7 @@ export interface GriffinAPI {
     remove: (projectId: string) => Promise<void>
     addTrack: (projectId: string, trackId: string) => Promise<Project>
     removeTrack: (projectId: string, trackId: string) => Promise<Project>
+    moveTrack: (projectId: string, trackId: string, direction: 'up' | 'down') => Promise<Project>
   }
   separation: {
     status: () => Promise<SeparationStatus>

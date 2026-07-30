@@ -21,6 +21,7 @@ const api: GriffinAPI = {
     remove: (projectId: string) => ipcRenderer.invoke('projects:remove', projectId),
     addTrack: (projectId: string, trackId: string) => ipcRenderer.invoke('projects:add-track', projectId, trackId),
     removeTrack: (projectId: string, trackId: string) => ipcRenderer.invoke('projects:remove-track', projectId, trackId),
+    moveTrack: (projectId: string, trackId: string, direction: 'up' | 'down') => ipcRenderer.invoke('projects:move-track', projectId, trackId, direction),
   },
   analysis: {
     analyze: (trackId: string) => ipcRenderer.invoke('analysis:analyze', trackId),
