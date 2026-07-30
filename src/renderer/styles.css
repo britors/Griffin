@@ -194,6 +194,7 @@ body.light-theme .window-control.close:hover { background: #c9584d; color: #fff;
 .project-picker-actions button { padding: 0; background: transparent; color: #6f89a2; font-size: 10px; }
 .project-picker-actions button:hover { color: var(--gold-light); }
 .project-picker button:disabled, .project-picker select:disabled { cursor: wait; opacity: .5; }
+.snapshot-heading { display: flex; align-items: center; justify-content: space-between; margin-top: 13px; color: #718aa4; font-size: 9px; letter-spacing: 1.4px; font-weight: 700; }.snapshot-heading button { padding: 0 3px; background: transparent; color: var(--gold-light); font-size: 16px; line-height: 1; }.snapshot-list { display: grid; gap: 3px; margin-top: 6px; max-height: 92px; overflow: auto; }.snapshot-row { display: grid; grid-template-columns: 1fr 18px; align-items: center; gap: 2px; }.snapshot-row button { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 5px; background: transparent; color: #8ca4ba; text-align: left; font-size: 10px; }.snapshot-row button:hover { color: var(--gold-light); }.snapshot-row button:last-child { padding: 2px; color: #6f89a2; text-align: center; font-size: 14px; }
 .empty-state { min-height: 190px; display: grid; place-items: center; border: 1px dashed #355170; border-radius: 8px; color: var(--muted); font-size: 14px; }
 body.light-theme .project-picker { border-top-color: #d7e1ea; }
 body.light-theme .project-picker-heading { color: #6a8297; }

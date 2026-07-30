@@ -1,4 +1,5 @@
 import type { ProjectApplicationService } from '../../application/project-service'
+import type { PlayerSnapshot } from '../../../shared/types'
 
 export function registerProjectHandlers(service: ProjectApplicationService) {
   return {
@@ -9,5 +10,8 @@ export function registerProjectHandlers(service: ProjectApplicationService) {
     addTrack: (_event: unknown, projectId: string, trackId: string) => service.addTrack(projectId, trackId),
     removeTrack: (_event: unknown, projectId: string, trackId: string) => service.removeTrack(projectId, trackId),
     moveTrack: (_event: unknown, projectId: string, trackId: string, direction: 'up' | 'down') => service.moveTrack(projectId, trackId, direction),
+    createSnapshot: (_event: unknown, projectId: string, name: string, player: PlayerSnapshot) => service.createSnapshot(projectId, name, player),
+    restoreSnapshot: (_event: unknown, projectId: string, snapshotId: string) => service.restoreSnapshot(projectId, snapshotId),
+    removeSnapshot: (_event: unknown, projectId: string, snapshotId: string) => service.removeSnapshot(projectId, snapshotId),
   }
 }

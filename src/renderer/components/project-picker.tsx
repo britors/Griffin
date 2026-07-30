@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
-import { usePlayer } from '../store'
+import { playerSnapshot, usePlayer } from '../store'
 
 export function ProjectPicker() {
-  const { projects, activeProjectId, setProjects, setActiveProject } = usePlayer()
+  const { projects, activeProjectId, setProjects, setActiveProject, applySnapshot } = usePlayer()
   const loaded = useRef(false)
   const [busy, setBusy] = useState(false)
 
@@ -57,6 +57,34 @@ export function ProjectPicker() {
     } finally { setBusy(false) }
   }
 
+  const saveSnapshot = async () => {
+    const current = projects.find((project) => project.id === activeProjectId)
+    const name = window.prompt('Nome do snapshot', `Versão ${new Date().toLocaleString('pt-BR')}`)?.trim()
+    if (!current || !name) return
+    setBusy(true)
+    try {
+      const updated = await api.projects.createSnapshot(current.id, name, playerSnapshot(usePlayer.getState()))
+      setProjects(projects.map((project) => project.id === updated.id ? updated : project))
+    } finally { setBusy(false) }
+  }
+
+  const restoreSnapshot = async (snapshotId: string) => {
+    if (!activeProjectId) return
+    setBusy(true)
+    try { applySnapshot(await api.projects.restoreSnapshot(activeProjectId, snapshotId)) } finally { setBusy(false) }
+  }
+
+  const removeSnapshot = async (snapshotId: string) => {
+    if (!activeProjectId || !window.confirm('Remover este snapshot?')) return
+    setBusy(true)
+    try {
+      const updated = await api.projects.removeSnapshot(activeProjectId, snapshotId)
+      setProjects(projects.map((project) => project.id === updated.id ? updated : project))
+    } finally { setBusy(false) }
+  }
+
+  const snapshots = projects.find((project) => project.id === activeProjectId)?.snapshots ?? []
+
   return <section className="project-picker" aria-label="Projetos">
     <div className="project-picker-heading"><span>PROJETO ATUAL</span><button title="Criar projeto" aria-label="Criar projeto" disabled={busy} onClick={() => void createProject()}>＋</button></div>
     <select value={activeProjectId ?? ''} disabled={busy || projects.length === 0} onChange={(event) => setActiveProject(event.target.value)}>
@@ -66,5 +94,7 @@ export function ProjectPicker() {
       <button disabled={busy || projects.length === 0} onClick={() => void renameProject()}>Renomear</button>
       <button disabled={busy || projects.length < 2} onClick={() => void removeProject()}>Remover</button>
     </div>
+    <div className="snapshot-heading"><span>SNAPSHOTS</span><button title="Salvar snapshot" aria-label="Salvar snapshot" disabled={busy || projects.length === 0} onClick={() => void saveSnapshot()}>＋</button></div>
+    {snapshots.length > 0 && <div className="snapshot-list">{snapshots.map((snapshot) => <div className="snapshot-row" key={snapshot.id}><button disabled={busy} title={`Restaurar ${snapshot.name}`} onClick={() => void restoreSnapshot(snapshot.id)}>{snapshot.name}</button><button disabled={busy} aria-label={`Remover ${snapshot.name}`} title="Remover snapshot" onClick={() => void removeSnapshot(snapshot.id)}>×</button></div>)}</div>}
   </section>
 }

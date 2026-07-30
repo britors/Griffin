@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AudioExportOptions, GriffinAPI, LyricsLine, SeparationProgress, Track, TrackAnalysis } from '../shared/types'
+import type { AudioExportOptions, GriffinAPI, LyricsLine, PlayerSnapshot, SeparationProgress, Track, TrackAnalysis } from '../shared/types'
 
 const api: GriffinAPI = {
   window: {
@@ -22,6 +22,9 @@ const api: GriffinAPI = {
     addTrack: (projectId: string, trackId: string) => ipcRenderer.invoke('projects:add-track', projectId, trackId),
     removeTrack: (projectId: string, trackId: string) => ipcRenderer.invoke('projects:remove-track', projectId, trackId),
     moveTrack: (projectId: string, trackId: string, direction: 'up' | 'down') => ipcRenderer.invoke('projects:move-track', projectId, trackId, direction),
+    createSnapshot: (projectId: string, name: string, player: PlayerSnapshot) => ipcRenderer.invoke('projects:create-snapshot', projectId, name, player),
+    restoreSnapshot: (projectId: string, snapshotId: string) => ipcRenderer.invoke('projects:restore-snapshot', projectId, snapshotId),
+    removeSnapshot: (projectId: string, snapshotId: string) => ipcRenderer.invoke('projects:remove-snapshot', projectId, snapshotId),
   },
   analysis: {
     analyze: (trackId: string) => ipcRenderer.invoke('analysis:analyze', trackId),
