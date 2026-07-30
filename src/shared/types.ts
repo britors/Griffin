@@ -57,12 +57,23 @@ export interface AudioExportOptions {
   tempo: number
   loop?: { start: number; end: number }
   format: 'wav'
+  sampleRate: 44100 | 48000
+  bitDepth: 16 | 24
+  requestId?: string
 }
 
 export interface AudioExportResult {
   path: string
   duration: number
   format: 'wav'
+  sampleRate: 44100 | 48000
+  bitDepth: 16 | 24
+}
+
+export interface AudioExportProgress {
+  requestId: string
+  progress: number
+  stage: string
 }
 
 export interface PerformanceSaveResult {
@@ -166,6 +177,8 @@ export interface GriffinAPI {
     update: (trackId: string, lines: LyricsLine[]) => Promise<Track>
   }
   exportAudio: (trackId: string, options: AudioExportOptions) => Promise<AudioExportResult>
+  cancelExport: (requestId: string) => Promise<void>
+  onExportProgress: (callback: (progress: AudioExportProgress) => void) => () => void
   performance: {
     save: (name: string, bytes: Uint8Array) => Promise<PerformanceSaveResult>
   }

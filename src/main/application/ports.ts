@@ -1,5 +1,5 @@
 import type { AudioTrack } from '../../shared/domain/audio-track'
-import type { AudioExportOptions, ChordExportFormat, ChordEvent, SeparationProgress, SeparationStatus, StemName, Track, TrackAnalysis } from '../../shared/types'
+import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, ChordEvent, SeparationProgress, SeparationStatus, StemName, Track, TrackAnalysis } from '../../shared/types'
 import type { Project } from '../../shared/types'
 
 export interface TrackRepository {
@@ -53,7 +53,7 @@ export interface ChordNotationExporter {
 }
 
 export interface AudioExportProcessor {
-  render(stems: Record<StemName, string>, options: AudioExportOptions): Promise<{ bytes: Uint8Array; duration: number }>
+  render(stems: Record<StemName, string>, options: AudioExportOptions, report: (progress: number, stage: string) => void, isCancelled: () => boolean): Promise<{ bytes: Uint8Array; duration: number }>
 }
 
 export interface StemSeparator {

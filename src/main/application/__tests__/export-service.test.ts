@@ -16,7 +16,7 @@ class InMemoryTrackRepository implements TrackRepository {
 
 class FixedProcessor implements AudioExportProcessor {
   received: Record<StemName, string> | null = null
-  async render(stems: Record<StemName, string>) {
+  async render(stems: Record<StemName, string>, _options: AudioExportOptions, _report: (progress: number, stage: string) => void, _isCancelled: () => boolean) {
     this.received = stems
     return { bytes: new Uint8Array([82, 73, 70, 70]), duration: 2.5 }
   }
@@ -33,6 +33,8 @@ const options: AudioExportOptions = {
   volumes: { vocals: 0.8, drums: 0.8, bass: 0.8, other: 0.8 },
   pans: { vocals: 0, drums: 0, bass: 0, other: 0 },
   equalizer: { vocals: Array(12).fill(0), drums: Array(12).fill(0), bass: Array(12).fill(0), other: Array(12).fill(0) },
+  sampleRate: 44100,
+  bitDepth: 16,
   muted: { vocals: false, drums: false, bass: false, other: false },
   solo: null,
   pitch: 0,

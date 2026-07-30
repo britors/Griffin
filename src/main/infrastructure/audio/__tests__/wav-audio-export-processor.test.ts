@@ -26,6 +26,8 @@ const options: AudioExportOptions = {
   volumes: { vocals: 1, drums: 0, bass: 0, other: 0 },
   pans: { vocals: 0, drums: 0, bass: 0, other: 0 },
   equalizer: { vocals: Array(12).fill(0), drums: Array(12).fill(0), bass: Array(12).fill(0), other: Array(12).fill(0) },
+  sampleRate: 44100,
+  bitDepth: 16,
   muted: { vocals: false, drums: false, bass: false, other: false },
   solo: null,
   pitch: 0,
@@ -36,7 +38,7 @@ const options: AudioExportOptions = {
 describe('WavAudioExportProcessor', () => {
   it('renders a stereo WAV with the source duration', async () => {
     const processor = new WavAudioExportProcessor(new FixedFiles(), new FixedDecoder())
-    const result = await processor.render({ vocals: '/stems/vocals.wav' } as Record<StemName, string>, options)
+    const result = await processor.render({ vocals: '/stems/vocals.wav' } as Record<StemName, string>, options, () => {}, () => false)
 
     expect(result.bytes.slice(0, 4)).toEqual(new Uint8Array([82, 73, 70, 70]))
     expect(result.duration).toBeCloseTo(0.2, 2)
@@ -44,7 +46,7 @@ describe('WavAudioExportProcessor', () => {
 
   it('changes the rendered duration when tempo changes', async () => {
     const processor = new WavAudioExportProcessor(new FixedFiles(), new FixedDecoder())
-    const result = await processor.render({ vocals: '/stems/vocals.wav' } as Record<StemName, string>, { ...options, tempo: 0.5 })
+    const result = await processor.render({ vocals: '/stems/vocals.wav' } as Record<StemName, string>, { ...options, tempo: 0.5 }, () => {}, () => false)
 
     expect(result.duration).toBeGreaterThan(0.3)
     expect(result.duration).toBeLessThan(0.5)
