@@ -3,6 +3,7 @@ export type OutputRoute = 'stereo' | 'left' | 'right'
 
 export const EQUALIZER_FREQUENCIES = [32, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000, 20000] as const
 export type EqualizerBands = number[]
+export type AudioExportMode = 'mix' | 'individual'
 
 export interface Track {
   id: string
@@ -55,6 +56,7 @@ export interface AudioExportOptions {
   equalizer: Record<StemName, EqualizerBands>
   muted: Record<StemName, boolean>
   solo: StemName | null
+  mode?: AudioExportMode
   pitch: number
   tempo: number
   loop?: { start: number; end: number }
@@ -66,6 +68,7 @@ export interface AudioExportOptions {
 
 export interface AudioExportResult {
   path: string
+  paths: string[]
   duration: number
   format: 'wav'
   sampleRate: 44100 | 48000
