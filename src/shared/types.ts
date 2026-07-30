@@ -9,6 +9,14 @@ export interface Track {
   stems?: Record<StemName, string>
 }
 
+export interface Project {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+  trackIds: string[]
+}
+
 export interface SeparationProgress {
   trackId: string
   progress: number
@@ -32,6 +40,14 @@ export interface GriffinAPI {
     read: (filePath: string) => Promise<Uint8Array>
     remove: (trackId: string) => Promise<void>
     chooseFile: () => Promise<Track | null>
+  }
+  projects: {
+    list: () => Promise<Project[]>
+    create: (name: string) => Promise<Project>
+    rename: (projectId: string, name: string) => Promise<Project>
+    remove: (projectId: string) => Promise<void>
+    addTrack: (projectId: string, trackId: string) => Promise<Project>
+    removeTrack: (projectId: string, trackId: string) => Promise<Project>
   }
   separation: {
     status: () => Promise<SeparationStatus>

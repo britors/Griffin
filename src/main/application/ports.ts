@@ -1,5 +1,6 @@
 import type { AudioTrack } from '../../shared/domain/audio-track'
 import type { SeparationProgress, SeparationStatus, StemName, Track } from '../../shared/types'
+import type { Project } from '../../shared/types'
 
 export interface TrackRepository {
   init(): Promise<void>
@@ -7,6 +8,14 @@ export interface TrackRepository {
   findById(id: string): Promise<AudioTrack | null>
   findByPath(path: string): Promise<AudioTrack | null>
   save(track: AudioTrack): Promise<AudioTrack>
+  remove(id: string): Promise<void>
+}
+
+export interface ProjectRepository {
+  init(): Promise<void>
+  list(): Promise<Project[]>
+  findById(id: string): Promise<Project | null>
+  save(project: Project): Promise<Project>
   remove(id: string): Promise<void>
 }
 

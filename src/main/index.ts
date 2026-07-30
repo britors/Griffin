@@ -5,12 +5,15 @@ import { SeparationApplicationService } from './application/separation-service'
 import { FileAudioGateway } from './infrastructure/filesystem/file-audio-gateway'
 import { ElectronAudioPicker } from './infrastructure/electron/electron-audio-picker'
 import { JsonSettingsRepository } from './infrastructure/persistence/json-settings-repository'
+import { JsonProjectRepository } from './infrastructure/persistence/json-project-repository'
 import { JsonTrackRepository } from './infrastructure/persistence/json-track-repository'
 import { OnnxDemucsSeparator } from './infrastructure/separation/onnx-demucs-separator'
 import { registerLibraryHandlers } from './presentation/ipc/library-handlers'
 import { registerSeparationHandlers } from './presentation/ipc/separation-handlers'
 import { registerSettingsHandlers } from './presentation/ipc/settings-handlers'
 import { registerWindowHandlers } from './presentation/ipc/window-handlers'
+import { ProjectApplicationService } from './application/project-service'
+import { registerProjectHandlers } from './presentation/ipc/project-handlers'
 
 let window: BrowserWindow | undefined
 
@@ -43,6 +46,7 @@ async function createWindow() {
 app.whenReady().then(async () => {
   app.setPath('userData', join(app.getPath('appData'), 'GriffinMusic'))
   const trackRepository = new JsonTrackRepository(); await trackRepository.init()
+  const projectRepository = new JsonProjectRepository(); await projectRepository.init()
   const modelsDirectory = app.isPackaged ? join(process.resourcesPath, 'models') : join(app.getAppPath(), 'src/main/models')
   const separator = new OnnxDemucsSeparator(join(app.getPath('userData'), 'stems'), modelsDirectory); await separator.init()
   const libraryService = new LibraryApplicationService(trackRepository, new FileAudioGateway(), new ElectronAudioPicker())
@@ -57,6 +61,13 @@ app.whenReady().then(async () => {
   ipcMain.handle('settings:get', settings.get)
   ipcMain.handle('settings:set', (_event, key: string, value: unknown) => settings.set(key, value))
   registerWindowHandlers()
+  const projects = registerProjectHandlers(new ProjectApplicationService(projectRepository))
+  ipcMain.handle('projects:list', projects.list)
+  ipcMain.handle('projects:create', (_event, name: string) => projects.create(_event, name))
+  ipcMain.handle('projects:rename', (_event, id: string, name: string) => projects.rename(_event, id, name))
+  ipcMain.handle('projects:remove', (_event, id: string) => projects.remove(_event, id))
+  ipcMain.handle('projects:add-track', (_event, projectId: string, trackId: string) => projects.addTrack(_event, projectId, trackId))
+  ipcMain.handle('projects:remove-track', (_event, projectId: string, trackId: string) => projects.removeTrack(_event, projectId, trackId))
   registerSeparationHandlers(separationService, () => window?.webContents)
   await createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow() })
