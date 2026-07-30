@@ -16,6 +16,7 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "validate:packages": "bash scripts/validate-packages.sh release",
     "package:linux": "npm run build && electron-builder --linux",
     "package:win": "npm run build && electron-builder --win",
     "package": "npm run build && electron-builder"

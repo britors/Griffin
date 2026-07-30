@@ -72,6 +72,14 @@ npm run package:win
 
 Os artefatos são gravados em `release/`. O RPM local exige o executável `rpmbuild`; no GitHub Actions ele é instalado automaticamente.
 
+Depois de gerar os pacotes Linux, valide os formatos, o logo e os modelos empacotados:
+
+```bash
+npm run validate:packages
+```
+
+Essa verificação também valida sintaticamente `install.sh`, `uninstall.sh`, `download-models.sh` e `PKGBUILD`. O workflow de release executa a mesma checagem para AppImage/DEB/RPM no Linux e para o instalador NSIS x64 no Windows.
+
 ### Exportação de áudio
 
 O painel de exportação permite salvar uma mixagem combinada ou cada stem selecionado separadamente em WAV PCM. A exportação aplica o estado atual do mixer, EQ, pitch, tempo e loop, sem sobrescrever arquivos existentes. MP3 e FLAC ficam reservados para quando um encoder local compatível for distribuído; o aplicativo informa essa indisponibilidade sem enviar áudio para a nuvem.
