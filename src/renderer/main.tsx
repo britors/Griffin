@@ -12,20 +12,35 @@ import { ProjectPicker } from './components/project-picker'
 import './styles.css'
 
 type View = 'library' | 'preferences'
+type LibraryFilter = 'all' | 'favorites' | 'recent'
 
 function App() {
   if (new URLSearchParams(window.location.search).has('splash')) return <Splash />
 
   const [view, setView] = useState<View>('library')
-  const { selected, setProgress } = usePlayer()
+  const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>('all')
+  const { selected, recentTrackIds, setProgress, setFavoriteIds, setRecentTrackIds } = usePlayer()
 
   useEffect(() => {
-    void api.settings.get().then(applyVisualPreferences)
-  }, [])
+    void api.settings.get().then((settings) => {
+      applyVisualPreferences(settings)
+      setFavoriteIds(Array.isArray(settings.favoriteTrackIds) ? settings.favoriteTrackIds.filter((id): id is string => typeof id === 'string') : [])
+      setRecentTrackIds(Array.isArray(settings.recentTrackIds) ? settings.recentTrackIds.filter((id): id is string => typeof id === 'string') : [])
+    })
+  }, [setFavoriteIds, setRecentTrackIds])
+
+  useEffect(() => {
+    if (!selected) return
+    const nextRecent = [selected.id, ...recentTrackIds.filter((id) => id !== selected.id)].slice(0, 20)
+    setRecentTrackIds(nextRecent)
+    void api.settings.set('recentTrackIds', nextRecent)
+  // Read the current list from this effect's closure only when the selected track changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id])
 
   useEffect(() => api.separation.onProgress(setProgress), [setProgress])
 
-  const showLibrary = () => setView('library')
+  const showLibrary = (filter: LibraryFilter = 'all') => { setLibraryFilter(filter); setView('library') }
   const showPreferences = () => setView('preferences')
 
   return <div className="app-shell">
@@ -34,9 +49,9 @@ function App() {
       <div className="brand"><img className="brand-logo" src="./logo.svg" alt="Griffin Music" /><div><strong>Griffin</strong><span>Music</span></div></div>
       <ProjectPicker />
       <nav>
-        <button className={view === 'library' ? 'active' : ''} onClick={showLibrary}>⌂ <span>Biblioteca</span></button>
-        <button>◈ <span>Favoritos</span></button>
-        <button>◌ <span>Recentes</span></button>
+        <button className={view === 'library' && libraryFilter === 'all' ? 'active' : ''} onClick={() => showLibrary()}>⌂ <span>Biblioteca</span></button>
+        <button className={view === 'library' && libraryFilter === 'favorites' ? 'active' : ''} onClick={() => showLibrary('favorites')}>◈ <span>Favoritos</span></button>
+        <button className={view === 'library' && libraryFilter === 'recent' ? 'active' : ''} onClick={() => showLibrary('recent')}>◌ <span>Recentes</span></button>
         <button className={view === 'preferences' ? 'active' : ''} onClick={showPreferences}>⚙ <span>Preferências</span></button>
       </nav>
       <div className="sidebar-footer"><div><span className="offline-dot" />Processamento local</div><div className="version">v0.1.0</div></div>
@@ -54,7 +69,7 @@ function App() {
         </div>
       </header>
       <div className="content-scroll">
-        {view === 'preferences' ? <PreferencesPage /> : <><LibraryPage />{selected && <PlayerPage />}</>}
+        {view === 'preferences' ? <PreferencesPage /> : <><LibraryPage filter={libraryFilter} />{selected && <PlayerPage />}</>}
       </div>
     </div>
   </div>
