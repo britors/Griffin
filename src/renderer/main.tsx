@@ -2,7 +2,7 @@ import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { api } from './api'
 import { applyVisualPreferences } from './preferences'
-import { playerSnapshot, usePlayer } from './store'
+import { addRecentTrack, playerSnapshot, usePlayer } from './store'
 import { LibraryPage } from './pages/library'
 import { PlayerPage } from './pages/player'
 import { PreferencesPage } from './pages/preferences'
@@ -54,7 +54,7 @@ function App() {
 
   useEffect(() => {
     if (!selected) return
-    const nextRecent = [selected.id, ...recentTrackIds.filter((id) => id !== selected.id)].slice(0, 20)
+    const nextRecent = addRecentTrack(recentTrackIds, selected.id)
     setRecentTrackIds(nextRecent)
     void api.settings.set('recentTrackIds', nextRecent)
   // Read the current list from this effect's closure only when the selected track changes.

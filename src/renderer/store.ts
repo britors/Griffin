@@ -3,6 +3,10 @@ import type { EqualizerBands, OutputRoute, PlayerSnapshot, Project, ProjectSnaps
 
 export type MetronomeSubdivision = 1 | 2 | 4
 
+export function addRecentTrack(recentTrackIds: string[], trackId: string, limit = 20) {
+  return [trackId, ...recentTrackIds.filter((id) => id !== trackId)].slice(0, limit)
+}
+
 interface PlayerState {
   tracks: Track[]
   projects: Project[]
