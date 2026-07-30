@@ -32,6 +32,7 @@ const options: AudioExportOptions = {
   stems: ['vocals', 'drums', 'bass', 'other'],
   volumes: { vocals: 0.8, drums: 0.8, bass: 0.8, other: 0.8 },
   pans: { vocals: 0, drums: 0, bass: 0, other: 0 },
+  routes: { vocals: 'stereo', drums: 'stereo', bass: 'stereo', other: 'stereo' },
   equalizer: { vocals: Array(12).fill(0), drums: Array(12).fill(0), bass: Array(12).fill(0), other: Array(12).fill(0) },
   sampleRate: 44100,
   bitDepth: 16,

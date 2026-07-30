@@ -1,5 +1,5 @@
 import { api } from './api'
-import type { StemName, Track } from '../shared/types'
+import type { OutputRoute, StemName, Track } from '../shared/types'
 import { SoundTouchNode } from '@soundtouchjs/audio-worklet'
 import processorUrl from '@soundtouchjs/audio-worklet/processor?url'
 
@@ -134,6 +134,10 @@ export class StemAudioPlayer {
 
   setPan(stem: StemName, pan: number) {
     this.panners.get(stem)!.pan.value = Math.max(-1, Math.min(1, pan))
+  }
+
+  setOutputRoute(stem: StemName, route: OutputRoute, pan: number) {
+    this.setPan(stem, route === 'left' ? -1 : route === 'right' ? 1 : pan)
   }
 
   setEqualizer(stem: StemName, gains: number[]) {

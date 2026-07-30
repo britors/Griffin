@@ -1,4 +1,5 @@
 export type StemName = 'vocals' | 'drums' | 'bass' | 'other'
+export type OutputRoute = 'stereo' | 'left' | 'right'
 
 export const EQUALIZER_FREQUENCIES = [32, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000, 20000] as const
 export type EqualizerBands = number[]
@@ -50,6 +51,7 @@ export interface AudioExportOptions {
   stems: StemName[]
   volumes: Record<StemName, number>
   pans: Record<StemName, number>
+  routes: Record<StemName, OutputRoute>
   equalizer: Record<StemName, EqualizerBands>
   muted: Record<StemName, boolean>
   solo: StemName | null
@@ -110,6 +112,7 @@ export interface PlayerSnapshot {
   loopEnd: number
   volumes: Record<StemName, number>
   pans: Record<StemName, number>
+  routes: Record<StemName, OutputRoute>
   equalizer: Record<StemName, EqualizerBands>
   muted: Record<StemName, boolean>
   solo: StemName | null
