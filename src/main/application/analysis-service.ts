@@ -27,6 +27,7 @@ export class TrackAnalysisApplicationService {
       key: changes.key?.trim() || existing.key,
       tuningHz: clampNumber(changes.tuningHz ?? existing.tuningHz, 430, 450),
       confidence: existing.confidence,
+      sections: changes.sections ?? existing.sections,
     })
     return (await this.repository.save(current)).snapshot()
   }

@@ -1,4 +1,4 @@
-import type { TrackAnalysis } from '../../../shared/types'
+import type { TrackAnalysis, TrackSection } from '../../../shared/types'
 import type { AudioAnalyzer } from '../../application/ports'
 import { AudioFileDecoder, type DecodedAudio } from './audio-file-decoder'
 
@@ -19,6 +19,7 @@ export class LocalTrackAnalyzer implements AudioAnalyzer {
       key: detectKey(samples),
       tuningHz: detectTuning(samples),
       confidence: estimateConfidence(samples),
+      sections: detectSections(samples),
     }
   }
 }
@@ -113,4 +114,32 @@ function estimateConfidence(samples: Float32Array): number {
   let energy = 0
   for (const sample of samples) energy += sample ** 2
   return Math.min(1, Math.max(0, Math.sqrt(energy / Math.max(1, samples.length)) * 8))
+}
+
+function detectSections(samples: Float32Array): TrackSection[] {
+  const windowSize = Math.max(1, Math.floor(samples.length / 12))
+  const energies: number[] = []
+  for (let start = 0; start < samples.length; start += windowSize) {
+    let energy = 0
+    const end = Math.min(samples.length, start + windowSize)
+    for (let index = start; index < end; index += 1) energy += samples[index] ** 2
+    energies.push(Math.sqrt(energy / Math.max(1, end - start)))
+  }
+  const peak = Math.max(...energies, 0.001)
+  const boundaries = [0]
+  for (let index = 1; index < energies.length; index += 1) {
+    const change = Math.abs(energies[index] - energies[index - 1]) / peak
+    const position = index / energies.length
+    if (change > 0.18 && position - boundaries[boundaries.length - 1] >= 0.08) boundaries.push(position)
+  }
+  if (boundaries.length < 3) boundaries.push(0.25, 0.5, 0.75)
+  boundaries.push(1)
+  const unique = [...new Set(boundaries.map((value) => Math.max(0, Math.min(1, value))))].sort((a, b) => a - b)
+  const highestEnergyIndex = energies.indexOf(Math.max(...energies))
+  return unique.slice(0, -1).map((start, index) => {
+    const end = unique[index + 1]
+    const segmentIndex = Math.min(energies.length - 1, Math.floor(start * energies.length))
+    const name = index === 0 ? 'Intro' : segmentIndex === highestEnergyIndex ? 'Refrão' : index === unique.length - 2 ? 'Outro' : index % 2 === 0 ? 'Verso' : 'Ponte'
+    return { id: `section-${index + 1}`, name, start, end, confidence: 0.55 }
+  })
 }
