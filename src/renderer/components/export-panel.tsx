@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { usePlayer } from '../store'
-import { STEM_LABELS, type AudioExportMode, type AudioExportOptions, type StemName } from '../../shared/types'
+import { ALL_STEMS, STEM_LABELS, type AudioExportMode, type AudioExportOptions, type StemName } from '../../shared/types'
 
-const stemNames: StemName[] = ['vocals', 'drums', 'bass', 'other']
+const stemNames: StemName[] = ALL_STEMS
 
 export function ExportPanel() {
   const { selected, volumes, pans, routes, equalizer, muted, solo, pitch, tempo, loopEnabled, loopStart, loopEnd } = usePlayer()

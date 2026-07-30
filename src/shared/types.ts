@@ -1,4 +1,6 @@
-export type StemName = 'vocals' | 'drums' | 'bass' | 'other'
+export type StemName = 'vocals' | 'drums' | 'bass' | 'other' | 'guitar' | 'piano'
+export const CORE_STEMS: StemName[] = ['vocals', 'drums', 'bass', 'other']
+export const ALL_STEMS: StemName[] = [...CORE_STEMS, 'guitar', 'piano']
 export type OutputRoute = 'stereo' | 'left' | 'right'
 
 export const EQUALIZER_FREQUENCIES = [32, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000, 20000] as const
@@ -7,6 +9,7 @@ export type AudioExportMode = 'mix' | 'individual'
 export type AudioExportFormat = 'wav' | 'mp3' | 'flac'
 export type SeparationProfile = 'quality' | 'balanced' | 'speed'
 export type ExecutionProviderPreference = 'auto' | 'cpu' | 'cuda'
+export type SeparationModelProfile = 'four-stem' | 'six-stem'
 
 export interface Track {
   id: string
@@ -14,7 +17,7 @@ export interface Track {
   path: string
   importedAt: string
   duration?: number
-  stems?: Record<StemName, string>
+  stems?: Partial<Record<StemName, string>>
   analysis?: TrackAnalysis
   lyrics?: LyricsLine[]
 }
@@ -53,11 +56,11 @@ export interface ChordEvent {
 
 export interface AudioExportOptions {
   stems: StemName[]
-  volumes: Record<StemName, number>
-  pans: Record<StemName, number>
-  routes: Record<StemName, OutputRoute>
-  equalizer: Record<StemName, EqualizerBands>
-  muted: Record<StemName, boolean>
+  volumes: Partial<Record<StemName, number>>
+  pans: Partial<Record<StemName, number>>
+  routes: Partial<Record<StemName, OutputRoute>>
+  equalizer: Partial<Record<StemName, EqualizerBands>>
+  muted: Partial<Record<StemName, boolean>>
   solo: StemName | null
   mode?: AudioExportMode
   pitch: number
@@ -116,11 +119,11 @@ export interface PlayerSnapshot {
   loopEnabled: boolean
   loopStart: number
   loopEnd: number
-  volumes: Record<StemName, number>
-  pans: Record<StemName, number>
-  routes: Record<StemName, OutputRoute>
-  equalizer: Record<StemName, EqualizerBands>
-  muted: Record<StemName, boolean>
+  volumes: Partial<Record<StemName, number>>
+  pans: Partial<Record<StemName, number>>
+  routes: Partial<Record<StemName, OutputRoute>>
+  equalizer: Partial<Record<StemName, EqualizerBands>>
+  muted: Partial<Record<StemName, boolean>>
   solo: StemName | null
 }
 
@@ -145,6 +148,8 @@ export interface SeparationStatus {
   profile?: SeparationProfile
   memoryBytes?: number
   lastDurationMs?: number
+  modelProfile?: SeparationModelProfile
+  sixStemAvailable?: boolean
 }
 
 export interface LocalResourcesSummary {
@@ -249,4 +254,6 @@ export const STEM_LABELS: Record<StemName, string> = {
   drums: 'Bateria',
   bass: 'Baixo',
   other: 'Outros',
+  guitar: 'Guitarra',
+  piano: 'Piano',
 }

@@ -32,7 +32,7 @@ import { ChordNotationExportService } from './infrastructure/audio/chord-notatio
 import { ElectronChordExportDestination } from './infrastructure/electron/electron-chord-export-destination'
 import { registerChordExportHandlers } from './presentation/ipc/chord-export-handlers'
 import { LocalResourcesApplicationService } from './application/local-resources-service'
-import type { ExecutionProviderPreference, SeparationProfile } from '../shared/types'
+import type { ExecutionProviderPreference, SeparationModelProfile, SeparationProfile } from '../shared/types'
 import { RemoteAudioImportApplicationService } from './application/remote-audio-import-service'
 import { ElectronRemoteAudioDownloader } from './infrastructure/electron/remote-audio-downloader'
 import { YoutubeImportApplicationService } from './application/youtube-import-service'
@@ -77,6 +77,7 @@ app.whenReady().then(async () => {
   const separator = new OnnxDemucsSeparator(cacheDirectory, modelsDirectory)
   separator.setProcessingThreads(typeof initialSettings.processingThreads === 'number' ? initialSettings.processingThreads : 0)
   separator.setProcessingProfile(isSeparationProfile(initialSettings.processingProfile) ? initialSettings.processingProfile : 'quality')
+  separator.setModelProfile(isModelProfile(initialSettings.modelProfile) ? initialSettings.modelProfile : 'four-stem')
   separator.setExecutionProvider(isExecutionProvider(initialSettings.executionProvider) ? initialSettings.executionProvider : 'auto')
   await separator.init()
   const libraryService = new LibraryApplicationService(trackRepository, new FileAudioGateway(), new ElectronAudioPicker())
@@ -121,6 +122,7 @@ app.whenReady().then(async () => {
   const settings = registerSettingsHandlers(settingsRepository, (key, value) => {
     if (key === 'processingThreads' && typeof value === 'number') separator.setProcessingThreads(value)
     if (key === 'processingProfile' && isSeparationProfile(value)) separator.setProcessingProfile(value)
+    if (key === 'modelProfile' && isModelProfile(value)) separator.setModelProfile(value)
     if (key === 'executionProvider' && isExecutionProvider(value)) separator.setExecutionProvider(value)
   })
   ipcMain.handle('settings:get', settings.get)
@@ -147,5 +149,6 @@ app.whenReady().then(async () => {
 
 function isSeparationProfile(value: unknown): value is SeparationProfile { return value === 'quality' || value === 'balanced' || value === 'speed' }
 function isExecutionProvider(value: unknown): value is ExecutionProviderPreference { return value === 'auto' || value === 'cpu' || value === 'cuda' }
+function isModelProfile(value: unknown): value is SeparationModelProfile { return value === 'four-stem' || value === 'six-stem' }
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })

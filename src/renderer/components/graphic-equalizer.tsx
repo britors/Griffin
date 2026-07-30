@@ -1,15 +1,14 @@
 import { useState } from 'react'
-import { EQUALIZER_FREQUENCIES, STEM_LABELS, type StemName } from '../../shared/types'
+import { ALL_STEMS, EQUALIZER_FREQUENCIES, STEM_LABELS, type StemName } from '../../shared/types'
 import { usePlayer } from '../store'
-
-const stems: StemName[] = ['vocals', 'drums', 'bass', 'other']
 
 function formatFrequency(frequency: number) { return frequency >= 1000 ? `${frequency / 1000}k` : String(frequency) }
 
 export function GraphicEqualizer() {
   const [stem, setStem] = useState<StemName>('vocals')
-  const { equalizer, setEqualizerBand } = usePlayer()
-  const gains = equalizer[stem]
+  const { selected, equalizer, setEqualizerBand } = usePlayer()
+  const stems = ALL_STEMS.filter((item) => Boolean(selected?.stems?.[item]))
+  const gains = equalizer[stem] ?? Array(12).fill(0)
   const points = gains.map((gain, index) => `${(index / (gains.length - 1)) * 100},${50 - gain * 3}`).join(' ')
   const applyPreset = (preset: 'flat' | 'vocal' | 'bass-cut' | 'bright') => {
     const values = { flat: Array(12).fill(0), vocal: [-3, -2, -1, 1, 3, 4, 3, 2, 1, 0, -1, -2], 'bass-cut': [-12, -9, -6, -3, 0, 0, 0, 0, 0, 0, 0, 0], bright: [0, 0, 0, 1, 1, 2, 3, 3, 4, 4, 3, 2] }[preset]

@@ -24,7 +24,7 @@ export class AudioTrack {
   get path() { return this.props.path }
   get stems() { return this.props.stems }
 
-  attachStems(stems: Record<StemName, string>) {
+  attachStems(stems: Partial<Record<StemName, string>>) {
     this.props.stems = { ...stems }
   }
 
