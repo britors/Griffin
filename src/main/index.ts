@@ -31,6 +31,7 @@ import { ChordExportApplicationService } from './application/chord-export-servic
 import { ChordNotationExportService } from './infrastructure/audio/chord-notation-exporter'
 import { ElectronChordExportDestination } from './infrastructure/electron/electron-chord-export-destination'
 import { registerChordExportHandlers } from './presentation/ipc/chord-export-handlers'
+import { LocalResourcesApplicationService } from './application/local-resources-service'
 
 let window: BrowserWindow | undefined
 
@@ -65,7 +66,12 @@ app.whenReady().then(async () => {
   const trackRepository = new JsonTrackRepository(); await trackRepository.init()
   const projectRepository = new JsonProjectRepository(); await projectRepository.init()
   const modelsDirectory = app.isPackaged ? join(process.resourcesPath, 'models') : join(app.getAppPath(), 'src/main/models')
-  const separator = new OnnxDemucsSeparator(join(app.getPath('userData'), 'stems'), modelsDirectory); await separator.init()
+  const settingsRepository = new JsonSettingsRepository()
+  const initialSettings = await settingsRepository.get()
+  const cacheDirectory = join(app.getPath('userData'), 'stems')
+  const separator = new OnnxDemucsSeparator(cacheDirectory, modelsDirectory)
+  separator.setProcessingThreads(typeof initialSettings.processingThreads === 'number' ? initialSettings.processingThreads : 0)
+  await separator.init()
   const libraryService = new LibraryApplicationService(trackRepository, new FileAudioGateway(), new ElectronAudioPicker())
   const separationService = new SeparationApplicationService(trackRepository, separator)
   const projectService = new ProjectApplicationService(projectRepository)
@@ -74,6 +80,7 @@ app.whenReady().then(async () => {
   const exportService = new AudioExportApplicationService(trackRepository, new WavAudioExportProcessor(new FileAudioGateway(), new AudioFileDecoder()), new ElectronAudioExportDestination())
   const performance = registerPerformanceHandlers(new PerformanceApplicationService(new ElectronRecordingDestination()))
   const chordExport = registerChordExportHandlers(new ChordExportApplicationService(trackRepository, new ChordNotationExportService(), new ElectronChordExportDestination()))
+  const resources = new LocalResourcesApplicationService(cacheDirectory, modelsDirectory)
   const libraryHandlers = registerLibraryHandlers(libraryService)
   ipcMain.handle('library:list', libraryHandlers.list)
   ipcMain.handle('library:import', (_event, path?: string) => libraryHandlers.import(path))
@@ -94,9 +101,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('export:cancel', audioExport.cancel)
   ipcMain.handle('performance:save', performance.save)
   ipcMain.handle('chords:export', chordExport.export)
-  const settings = registerSettingsHandlers(new JsonSettingsRepository())
+  const settings = registerSettingsHandlers(settingsRepository, (key, value) => { if (key === 'processingThreads' && typeof value === 'number') separator.setProcessingThreads(value) })
   ipcMain.handle('settings:get', settings.get)
   ipcMain.handle('settings:set', (_event, key: string, value: unknown) => settings.set(key, value))
+  ipcMain.handle('resources:summary', resources.summary.bind(resources))
+  ipcMain.handle('resources:clear-cache', resources.clearCache.bind(resources))
   registerWindowHandlers()
   const projects = registerProjectHandlers(projectService)
   ipcMain.handle('projects:list', projects.list)

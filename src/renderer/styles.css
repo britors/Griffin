@@ -98,6 +98,7 @@ nav button.active { color: var(--gold-light); border-left: 2px solid var(--gold)
 .compact-control { min-width: 110px; }
 .preference-control:focus { outline: 0; border-color: var(--gold); }
 .preference-value { color: #dce7f4; font-size: 14px; }
+.preference-path { max-width: 360px; overflow-wrap: anywhere; color: #8fa6bb; font-size: 11px; text-align: right; }
 .shortcut-list { display: grid; grid-template-columns: repeat(2, max-content); gap: 7px 15px; color: #8ea2b8; font-size: 11px; }
 .shortcut-list span { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 kbd { min-width: 20px; padding: 3px 5px; border: 1px solid #38536f; border-bottom-width: 2px; border-radius: 4px; background: #0d1b2d; color: #dce7f4; font: 600 10px 'DM Sans'; text-align: center; }
@@ -181,6 +182,7 @@ body.light-theme .preference-section-heading, body.light-theme .preference-row {
 body.light-theme .preference-section-heading p, body.light-theme .preference-row small { color: #657b8e; }
 body.light-theme .preference-row strong { color: #25384b; }
 body.light-theme .preference-control { background: #fff; border-color: #bdcfdd; color: #25384b; }
+body.light-theme .preference-path { color: #405b70; }
 body.light-theme .preference-range { accent-color: var(--gold); }
 body.light-theme .preference-value { color: #405b70; }
 body.light-theme .shortcut-list { color: #60778c; }

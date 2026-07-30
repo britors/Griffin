@@ -141,6 +141,13 @@ export interface SeparationStatus {
   message: string
 }
 
+export interface LocalResourcesSummary {
+  cachePath: string
+  cacheBytes: number
+  modelPath: string
+  modelBytes: number
+}
+
 export interface GriffinAPI {
   window: {
     minimize: () => Promise<void>
@@ -176,6 +183,10 @@ export interface GriffinAPI {
   settings: {
     get: () => Promise<Record<string, unknown>>
     set: (key: string, value: unknown) => Promise<void>
+  }
+  resources: {
+    summary: () => Promise<LocalResourcesSummary>
+    clearCache: () => Promise<LocalResourcesSummary>
   }
   analysis: {
     analyze: (trackId: string) => Promise<Track>
