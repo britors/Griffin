@@ -38,6 +38,11 @@ export interface AudioExportDestination {
   write(path: string, bytes: Uint8Array): Promise<void>
 }
 
+export interface AudioRecordingDestination {
+  choose(defaultName: string): Promise<string | null>
+  write(path: string, bytes: Uint8Array): Promise<void>
+}
+
 export interface AudioExportProcessor {
   render(stems: Record<StemName, string>, options: AudioExportOptions): Promise<{ bytes: Uint8Array; duration: number }>
 }

@@ -4,6 +4,9 @@ import { SoundTouchNode } from '@soundtouchjs/audio-worklet'
 import processorUrl from '@soundtouchjs/audio-worklet/processor?url'
 
 const stems: StemName[] = ['vocals', 'drums', 'bass', 'other']
+let activePlayer: StemAudioPlayer | null = null
+
+export function getActiveStemAudioPlayer() { return activePlayer }
 
 function asArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
@@ -12,6 +15,7 @@ function asArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 /** Keeps all stem sources on one AudioContext clock. Sources are recreated on seek/pause. */
 export class StemAudioPlayer {
   private readonly context = new AudioContext()
+  private readonly recordingDestination = this.context.createMediaStreamDestination()
   private readonly gains = new Map<StemName, GainNode>()
   private readonly panners = new Map<StemName, StereoPannerNode>()
   private readonly equalizers = new Map<StemName, BiquadFilterNode[]>()
@@ -25,10 +29,12 @@ export class StemAudioPlayer {
   private tempo = 1
 
   constructor() {
+    activePlayer = this
     for (const stem of stems) {
       const gain = this.context.createGain()
       const panner = this.context.createStereoPanner()
       gain.connect(panner).connect(this.context.destination)
+      panner.connect(this.recordingDestination)
       this.gains.set(stem, gain)
       this.panners.set(stem, panner)
       this.equalizers.set(stem, [])
@@ -37,6 +43,13 @@ export class StemAudioPlayer {
 
   get length() { return this.duration }
   get isLoaded() { return this.buffers.size === stems.length }
+  get recordingStream() { return this.recordingDestination.stream }
+
+  connectMicrophone(stream: MediaStream) {
+    const source = this.context.createMediaStreamSource(stream)
+    source.connect(this.recordingDestination)
+    return () => { source.disconnect(); stream.getTracks().forEach((track) => track.stop()) }
+  }
 
   async load(track: Track) {
     this.stop()
@@ -128,7 +141,7 @@ export class StemAudioPlayer {
     for (const processor of this.processors.values()) processor.pitchSemitones.setValueAtTime(pitch, this.context.currentTime)
   }
 
-  dispose() { this.stop(); void this.context.close() }
+  dispose() { this.stop(); if (activePlayer === this) activePlayer = null; void this.context.close() }
 
   private stop() { this.stopSources(); this.offset = 0 }
   private stopSources() {

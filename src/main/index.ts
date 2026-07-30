@@ -24,6 +24,9 @@ import { AudioFileDecoder } from './infrastructure/audio/audio-file-decoder'
 import { WavAudioExportProcessor } from './infrastructure/audio/wav-audio-export-processor'
 import { ElectronAudioExportDestination } from './infrastructure/electron/electron-audio-export-destination'
 import { registerExportHandlers } from './presentation/ipc/export-handlers'
+import { PerformanceApplicationService } from './application/performance-service'
+import { ElectronRecordingDestination } from './infrastructure/electron/electron-recording-destination'
+import { registerPerformanceHandlers } from './presentation/ipc/performance-handlers'
 
 let window: BrowserWindow | undefined
 
@@ -65,6 +68,7 @@ app.whenReady().then(async () => {
   const analysisService = new TrackAnalysisApplicationService(trackRepository, new FileAudioGateway(), new LocalTrackAnalyzer())
   const lyricsService = new LyricsApplicationService(trackRepository)
   const exportService = new AudioExportApplicationService(trackRepository, new WavAudioExportProcessor(new FileAudioGateway(), new AudioFileDecoder()), new ElectronAudioExportDestination())
+  const performance = registerPerformanceHandlers(new PerformanceApplicationService(new ElectronRecordingDestination()))
   const libraryHandlers = registerLibraryHandlers(libraryService)
   ipcMain.handle('library:list', libraryHandlers.list)
   ipcMain.handle('library:import', (_event, path?: string) => libraryHandlers.import(path))
@@ -82,6 +86,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('lyrics:update', lyrics.update)
   const audioExport = registerExportHandlers(exportService)
   ipcMain.handle('export:audio', audioExport.audio)
+  ipcMain.handle('performance:save', performance.save)
   const settings = registerSettingsHandlers(new JsonSettingsRepository())
   ipcMain.handle('settings:get', settings.get)
   ipcMain.handle('settings:set', (_event, key: string, value: unknown) => settings.set(key, value))
