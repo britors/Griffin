@@ -4,6 +4,7 @@ export type OutputRoute = 'stereo' | 'left' | 'right'
 export const EQUALIZER_FREQUENCIES = [32, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000, 20000] as const
 export type EqualizerBands = number[]
 export type AudioExportMode = 'mix' | 'individual'
+export type AudioExportFormat = 'wav' | 'mp3' | 'flac'
 
 export interface Track {
   id: string
@@ -60,7 +61,7 @@ export interface AudioExportOptions {
   pitch: number
   tempo: number
   loop?: { start: number; end: number }
-  format: 'wav'
+  format: AudioExportFormat
   sampleRate: 44100 | 48000
   bitDepth: 16 | 24
   requestId?: string

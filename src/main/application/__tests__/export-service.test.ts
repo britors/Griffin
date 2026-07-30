@@ -70,6 +70,13 @@ describe('AudioExportApplicationService', () => {
     expect(processor.received).toEqual({ drums: '/stems/drums.wav' })
   })
 
+  it('reports clearly when a compressed encoder is unavailable', async () => {
+    const track = AudioTrack.restore({ id: 'track-1', name: 'Song.wav', path: '/music/song.wav', importedAt: 'now', stems: { vocals: '/stems/vocals.wav', drums: '/stems/drums.wav', bass: '/stems/bass.wav', other: '/stems/other.wav' } })
+    const service = new AudioExportApplicationService(new InMemoryTrackRepository(track), new FixedProcessor(), new FixedDestination())
+
+    await expect(service.export(track.id, { ...options, format: 'mp3' })).rejects.toThrow('Use WAV PCM')
+  })
+
   it('exports each selected stem into a separate file', async () => {
     const track = AudioTrack.restore({ id: 'track-1', name: 'Song.wav', path: '/music/song.wav', importedAt: 'now', stems: { vocals: '/stems/vocals.wav', drums: '/stems/drums.wav', bass: '/stems/bass.wav', other: '/stems/other.wav' } })
     const processor = new FixedProcessor()

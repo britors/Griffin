@@ -12,6 +12,7 @@ O MVP e a Fase 2 de prática musical já estão integrados na `main`:
 - BPM, tonalidade, afinação, seções, acordes e letras sincronizadas;
 - metrônomo com subdivisão e contagem de entrada;
 - prática progressiva e atalhos de teclado;
+- exportação de mixagens e stems individuais em WAV PCM, com sample rate e bit depth configuráveis;
 - build Linux AppImage/DEB/RPM e Windows NSIS configurado no GitHub Actions.
 
 A release pública `v0.1.0` ainda não foi criada. Ela será publicada quando a tag for autorizada e enviada ao GitHub.
@@ -62,6 +63,10 @@ npm run package:win
 ```
 
 Os artefatos são gravados em `release/`. O RPM local exige o executável `rpmbuild`; no GitHub Actions ele é instalado automaticamente.
+
+### Exportação de áudio
+
+O painel de exportação permite salvar uma mixagem combinada ou cada stem selecionado separadamente em WAV PCM. A exportação aplica o estado atual do mixer, EQ, pitch, tempo e loop, sem sobrescrever arquivos existentes. MP3 e FLAC ficam reservados para quando um encoder local compatível for distribuído; o aplicativo informa essa indisponibilidade sem enviar áudio para a nuvem.
 
 ## Instalação por release
 
