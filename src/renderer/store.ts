@@ -7,6 +7,7 @@ interface PlayerState {
   activeProjectId: string | null
   favoriteIds: string[]
   recentTrackIds: string[]
+  resetPlaybackOnTrackChange: boolean
   selected: Track | null
   playing: boolean
   position: number
@@ -25,6 +26,7 @@ interface PlayerState {
   setActiveProject: (projectId: string | null) => void
   setFavoriteIds: (ids: string[]) => void
   setRecentTrackIds: (ids: string[]) => void
+  setResetPlaybackOnTrackChange: (enabled: boolean) => void
   toggleFavorite: (trackId: string) => void
   select: (track: Track | null) => void
   setPlaying: (playing: boolean) => void
@@ -43,7 +45,7 @@ interface PlayerState {
 }
 
 export const usePlayer = create<PlayerState>((set) => ({
-  tracks: [], projects: [], activeProjectId: null, favoriteIds: [], recentTrackIds: [], selected: null, playing: false, position: 0, seekVersion: 0, pitch: 0, tempo: 1, loopEnabled: false, loopStart: 0, loopEnd: 1, progress: null,
+  tracks: [], projects: [], activeProjectId: null, favoriteIds: [], recentTrackIds: [], resetPlaybackOnTrackChange: true, selected: null, playing: false, position: 0, seekVersion: 0, pitch: 0, tempo: 1, loopEnabled: false, loopStart: 0, loopEnd: 1, progress: null,
   volumes: { vocals: 0.82, drums: 0.82, bass: 0.82, other: 0.82 },
   muted: { vocals: false, drums: false, bass: false, other: false }, solo: null,
   setTracks: (tracks) => set({ tracks }),
@@ -51,8 +53,9 @@ export const usePlayer = create<PlayerState>((set) => ({
   setActiveProject: (activeProjectId) => set({ activeProjectId, selected: null, playing: false, position: 0 }),
   setFavoriteIds: (favoriteIds) => set({ favoriteIds }),
   setRecentTrackIds: (recentTrackIds) => set({ recentTrackIds }),
+  setResetPlaybackOnTrackChange: (resetPlaybackOnTrackChange) => set({ resetPlaybackOnTrackChange }),
   toggleFavorite: (trackId) => set((state) => ({ favoriteIds: state.favoriteIds.includes(trackId) ? state.favoriteIds.filter((id) => id !== trackId) : [trackId, ...state.favoriteIds] })),
-  select: (selected) => set({ selected, playing: false, position: 0 }),
+  select: (selected) => set((state) => ({ selected, playing: false, position: selected && !state.resetPlaybackOnTrackChange ? state.position : 0 })),
   setPlaying: (playing) => set({ playing }), setPosition: (position) => set({ position }),
   seekTo: (position) => set((state) => ({ position, seekVersion: state.seekVersion + 1 })),
   setPitch: (pitch) => set({ pitch }), setTempo: (tempo) => set({ tempo }),

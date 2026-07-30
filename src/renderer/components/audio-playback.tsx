@@ -10,6 +10,7 @@ export function AudioPlayback() {
   const seekVersion = usePlayer((state) => state.seekVersion)
   const tempo = usePlayer((state) => state.tempo)
   const pitch = usePlayer((state) => state.pitch)
+  const resetPlaybackOnTrackChange = usePlayer((state) => state.resetPlaybackOnTrackChange)
   const loopEnabled = usePlayer((state) => state.loopEnabled)
   const loopStart = usePlayer((state) => state.loopStart)
   const loopEnd = usePlayer((state) => state.loopEnd)
@@ -27,8 +28,11 @@ export function AudioPlayback() {
   useEffect(() => {
     const player = engine.current
     if (!player || !selected) return
-    void player.load(selected).catch(() => setPlaying(false))
-  }, [selected, setPlaying])
+    const requestedPosition = position
+    void player.load(selected).then(() => {
+      if (!resetPlaybackOnTrackChange && player.length > 0) player.seek(requestedPosition * player.length, false, tempo, pitch)
+    }).catch(() => setPlaying(false))
+  }, [selected, resetPlaybackOnTrackChange, setPlaying])
 
   useEffect(() => {
     const player = engine.current
@@ -44,7 +48,7 @@ export function AudioPlayback() {
     } else {
       setPosition(player.pause() / player.length)
     }
-  }, [playing, selected, setPlaying, setPosition])
+  }, [playing, setPlaying, setPosition])
 
   useEffect(() => {
     const player = engine.current

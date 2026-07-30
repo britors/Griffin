@@ -19,15 +19,16 @@ function App() {
 
   const [view, setView] = useState<View>('library')
   const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>('all')
-  const { selected, recentTrackIds, setProgress, setFavoriteIds, setRecentTrackIds } = usePlayer()
+  const { selected, recentTrackIds, setProgress, setFavoriteIds, setRecentTrackIds, setResetPlaybackOnTrackChange } = usePlayer()
 
   useEffect(() => {
     void api.settings.get().then((settings) => {
       applyVisualPreferences(settings)
       setFavoriteIds(Array.isArray(settings.favoriteTrackIds) ? settings.favoriteTrackIds.filter((id): id is string => typeof id === 'string') : [])
       setRecentTrackIds(Array.isArray(settings.recentTrackIds) ? settings.recentTrackIds.filter((id): id is string => typeof id === 'string') : [])
+      setResetPlaybackOnTrackChange(settings.resetPlaybackOnTrackChange !== false)
     })
-  }, [setFavoriteIds, setRecentTrackIds])
+  }, [setFavoriteIds, setRecentTrackIds, setResetPlaybackOnTrackChange])
 
   useEffect(() => {
     if (!selected) return

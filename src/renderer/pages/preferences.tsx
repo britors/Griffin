@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { ACCENT_PRESETS, applyVisualPreferences } from '../preferences'
+import { usePlayer } from '../store'
 import type { SeparationStatus } from '../../shared/types'
 
 type Section = 'appearance' | 'playback' | 'processing' | 'about'
@@ -17,11 +18,13 @@ export function PreferencesPage() {
   const [settings, setSettings] = useState<Settings>({})
   const [activeSection, setActiveSection] = useState<Section>('appearance')
   const [modelStatus, setModelStatus] = useState<SeparationStatus | null>(null)
+  const setResetPlaybackOnTrackChange = usePlayer((state) => state.setResetPlaybackOnTrackChange)
 
   useEffect(() => {
     void api.settings.get().then((loaded) => {
       setSettings(loaded)
       applyVisualPreferences(loaded)
+      setResetPlaybackOnTrackChange(loaded.resetPlaybackOnTrackChange !== false)
     })
     void api.separation.status().then(setModelStatus)
   }, [])
@@ -31,6 +34,7 @@ export function PreferencesPage() {
     setSettings(next)
     applyVisualPreferences(next)
     await api.settings.set(key, value)
+    if (key === 'resetPlaybackOnTrackChange' && typeof value === 'boolean') setResetPlaybackOnTrackChange(value)
   }
 
   return <main className="preferences-page">
