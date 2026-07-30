@@ -1,5 +1,5 @@
 import type { AudioTrack } from '../../shared/domain/audio-track'
-import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, ChordEvent, SeparationProgress, SeparationStatus, StemName, Track, TrackAnalysis } from '../../shared/types'
+import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, ChordEvent, RemoteAudioAsset, SeparationProgress, SeparationStatus, StemName, Track, TrackAnalysis } from '../../shared/types'
 import type { Project } from '../../shared/types'
 
 export interface TrackRepository {
@@ -72,6 +72,11 @@ export interface SettingsRepository {
 
 export interface AudioAnalyzer {
   analyze(bytes: Uint8Array): Promise<TrackAnalysis>
+}
+
+export interface RemoteAudioDownloader {
+  download(url: string, signal?: AbortSignal): Promise<RemoteAudioAsset>
+  cleanup(asset: RemoteAudioAsset): Promise<void>
 }
 
 export type TrackSnapshot = Track

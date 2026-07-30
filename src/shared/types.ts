@@ -154,6 +154,19 @@ export interface LocalResourcesSummary {
   modelBytes: number
 }
 
+export interface RemoteAudioAsset {
+  id: string
+  url: string
+  tempPath: string
+  fileName: string
+  format: 'wav' | 'mp3' | 'flac'
+  sizeBytes: number
+  duration?: number
+  sourceHash: string
+  mediaHash: string
+  cacheKey: string
+}
+
 export interface GriffinAPI {
   window: {
     minimize: () => Promise<void>
