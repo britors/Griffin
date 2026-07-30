@@ -1,5 +1,5 @@
 import type { AudioTrack } from '../../shared/domain/audio-track'
-import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, ChordEvent, RemoteAudioAsset, SeparationProgress, SeparationStatus, StemName, Track, TrackAnalysis, YoutubeAudioPreview } from '../../shared/types'
+import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, ChordEvent, RemoteAudioAsset, SeparationProgress, SeparationStatus, StemName, Track, TrackAnalysis, YoutubeAudioPreview, YoutubeImportProgress } from '../../shared/types'
 import type { Project } from '../../shared/types'
 
 export interface TrackRepository {
@@ -81,7 +81,7 @@ export interface RemoteAudioDownloader {
 
 export interface YoutubeAudioDownloader {
   inspect(url: string): Promise<YoutubeAudioPreview>
-  download(url: string): Promise<RemoteAudioAsset>
+  download(url: string, report?: (progress: Omit<YoutubeImportProgress, 'id' | 'stage'> & { stage: YoutubeImportProgress['stage'] }) => void): Promise<RemoteAudioAsset>
   cleanup(asset: RemoteAudioAsset): Promise<void>
 }
 

@@ -182,6 +182,15 @@ export interface YoutubeAudioPreview {
   format: 'wav'
 }
 
+export type YoutubeImportStage = 'downloading' | 'converting' | 'importing'
+
+export interface YoutubeImportProgress {
+  id: string
+  progress: number
+  stage: YoutubeImportStage
+  message: string
+}
+
 export interface GriffinAPI {
   window: {
     minimize: () => Promise<void>
@@ -202,6 +211,7 @@ export interface GriffinAPI {
     youtubePreview: (url: string) => Promise<YoutubeAudioPreview>
     youtubeImport: (previewId: string) => Promise<Track>
     youtubeCancel: (previewId: string) => Promise<void>
+    onYoutubeProgress: (callback: (progress: YoutubeImportProgress) => void) => () => void
   }
   projects: {
     list: () => Promise<Project[]>
