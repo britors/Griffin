@@ -34,7 +34,7 @@ export function LibraryPage({ filter = 'all' }: { filter?: LibraryFilter }) {
   }
 
   const removeTrack = async (track: Track) => {
-    if (!window.confirm(`Remover “${track.name}” da biblioteca?`)) return
+    if (!window.confirm(`Remover “${track.name}” da biblioteca?\n\nA entrada será removida, mas os stems em cache serão preservados neste computador.`)) return
     await api.library.remove(track.id)
     if (selected?.id === track.id) select(null)
     setTracks(await api.library.list())

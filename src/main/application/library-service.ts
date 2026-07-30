@@ -29,6 +29,7 @@ export class LibraryApplicationService {
     return this.audioFiles.read(path)
   }
 
+  // The library entry is removed, while separation cache files remain reusable and recoverable.
   async remove(id: string) { await this.repository.remove(id) }
 
   async find(id: string): Promise<AudioTrack | null> { return this.repository.findById(id) }
