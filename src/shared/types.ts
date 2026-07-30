@@ -100,6 +100,8 @@ export interface Project {
 
 export interface PlayerSnapshot {
   selectedTrackId: string | null
+  takePath?: string | null
+  takeName?: string | null
   position: number
   pitch: number
   tempo: number

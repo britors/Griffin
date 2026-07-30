@@ -23,6 +23,8 @@ function App() {
   const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>('all')
   const { selected, recentTrackIds, setProgress, setFavoriteIds, setRecentTrackIds, setResetPlaybackOnTrackChange, setMetronomeEnabled, setMetronomeSubdivision, setMetronomeVolume, setCountInEnabled, setCountInBars } = usePlayer()
   const activeProjectId = usePlayer((state) => state.activeProjectId)
+  const takePath = usePlayer((state) => state.takePath)
+  const takeName = usePlayer((state) => state.takeName)
   const position = usePlayer((state) => state.position)
   const pitch = usePlayer((state) => state.pitch)
   const tempo = usePlayer((state) => state.tempo)
@@ -62,7 +64,7 @@ function App() {
     if (!activeProjectId) return
     const timer = window.setTimeout(() => { void api.projects.updatePlayerState(activeProjectId, playerSnapshot(usePlayer.getState())) }, 350)
     return () => window.clearTimeout(timer)
-  }, [activeProjectId, selected?.id, position, pitch, tempo, loopEnabled, loopStart, loopEnd, volumes, pans, equalizer, muted, solo])
+  }, [activeProjectId, selected?.id, takePath, takeName, position, pitch, tempo, loopEnabled, loopStart, loopEnd, volumes, pans, equalizer, muted, solo])
 
   useEffect(() => api.separation.onProgress(setProgress), [setProgress])
 

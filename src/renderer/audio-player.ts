@@ -20,6 +20,8 @@ export class StemAudioPlayer {
   private readonly panners = new Map<StemName, StereoPannerNode>()
   private readonly equalizers = new Map<StemName, BiquadFilterNode[]>()
   private readonly buffers = new Map<StemName, AudioBuffer>()
+  private takeBuffer: AudioBuffer | null = null
+  private takeSource: AudioBufferSourceNode | null = null
   private readonly sources = new Map<StemName, AudioBufferSourceNode>()
   private readonly processors = new Map<StemName, SoundTouchNode>()
   private workletReady = false
@@ -51,9 +53,10 @@ export class StemAudioPlayer {
     return () => { source.disconnect(); stream.getTracks().forEach((track) => track.stop()) }
   }
 
-  async load(track: Track) {
+  async load(track: Track, takePath?: string | null) {
     this.stop()
     this.buffers.clear()
+    this.takeBuffer = null
     this.duration = 0
     if (!track.stems) return
     await this.ensureWorklet()
@@ -64,6 +67,10 @@ export class StemAudioPlayer {
     for (const [stem, buffer] of decoded) {
       this.buffers.set(stem, buffer)
       this.duration = Math.max(this.duration, buffer.duration)
+    }
+    if (takePath) {
+      const bytes = await api.library.read(takePath)
+      this.takeBuffer = await this.context.decodeAudioData(asArrayBuffer(bytes))
     }
   }
 
@@ -92,6 +99,15 @@ export class StemAudioPlayer {
       }
       source.start(startAt, this.offset)
       this.sources.set(stem, source)
+    }
+    if (this.takeBuffer && this.offset < this.takeBuffer.duration) {
+      const takeSource = this.context.createBufferSource()
+      takeSource.buffer = this.takeBuffer
+      takeSource.playbackRate.value = tempo
+      takeSource.connect(this.context.destination)
+      takeSource.connect(this.recordingDestination)
+      takeSource.start(startAt, Math.min(this.offset, this.takeBuffer.duration - 0.01))
+      this.takeSource = takeSource
     }
   }
 
@@ -135,6 +151,7 @@ export class StemAudioPlayer {
       const processor = this.processors.get(stem)
       if (processor) processor.playbackRate.setValueAtTime(tempo, this.context.currentTime)
     }
+    this.takeSource?.playbackRate.setValueAtTime(tempo, this.context.currentTime)
   }
 
   setPitch(pitch: number) {
@@ -151,6 +168,11 @@ export class StemAudioPlayer {
       source.disconnect()
     }
     this.sources.clear()
+    if (this.takeSource) {
+      try { this.takeSource.stop() } catch { /* already stopped */ }
+      this.takeSource.disconnect()
+      this.takeSource = null
+    }
   }
 
   private async ensureWorklet() {

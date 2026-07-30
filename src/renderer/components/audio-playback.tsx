@@ -16,6 +16,7 @@ function advanceQueue() {
 export function AudioPlayback() {
   const engine = useRef<StemAudioPlayer | null>(null)
   const selected = usePlayer((state) => state.selected)
+  const takePath = usePlayer((state) => state.takePath)
   const playing = usePlayer((state) => state.playing)
   const position = usePlayer((state) => state.position)
   const seekVersion = usePlayer((state) => state.seekVersion)
@@ -42,7 +43,7 @@ export function AudioPlayback() {
     const player = engine.current
     if (!player || !selected) return
     const requestedPosition = position
-    void player.load(selected).then(() => {
+    void player.load(selected, takePath).then(() => {
       const state = usePlayer.getState()
       for (const stem of ['vocals', 'drums', 'bass', 'other'] as const) {
         player.setMix(stem, state.volumes[stem], state.muted[stem], state.solo)
@@ -52,7 +53,7 @@ export function AudioPlayback() {
       if (!resetPlaybackOnTrackChange && player.length > 0) player.seek(requestedPosition * player.length, false, tempo, pitch)
       if (state.playing && state.selected?.id === selected.id) void player.play(state.position * player.length, state.tempo, state.pitch, advanceQueue)
     }).catch(() => setPlaying(false))
-  }, [selected, resetPlaybackOnTrackChange, setPlaying])
+  }, [selected, takePath, resetPlaybackOnTrackChange, setPlaying])
 
   useEffect(() => {
     const player = engine.current

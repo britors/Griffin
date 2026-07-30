@@ -17,6 +17,8 @@ interface PlayerState {
   countInBars: 1 | 2
   countingIn: boolean
   selected: Track | null
+  takePath: string | null
+  takeName: string | null
   playing: boolean
   position: number
   seekVersion: number
@@ -62,12 +64,14 @@ interface PlayerState {
   toggleMute: (stem: StemName) => void
   toggleMuteAll: () => void
   toggleSolo: (stem: StemName) => void
+  setTake: (path: string, name: string) => void
+  clearTake: () => void
   applyPlayerState: (player: PlayerSnapshot) => void
   applySnapshot: (snapshot: ProjectSnapshot) => void
 }
 
 export const usePlayer = create<PlayerState>((set) => ({
-  tracks: [], projects: [], activeProjectId: null, favoriteIds: [], recentTrackIds: [], resetPlaybackOnTrackChange: true, metronomeEnabled: false, metronomeSubdivision: 1, metronomeVolume: 0.5, countInEnabled: false, countInBars: 1, countingIn: false, selected: null, playing: false, position: 0, seekVersion: 0, pitch: 0, tempo: 1, loopEnabled: false, loopStart: 0, loopEnd: 1, progress: null,
+  tracks: [], projects: [], activeProjectId: null, favoriteIds: [], recentTrackIds: [], resetPlaybackOnTrackChange: true, metronomeEnabled: false, metronomeSubdivision: 1, metronomeVolume: 0.5, countInEnabled: false, countInBars: 1, countingIn: false, selected: null, takePath: null, takeName: null, playing: false, position: 0, seekVersion: 0, pitch: 0, tempo: 1, loopEnabled: false, loopStart: 0, loopEnd: 1, progress: null,
   volumes: { vocals: 0.82, drums: 0.82, bass: 0.82, other: 0.82 },
   pans: { vocals: 0, drums: 0, bass: 0, other: 0 },
   equalizer: { vocals: Array(12).fill(0), drums: Array(12).fill(0), bass: Array(12).fill(0), other: Array(12).fill(0) },
@@ -104,14 +108,16 @@ export const usePlayer = create<PlayerState>((set) => ({
     return { muted: { vocals: nextMuted, drums: nextMuted, bass: nextMuted, other: nextMuted } }
   }),
   toggleSolo: (stem) => set((state) => ({ solo: state.solo === stem ? null : stem })),
+  setTake: (takePath, takeName) => set({ takePath, takeName }),
+  clearTake: () => set({ takePath: null, takeName: null }),
   applyPlayerState: (player) => set((state) => restorePlayerState(state, player)),
   applySnapshot: (snapshot) => set((state) => restorePlayerState(state, snapshot.player)),
 }))
 
 function restorePlayerState(state: PlayerState, player: PlayerSnapshot): Partial<PlayerState> {
-  return { selected: state.tracks.find((track) => track.id === player.selectedTrackId) ?? null, position: player.position, pitch: player.pitch, tempo: player.tempo, loopEnabled: player.loopEnabled, loopStart: player.loopStart, loopEnd: player.loopEnd, volumes: player.volumes, pans: player.pans, equalizer: player.equalizer ?? state.equalizer, muted: player.muted, solo: player.solo }
+  return { selected: state.tracks.find((track) => track.id === player.selectedTrackId) ?? null, takePath: player.takePath ?? null, takeName: player.takeName ?? null, position: player.position, pitch: player.pitch, tempo: player.tempo, loopEnabled: player.loopEnabled, loopStart: player.loopStart, loopEnd: player.loopEnd, volumes: player.volumes, pans: player.pans, equalizer: player.equalizer ?? state.equalizer, muted: player.muted, solo: player.solo }
 }
 
 export function playerSnapshot(state: PlayerState): PlayerSnapshot {
-  return { selectedTrackId: state.selected?.id ?? null, position: state.position, pitch: state.pitch, tempo: state.tempo, loopEnabled: state.loopEnabled, loopStart: state.loopStart, loopEnd: state.loopEnd, volumes: state.volumes, pans: state.pans, equalizer: state.equalizer, muted: state.muted, solo: state.solo }
+  return { selectedTrackId: state.selected?.id ?? null, takePath: state.takePath, takeName: state.takeName, position: state.position, pitch: state.pitch, tempo: state.tempo, loopEnabled: state.loopEnabled, loopStart: state.loopStart, loopEnd: state.loopEnd, volumes: state.volumes, pans: state.pans, equalizer: state.equalizer, muted: state.muted, solo: state.solo }
 }
