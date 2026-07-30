@@ -10,6 +10,7 @@ interface WorkerData {
   processingProfile: SeparationProfile
   modelProfile: SeparationModelProfile
   providerPreference: ExecutionProviderPreference
+  target?: StemName
   track: Track
 }
 
@@ -31,7 +32,7 @@ async function run() {
     await separator.init()
     const track = AudioTrack.restore(data.track)
     const startedAt = Date.now()
-    const stems = await separator.separate(track, (progress: SeparationProgress) => parentPort?.postMessage({ type: 'progress', progress }))
+    const stems = await separator.separate(track, (progress: SeparationProgress) => parentPort?.postMessage({ type: 'progress', progress }), data.target)
     parentPort?.postMessage({ type: 'done', stems: stems as Partial<Record<StemName, string>>, durationMs: Date.now() - startedAt })
   } catch (error) {
     parentPort?.postMessage({ type: 'error', message: error instanceof Error ? error.message : 'A separação ONNX falhou.' })

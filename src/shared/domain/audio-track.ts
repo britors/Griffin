@@ -25,7 +25,7 @@ export class AudioTrack {
   get stems() { return this.props.stems }
 
   attachStems(stems: Partial<Record<StemName, string>>) {
-    this.props.stems = { ...stems }
+    this.props.stems = { ...(this.props.stems ?? {}), ...stems }
   }
 
   attachAnalysis(analysis: TrackAnalysis) {

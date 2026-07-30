@@ -55,13 +55,13 @@ export class OnnxDemucsSeparator implements StemSeparator {
     return { available: false, message: this.modelProfile === 'six-stem' ? 'Modelo htdemucs-6s não encontrado; instale-o para ativar guitarra e piano.' : 'Modelos ONNX não encontrados. Instale htdemucs_ft em src/main/models/htdemucs-ft.', provider, profile: this.processingProfile, modelProfile: this.modelProfile, sixStemAvailable, memoryBytes: totalmem(), lastDurationMs: this.lastDurationMs }
   }
 
-  async separate(track: AudioTrack, report: (progress: SeparationProgress) => void) {
-    if (!this.workerMode) return this.separateInWorker(track, report)
-    return this.separateOnCurrentThread(track, report)
+  async separate(track: AudioTrack, report: (progress: SeparationProgress) => void, target?: StemName) {
+    if (!this.workerMode) return this.separateInWorker(track, report, target)
+    return this.separateOnCurrentThread(track, report, target)
   }
 
-  private async separateInWorker(track: AudioTrack, report: (progress: SeparationProgress) => void) {
-    const mode = await this.availableMode()
+  private async separateInWorker(track: AudioTrack, report: (progress: SeparationProgress) => void, target?: StemName) {
+    const mode = await this.availableMode(target)
     if (!mode) throw new Error((await this.status()).message)
     this.cancelled.delete(track.id)
     const worker = new Worker(join(__dirname, '..', 'onnx-separation-worker.js'), {
@@ -72,6 +72,7 @@ export class OnnxDemucsSeparator implements StemSeparator {
         processingProfile: this.processingProfile,
         modelProfile: this.modelProfile,
         providerPreference: this.providerPreference,
+        target,
         track: track.snapshot(),
       },
     })
@@ -98,11 +99,11 @@ export class OnnxDemucsSeparator implements StemSeparator {
     })
   }
 
-  private async separateOnCurrentThread(track: AudioTrack, report: (progress: SeparationProgress) => void) {
+  private async separateOnCurrentThread(track: AudioTrack, report: (progress: SeparationProgress) => void, target?: StemName) {
     const startedAt = Date.now()
-    const key = `${await hashAudioFile(track.path)}-${this.modelProfile}`
-    const mode = await this.availableMode()
-    const stemNames = mode === 'six' ? ALL_STEMS : CORE_STEMS
+    const key = `${await hashAudioFile(track.path)}-${this.modelProfile}-${target ?? 'all'}`
+    const mode = await this.availableMode(target)
+    const stemNames = target ? [target] : mode === 'six' ? ALL_STEMS : CORE_STEMS
     const cached = await this.cache.get(key, stemNames)
     if (cached) return cached
     this.cancelled.delete(track.id)
@@ -119,7 +120,7 @@ export class OnnxDemucsSeparator implements StemSeparator {
     for (let start = 0; start < totalSamples; start += hopSize) {
       if (this.cancelled.has(track.id)) throw new Error('Separação cancelada.')
       const input = new ort.Tensor('float32', this.createInput(left, right, start), [1, 2, chunkSize])
-      const chunkOutputs = await this.inferChunk(input, mode)
+      const chunkOutputs = await this.inferChunk(input, mode, target)
       this.overlapAdd(stemChannels, weights, chunkOutputs, start, totalSamples)
       report({ trackId: track.id, progress: Math.min(0.98, (Math.min(start + chunkSize, totalSamples) / totalSamples) * 0.95), stage: `Separando trecho ${Math.ceil((start + 1) / hopSize)}` })
     }
@@ -139,7 +140,8 @@ export class OnnxDemucsSeparator implements StemSeparator {
     return this.cache.paths(key, stemNames)
   }
 
-  private async availableMode(): Promise<'ft' | 'single' | 'six' | null> {
+  private async availableMode(target?: StemName): Promise<'ft' | 'single' | 'six' | null> {
+    if (target && (target === 'guitar' || target === 'piano')) return await this.fileExists(this.sixStemPath()) ? 'six' : null
     if (this.modelProfile === 'six-stem' && await this.fileExists(this.sixStemPath())) return 'six'
     const specialists = await Promise.all(CORE_STEMS.map((stem) => this.fileExists(this.specialistPath(stem))))
     const single = await this.fileExists(this.singlePath())
@@ -148,21 +150,23 @@ export class OnnxDemucsSeparator implements StemSeparator {
     return single ? 'single' : null
   }
 
-  private async inferChunk(input: OnnxTensor, mode: 'ft' | 'single' | 'six'): Promise<Float32Array[]> {
+  private async inferChunk(input: OnnxTensor, mode: 'ft' | 'single' | 'six', target?: StemName): Promise<Float32Array[]> {
     if (mode === 'six') {
       const output = await this.run(this.session('htdemucs-6s'), input, 0, true)
-      return extendedModelStemOrder.map((stem) => output.subarray(extendedModelStemOrder.indexOf(stem) * 2 * chunkSize, (extendedModelStemOrder.indexOf(stem) + 1) * 2 * chunkSize))
+      const stems = target ? [target] : extendedModelStemOrder
+      return stems.map((stem) => output.subarray(extendedModelStemOrder.indexOf(stem) * 2 * chunkSize, (extendedModelStemOrder.indexOf(stem) + 1) * 2 * chunkSize))
     }
     if (mode === 'ft') {
       const outputs: Float32Array[] = []
       // Specialist models are intentionally executed one at a time. Running all
       // four ONNX sessions concurrently can make libonnxruntime allocate more
       // native memory than Electron can safely recover from on desktop systems.
-      for (const stem of CORE_STEMS) outputs.push(await this.run(this.session(stem), input, modelStemOrder.indexOf(stem)))
+      for (const stem of target ? [target] : CORE_STEMS) outputs.push(await this.run(this.session(stem), input, modelStemOrder.indexOf(stem)))
       return outputs
     }
     const output = await this.run(this.session('htdemucs'), input, 0, true)
-    return CORE_STEMS.map((stem) => {
+    const stems = target ? [target] : CORE_STEMS
+    return stems.map((stem) => {
       const targetIndex = modelStemOrder.indexOf(stem)
       return output.subarray(targetIndex * 2 * chunkSize, (targetIndex + 1) * 2 * chunkSize)
     })

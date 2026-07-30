@@ -6,6 +6,7 @@ export function ProjectPicker() {
   const { projects, activeProjectId, setProjects, setActiveProject, applySnapshot } = usePlayer()
   const loaded = useRef(false)
   const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     if (loaded.current) return
@@ -68,6 +69,18 @@ export function ProjectPicker() {
     } finally { setBusy(false) }
   }
 
+  const saveProject = async () => {
+    if (!activeProjectId) return
+    setBusy(true)
+    setSaved(false)
+    try {
+      const updated = await api.projects.updatePlayerState(activeProjectId, playerSnapshot(usePlayer.getState()))
+      setProjects(projects.map((project) => project.id === updated.id ? updated : project))
+      setSaved(true)
+      window.setTimeout(() => setSaved(false), 2200)
+    } finally { setBusy(false) }
+  }
+
   const restoreSnapshot = async (snapshotId: string) => {
     if (!activeProjectId) return
     setBusy(true)
@@ -91,9 +104,11 @@ export function ProjectPicker() {
       {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
     </select>
     <div className="project-picker-actions">
+      <button disabled={busy || projects.length === 0} onClick={() => void saveProject()}>Salvar</button>
       <button disabled={busy || projects.length === 0} onClick={() => void renameProject()}>Renomear</button>
       <button disabled={busy || projects.length < 2} onClick={() => void removeProject()}>Remover</button>
     </div>
+    {saved && <small className="project-saved" role="status">Projeto salvo</small>}
     <div className="snapshot-heading"><span>SNAPSHOTS</span><button title="Salvar snapshot" aria-label="Salvar snapshot" disabled={busy || projects.length === 0} onClick={() => void saveSnapshot()}>＋</button></div>
     {snapshots.length > 0 && <div className="snapshot-list">{snapshots.map((snapshot) => <div className="snapshot-row" key={snapshot.id}><button disabled={busy} title={`Restaurar ${snapshot.name}`} onClick={() => void restoreSnapshot(snapshot.id)}><strong>{snapshot.name}</strong><small>{new Date(snapshot.createdAt).toLocaleDateString('pt-BR')} · {Math.round(snapshot.player.tempo * 100)}% · {snapshot.player.pitch > 0 ? '+' : ''}{snapshot.player.pitch} st</small></button><button disabled={busy} aria-label={`Remover ${snapshot.name}`} title="Remover snapshot" onClick={() => void removeSnapshot(snapshot.id)}>×</button></div>)}</div>}
   </section>
