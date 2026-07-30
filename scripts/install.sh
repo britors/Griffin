@@ -3,7 +3,7 @@ set -euo pipefail
 
 if [[ "${EUID}" -ne 0 ]]; then echo "Execute como root: curl ... | sudo bash" >&2; exit 1; fi
 source /etc/os-release
-repo="${GRIFFIN_REPO:-w3ti/griffin-music}"
+repo="${GRIFFIN_REPO:-britors/Griffin}"
 version="${GRIFFIN_VERSION:-latest}"
 if [[ "${version}" == "latest" ]]; then
   version="$(curl -fsSL "https://api.github.com/repos/${repo}/releases/latest" | sed -n 's/.*"tag_name": "\([^"]*\)".*/\1/p' | head -1)"

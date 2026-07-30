@@ -15,10 +15,7 @@ Modelos ONNX recomendados:
 
 ```bash
 mkdir -p src/main/models/htdemucs-ft
-curl -L -o src/main/models/htdemucs-ft/htdemucs_ft_drums_fp16weights.onnx https://huggingface.co/StemSplitio/htdemucs-ft-drums-onnx/resolve/main/htdemucs_ft_drums_fp16weights.onnx
-curl -L -o src/main/models/htdemucs-ft/htdemucs_ft_bass_fp16weights.onnx https://huggingface.co/StemSplitio/htdemucs-ft-bass-onnx/resolve/main/htdemucs_ft_bass_fp16weights.onnx
-curl -L -o src/main/models/htdemucs-ft/htdemucs_ft_other_fp16weights.onnx https://huggingface.co/StemSplitio/htdemucs-ft-other-onnx/resolve/main/htdemucs_ft_other_fp16weights.onnx
-curl -L -o src/main/models/htdemucs-ft/htdemucs_ft_vocals_fp16weights.onnx https://huggingface.co/StemSplitio/htdemucs-ft-vocals-onnx/resolve/main/htdemucs_ft_vocals_fp16weights.onnx
+bash scripts/download-models.sh
 ```
 
 O adapter lê o áudio local, converte para estéreo/44,1 kHz, processa segmentos sobrepostos e grava quatro WAVs PCM no cache.
@@ -32,6 +29,8 @@ npm run package:linux
 ```
 
 O empacotamento gera AppImage, `.deb` e `.rpm` no Linux, e NSIS `.exe` no Windows.
+
+Para publicar, crie uma tag `v*`; o GitHub Actions baixa os modelos, gera os artefatos Linux/Windows e publica a release automaticamente. O repositório oficial é [britors/Griffin](https://github.com/britors/Griffin).
 
 ## Arquitetura
 
