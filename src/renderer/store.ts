@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Project, SeparationProgress, StemName, Track } from '../shared/types'
+import type { PlayerSnapshot, Project, ProjectSnapshot, SeparationProgress, StemName, Track } from '../shared/types'
 
 export type MetronomeSubdivision = 1 | 2 | 4
 
@@ -60,6 +60,7 @@ interface PlayerState {
   toggleMute: (stem: StemName) => void
   toggleMuteAll: () => void
   toggleSolo: (stem: StemName) => void
+  applySnapshot: (snapshot: ProjectSnapshot) => void
 }
 
 export const usePlayer = create<PlayerState>((set) => ({
@@ -98,4 +99,9 @@ export const usePlayer = create<PlayerState>((set) => ({
     return { muted: { vocals: nextMuted, drums: nextMuted, bass: nextMuted, other: nextMuted } }
   }),
   toggleSolo: (stem) => set((state) => ({ solo: state.solo === stem ? null : stem })),
+  applySnapshot: (snapshot) => set((state) => ({ selected: state.tracks.find((track) => track.id === snapshot.player.selectedTrackId) ?? null, position: snapshot.player.position, pitch: snapshot.player.pitch, tempo: snapshot.player.tempo, loopEnabled: snapshot.player.loopEnabled, loopStart: snapshot.player.loopStart, loopEnd: snapshot.player.loopEnd, volumes: snapshot.player.volumes, pans: snapshot.player.pans, muted: snapshot.player.muted, solo: snapshot.player.solo })),
 }))
+
+export function playerSnapshot(state: PlayerState): PlayerSnapshot {
+  return { selectedTrackId: state.selected?.id ?? null, position: state.position, pitch: state.pitch, tempo: state.tempo, loopEnabled: state.loopEnabled, loopStart: state.loopStart, loopEnd: state.loopEnd, volumes: state.volumes, pans: state.pans, muted: state.muted, solo: state.solo }
+}

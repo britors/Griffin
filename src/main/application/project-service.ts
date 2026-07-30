@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { MusicProject } from '../../shared/domain/music-project'
 import type { ProjectRepository } from './ports'
+import type { PlayerSnapshot } from '../../shared/types'
 
 export class ProjectApplicationService {
   constructor(private readonly repository: ProjectRepository) {}
@@ -16,6 +17,16 @@ export class ProjectApplicationService {
   async addTrack(id: string, trackId: string) { return this.mutate(id, (project) => project.addTrack(trackId)) }
   async removeTrack(id: string, trackId: string) { return this.mutate(id, (project) => project.removeTrack(trackId)) }
   async moveTrack(id: string, trackId: string, direction: 'up' | 'down') { return this.mutate(id, (project) => project.moveTrack(trackId, direction)) }
+  async createSnapshot(id: string, name: string, player: PlayerSnapshot) {
+    return this.mutate(id, (project) => project.addSnapshot(project.createSnapshot({ id: randomUUID(), name, player })))
+  }
+  async restoreSnapshot(id: string, snapshotId: string) {
+    const project = await this.repository.findById(id)
+    const snapshot = project?.snapshots?.find((item) => item.id === snapshotId)
+    if (!snapshot) throw new Error('Snapshot não encontrado.')
+    return structuredClone(snapshot)
+  }
+  async removeSnapshot(id: string, snapshotId: string) { return this.mutate(id, (project) => project.removeSnapshot(snapshotId)) }
 
   async remove(id: string) {
     const project = await this.repository.findById(id)

@@ -1,9 +1,9 @@
-import type { Project } from '../types'
+import type { PlayerSnapshot, Project, ProjectSnapshot } from '../types'
 
 export class MusicProject {
   private constructor(private readonly data: Project) {}
 
-  static create(input: { id: string; name: string; createdAt?: string; updatedAt?: string; trackIds?: string[] }): MusicProject {
+  static create(input: { id: string; name: string; createdAt?: string; updatedAt?: string; trackIds?: string[]; snapshots?: ProjectSnapshot[] }): MusicProject {
     const now = new Date().toISOString()
     return new MusicProject({
       id: input.id,
@@ -11,6 +11,7 @@ export class MusicProject {
       createdAt: input.createdAt ?? now,
       updatedAt: input.updatedAt ?? now,
       trackIds: [...new Set(input.trackIds ?? [])],
+      snapshots: input.snapshots?.map((snapshot) => structuredClone(snapshot)) ?? [],
     })
   }
 
@@ -41,6 +42,22 @@ export class MusicProject {
     const [item] = this.data.trackIds.splice(index, 1)
     this.data.trackIds.splice(target, 0, item)
     this.touch()
+  }
+
+  addSnapshot(snapshot: ProjectSnapshot): void {
+    this.data.snapshots = [snapshot, ...(this.data.snapshots ?? []).filter((item) => item.id !== snapshot.id)]
+    this.touch()
+  }
+
+  removeSnapshot(snapshotId: string): void {
+    this.data.snapshots = (this.data.snapshots ?? []).filter((snapshot) => snapshot.id !== snapshotId)
+    this.touch()
+  }
+
+  createSnapshot(input: { id: string; name: string; player: PlayerSnapshot }): ProjectSnapshot {
+    const name = input.name.trim()
+    if (!name) throw new Error('O snapshot precisa ter um nome.')
+    return { id: input.id, name, createdAt: new Date().toISOString(), trackIds: [...this.data.trackIds], player: structuredClone(input.player) }
   }
 
   snapshot(): Project { return structuredClone(this.data) }

@@ -67,6 +67,29 @@ export interface Project {
   createdAt: string
   updatedAt: string
   trackIds: string[]
+  snapshots?: ProjectSnapshot[]
+}
+
+export interface PlayerSnapshot {
+  selectedTrackId: string | null
+  position: number
+  pitch: number
+  tempo: number
+  loopEnabled: boolean
+  loopStart: number
+  loopEnd: number
+  volumes: Record<StemName, number>
+  pans: Record<StemName, number>
+  muted: Record<StemName, boolean>
+  solo: StemName | null
+}
+
+export interface ProjectSnapshot {
+  id: string
+  name: string
+  createdAt: string
+  trackIds: string[]
+  player: PlayerSnapshot
 }
 
 export interface SeparationProgress {
@@ -101,6 +124,9 @@ export interface GriffinAPI {
     addTrack: (projectId: string, trackId: string) => Promise<Project>
     removeTrack: (projectId: string, trackId: string) => Promise<Project>
     moveTrack: (projectId: string, trackId: string, direction: 'up' | 'down') => Promise<Project>
+    createSnapshot: (projectId: string, name: string, player: PlayerSnapshot) => Promise<Project>
+    restoreSnapshot: (projectId: string, snapshotId: string) => Promise<ProjectSnapshot>
+    removeSnapshot: (projectId: string, snapshotId: string) => Promise<Project>
   }
   separation: {
     status: () => Promise<SeparationStatus>
