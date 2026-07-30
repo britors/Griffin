@@ -29,6 +29,7 @@ interface PlayerState {
   setResetPlaybackOnTrackChange: (enabled: boolean) => void
   toggleFavorite: (trackId: string) => void
   select: (track: Track | null) => void
+  replaceSelected: (track: Track) => void
   setPlaying: (playing: boolean) => void
   setPosition: (position: number) => void
   seekTo: (position: number) => void
@@ -57,6 +58,7 @@ export const usePlayer = create<PlayerState>((set) => ({
   setResetPlaybackOnTrackChange: (resetPlaybackOnTrackChange) => set({ resetPlaybackOnTrackChange }),
   toggleFavorite: (trackId) => set((state) => ({ favoriteIds: state.favoriteIds.includes(trackId) ? state.favoriteIds.filter((id) => id !== trackId) : [trackId, ...state.favoriteIds] })),
   select: (selected) => set((state) => ({ selected, playing: false, position: selected && !state.resetPlaybackOnTrackChange ? state.position : 0 })),
+  replaceSelected: (selected) => set({ selected }),
   setPlaying: (playing) => set({ playing }), setPosition: (position) => set({ position }),
   seekTo: (position) => set((state) => ({ position, seekVersion: state.seekVersion + 1 })),
   setPitch: (pitch) => set({ pitch }), setTempo: (tempo) => set({ tempo }),

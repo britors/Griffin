@@ -1,5 +1,5 @@
 import type { AudioTrack } from '../../shared/domain/audio-track'
-import type { SeparationProgress, SeparationStatus, StemName, Track } from '../../shared/types'
+import type { SeparationProgress, SeparationStatus, StemName, Track, TrackAnalysis } from '../../shared/types'
 import type { Project } from '../../shared/types'
 
 export interface TrackRepository {
@@ -39,6 +39,10 @@ export interface StemSeparator {
 export interface SettingsRepository {
   get(): Promise<Record<string, unknown>>
   set(key: string, value: unknown): Promise<void>
+}
+
+export interface AudioAnalyzer {
+  analyze(bytes: Uint8Array): Promise<TrackAnalysis>
 }
 
 export type TrackSnapshot = Track

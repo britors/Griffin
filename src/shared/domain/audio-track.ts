@@ -1,4 +1,4 @@
-import type { StemName, Track } from '../types'
+import type { StemName, Track, TrackAnalysis } from '../types'
 
 export interface NewAudioTrack {
   id: string
@@ -26,6 +26,10 @@ export class AudioTrack {
 
   attachStems(stems: Record<StemName, string>) {
     this.props.stems = { ...stems }
+  }
+
+  attachAnalysis(analysis: TrackAnalysis) {
+    this.props.analysis = { ...analysis }
   }
 
   snapshot(): Track {

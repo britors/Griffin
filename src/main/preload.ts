@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { GriffinAPI, SeparationProgress, Track } from '../shared/types'
+import type { GriffinAPI, SeparationProgress, Track, TrackAnalysis } from '../shared/types'
 
 const api: GriffinAPI = {
   window: {
@@ -21,6 +21,10 @@ const api: GriffinAPI = {
     remove: (projectId: string) => ipcRenderer.invoke('projects:remove', projectId),
     addTrack: (projectId: string, trackId: string) => ipcRenderer.invoke('projects:add-track', projectId, trackId),
     removeTrack: (projectId: string, trackId: string) => ipcRenderer.invoke('projects:remove-track', projectId, trackId),
+  },
+  analysis: {
+    analyze: (trackId: string) => ipcRenderer.invoke('analysis:analyze', trackId),
+    update: (trackId: string, changes: Partial<TrackAnalysis>) => ipcRenderer.invoke('analysis:update', trackId, changes),
   },
   separation: {
     status: () => ipcRenderer.invoke('separation:status'),
