@@ -31,6 +31,10 @@ describe.skipIf(!modelsAvailable)('OnnxDemucsSeparator integration', () => {
 
       expect(Object.keys(result).sort()).toEqual(['bass', 'drums', 'other', 'vocals'])
       for (const path of Object.values(result)) expect((await readFile(path)).length).toBeGreaterThan(44)
+
+      const cached = await separator.separate(track, () => undefined)
+      expect(cached).toEqual(result)
+      for (const path of Object.values(cached)) expect((await readFile(path)).length).toBeGreaterThan(44)
     } finally {
       await rm(folder, { recursive: true, force: true })
     }
