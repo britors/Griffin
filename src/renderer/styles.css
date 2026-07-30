@@ -1,5 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
-:root { font-family: 'DM Sans', sans-serif; color: #e9eef6; background: #0b1526; font-synthesis: none; --bg: #0b1526; --panel: #101f34; --line: #203652; --muted: #7890aa; --gold: #d4a531; --gold-light: #e8c76b; }
+:root { font-family: 'DM Sans', sans-serif; color: #e9eef6; background: #0b1526; font-synthesis: none; --bg: #0b1526; --panel: #101f34; --line: #203652; --muted: #7890aa; --gold: #d4a531; --gold-light: #e8c76b; --accent-rgb: 212, 165, 49; }
 * { box-sizing: border-box; } body { margin: 0; min-width: 980px; background: var(--bg); } button, input { font: inherit; } button { color: inherit; cursor: pointer; border: 0; }
 body:has(.splash) { min-width: 0; overflow: hidden; }
 .splash { width: 100vw; min-height: 100vh; overflow: hidden; display: grid; place-content: center; justify-items: center; gap: 16px; background: radial-gradient(circle at 50% 32%, #193457 0, var(--bg) 65%); }.splash img { width: 156px; height: 156px; filter: drop-shadow(0 8px 24px rgba(0, 0, 0, .35)); }.splash-name { font: 600 27px 'Space Grotesk'; letter-spacing: -.5px; }.splash-name span { color: var(--gold-light); font-weight: 500; }.splash-caption { color: #7089a5; font-size: 10px; letter-spacing: 2.4px; margin-top: 2px; }
@@ -98,11 +98,12 @@ nav button.active { color: var(--gold-light); border-left: 2px solid var(--gold)
 .compact-control { min-width: 110px; }
 .preference-control:focus { outline: 0; border-color: var(--gold); }
 .preference-value { color: #dce7f4; font-size: 14px; }
+.preference-path { max-width: 360px; overflow-wrap: anywhere; color: #8fa6bb; font-size: 11px; text-align: right; }
 .shortcut-list { display: grid; grid-template-columns: repeat(2, max-content); gap: 7px 15px; color: #8ea2b8; font-size: 11px; }
 .shortcut-list span { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 kbd { min-width: 20px; padding: 3px 5px; border: 1px solid #38536f; border-bottom-width: 2px; border-radius: 4px; background: #0d1b2d; color: #dce7f4; font: 600 10px 'DM Sans'; text-align: center; }
 .accent-options { display: flex; gap: 10px; }
-.accent-option { width: 28px; height: 28px; border-radius: 50%; border: 3px solid transparent; box-shadow: 0 0 0 1px rgba(255,255,255,.16); }
+.accent-option { width: 28px; height: 28px; border-radius: 50%; border: 3px solid transparent; box-shadow: 0 0 0 1px rgba(255,255,255,.16); transition: transform .12s, box-shadow .12s; }.accent-option:hover { transform: scale(1.12); box-shadow: 0 0 0 2px rgba(var(--accent-rgb), .55); }
 .accent-option.selected { border-color: #fff; box-shadow: 0 0 0 1px var(--gold); }
 .preference-toggle { position: relative; width: 42px; height: 24px; display: block; cursor: pointer; }
 .preference-toggle input { position: absolute; opacity: 0; }
@@ -181,6 +182,7 @@ body.light-theme .preference-section-heading, body.light-theme .preference-row {
 body.light-theme .preference-section-heading p, body.light-theme .preference-row small { color: #657b8e; }
 body.light-theme .preference-row strong { color: #25384b; }
 body.light-theme .preference-control { background: #fff; border-color: #bdcfdd; color: #25384b; }
+body.light-theme .preference-path { color: #405b70; }
 body.light-theme .preference-range { accent-color: var(--gold); }
 body.light-theme .preference-value { color: #405b70; }
 body.light-theme .shortcut-list { color: #60778c; }

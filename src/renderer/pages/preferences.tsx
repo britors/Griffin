@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { ACCENT_PRESETS, applyVisualPreferences } from '../preferences'
 import { usePlayer, type MetronomeSubdivision } from '../store'
-import type { SeparationStatus } from '../../shared/types'
+import type { LocalResourcesSummary, SeparationStatus } from '../../shared/types'
 
 type Section = 'appearance' | 'playback' | 'processing' | 'about'
 type Settings = Record<string, unknown>
@@ -18,6 +18,7 @@ export function PreferencesPage() {
   const [settings, setSettings] = useState<Settings>({})
   const [activeSection, setActiveSection] = useState<Section>('appearance')
   const [modelStatus, setModelStatus] = useState<SeparationStatus | null>(null)
+  const [resources, setResources] = useState<LocalResourcesSummary | null>(null)
   const { setResetPlaybackOnTrackChange, setMetronomeEnabled, setMetronomeSubdivision, setMetronomeVolume, setCountInEnabled, setCountInBars } = usePlayer()
 
   useEffect(() => {
@@ -27,6 +28,7 @@ export function PreferencesPage() {
       setResetPlaybackOnTrackChange(loaded.resetPlaybackOnTrackChange !== false)
     })
     void api.separation.status().then(setModelStatus)
+    void api.resources.summary().then(setResources)
   }, [])
 
   const updateSetting = async (key: string, value: unknown) => {
@@ -53,7 +55,7 @@ export function PreferencesPage() {
       <div className="preferences-content">
         {activeSection === 'appearance' && <AppearanceSection settings={settings} onChange={updateSetting} />}
         {activeSection === 'playback' && <PlaybackSection settings={settings} onChange={updateSetting} />}
-        {activeSection === 'processing' && <ProcessingSection status={modelStatus} />}
+        {activeSection === 'processing' && <ProcessingSection settings={settings} status={modelStatus} resources={resources} onChange={updateSetting} onCacheCleared={setResources} />}
         {activeSection === 'about' && <AboutSection />}
       </div>
     </div>
@@ -111,12 +113,28 @@ function PlaybackSection({ settings, onChange }: { settings: Settings; onChange:
   </PreferenceSection>
 }
 
-function ProcessingSection({ status }: { status: SeparationStatus | null }) {
+function ProcessingSection({ settings, status, resources, onChange, onCacheCleared }: { settings: Settings; status: SeparationStatus | null; resources: LocalResourcesSummary | null; onChange: (key: string, value: unknown) => Promise<void>; onCacheCleared: (summary: LocalResourcesSummary) => void }) {
+  const processingThreads = typeof settings.processingThreads === 'number' ? settings.processingThreads : 0
+  const clearCache = async () => {
+    if (!window.confirm('Limpar o cache de stems?\n\nAs faixas originais, projetos e modelos serão preservados.')) return
+    onCacheCleared(await api.resources.clearCache())
+  }
   return <PreferenceSection title="Processamento" description="Modelo e armazenamento usados pela separação local.">
     <PreferenceRow label="Modelo" description="Variante de maior qualidade para separar quatro stems."><span className="preference-value">htdemucs_ft</span></PreferenceRow>
     <PreferenceRow label="Status do modelo" description="O modelo é carregado pelo processo principal do Electron."><span className={`status-pill ${status?.available ? 'ready' : ''}`}>{status?.available ? 'Disponível' : status?.message ?? 'Verificando…'}</span></PreferenceRow>
-    <PreferenceRow label="Cache de stems" description="Evita recalcular uma faixa já processada. Os arquivos permanecem no computador."><span className="preference-value">Ativo</span></PreferenceRow>
+    <PreferenceRow label="Cache de stems" description={`Evita recalcular uma faixa já processada. ${resources ? `${formatBytes(resources.cacheBytes)} armazenados.` : 'Calculando tamanho…'}`}><div className="preference-inline-controls"><span className="preference-value">Ativo</span><button className="secondary-button compact-control" onClick={() => void clearCache}>Limpar cache</button></div></PreferenceRow>
+    <PreferenceRow label="Local do cache" description="Os stems separados ficam neste diretório local."><span className="preference-path">{resources?.cachePath ?? 'Calculando…'}</span></PreferenceRow>
+    <PreferenceRow label="Uso do modelo" description="O modelo ONNX também permanece somente neste computador."><span className="preference-value">{resources ? formatBytes(resources.modelBytes) : 'Calculando…'}</span></PreferenceRow>
+    <PreferenceRow label="Threads de processamento" description="Limita o paralelismo do ONNX; Automático usa a configuração padrão do runtime."><select className="preference-control" value={processingThreads} onChange={(event) => void onChange('processingThreads', Number(event.target.value))}><option value="0">Automático</option><option value="1">1 thread</option><option value="2">2 threads</option><option value="4">4 threads</option><option value="8">8 threads</option></select></PreferenceRow>
+    <PreferenceRow label="Privacidade" description="O áudio, os stems e as métricas ficam locais; nenhuma faixa é enviada para a nuvem."><span className="status-pill ready">Somente local</span></PreferenceRow>
   </PreferenceSection>
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
+  return `${(bytes / 1024 ** 3).toFixed(2)} GB`
 }
 
 function AboutSection() {

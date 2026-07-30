@@ -58,6 +58,10 @@ const api: GriffinAPI = {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (key, value) => ipcRenderer.invoke('settings:set', key, value),
   },
+  resources: {
+    summary: () => ipcRenderer.invoke('resources:summary'),
+    clearCache: () => ipcRenderer.invoke('resources:clear-cache'),
+  },
 }
 
 contextBridge.exposeInMainWorld('griffin', api)

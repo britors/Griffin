@@ -23,6 +23,7 @@ export class OnnxDemucsSeparator implements StemSeparator {
   private readonly decoder = new AudioFileDecoder()
   private readonly sessions = new Map<string, Promise<OnnxSession>>()
   private ortPromise: Promise<typeof import('onnxruntime-node')> | null = null
+  private processingThreads = 0
 
   constructor(private readonly cacheDirectory: string, private readonly modelsDirectoryPath: string) {
     this.cache = new FileStemCache(cacheDirectory)
@@ -30,6 +31,7 @@ export class OnnxDemucsSeparator implements StemSeparator {
 
   async init() { await this.cache.init() }
   cancel(trackId: string) { this.cancelled.add(trackId) }
+  setProcessingThreads(threads: number) { this.processingThreads = Math.max(0, Math.min(64, Math.round(threads))); this.sessions.clear() }
 
   async status(): Promise<SeparationStatus> {
     const mode = await this.availableMode()
@@ -120,7 +122,10 @@ export class OnnxDemucsSeparator implements StemSeparator {
   private session(model: string): Promise<OnnxSession> {
     const existing = this.sessions.get(model)
     if (existing) return existing
-    const promise = this.ort().then(({ InferenceSession }) => InferenceSession.create(model === 'htdemucs' ? this.singlePath() : this.specialistPath(model as StemName)))
+    const promise = this.ort().then(({ InferenceSession }) => {
+      const options = this.processingThreads > 0 ? { intraOpNumThreads: this.processingThreads, interOpNumThreads: 1 } : undefined
+      return InferenceSession.create(model === 'htdemucs' ? this.singlePath() : this.specialistPath(model as StemName), options)
+    })
     this.sessions.set(model, promise)
     return promise
   }

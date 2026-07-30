@@ -1,8 +1,8 @@
 import type { SettingsRepository } from '../../application/ports'
 
-export function registerSettingsHandlers(repository: SettingsRepository) {
+export function registerSettingsHandlers(repository: SettingsRepository, onChange?: (key: string, value: unknown) => void) {
   return {
     get: () => repository.get(),
-    set: (key: string, value: unknown) => repository.set(key, value),
+    set: async (key: string, value: unknown) => { await repository.set(key, value); onChange?.(key, value) },
   }
 }
