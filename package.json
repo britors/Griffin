@@ -17,9 +17,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "validate:packages": "bash scripts/validate-packages.sh release",
-    "package:linux": "npm run build && electron-builder --linux",
-    "package:win": "npm run build && electron-builder --win",
-    "package": "npm run build && electron-builder"
+    "package:linux": "npm run build && electron-builder --linux --publish never",
+    "package:win": "npm run build && electron-builder --win --publish never",
+    "package": "npm run build && electron-builder --publish never"
   },
   "dependencies": {
     "@soundtouchjs/audio-worklet": "^2.1.0",
