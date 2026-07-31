@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Griffin Music
+Comment=Separação local de stems e prática instrumental
+Comment[pt_BR]=Separação local de stems e prática instrumental
+Exec=griffin-music %U
+Icon=com.w3ti.griffinmusic
+Terminal=false
+StartupWMClass=Griffin Music
+Categories=AudioVideo;Audio;Music;
