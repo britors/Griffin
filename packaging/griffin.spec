@@ -9,9 +9,7 @@
 # (at your option) any later version.
 #
 
-# Prebuilt Electron bundle (Chromium and native node_modules) — não há
-# símbolos de depuração úteis para extrair, e tentar processá-los deixa o
-# build desnecessariamente lento.
+# Prebuilt Tauri bundle — não há símbolos de depuração úteis para extrair.
 %global debug_package %{nil}
 
 Name:           griffin-music
@@ -32,15 +30,10 @@ ExclusiveArch:  x86_64
 BuildRequires:  desktop-file-utils
 BuildRequires:  zstd
 Requires:       alsa
-Requires:       libXss1
-Requires:       libXtst6
-Requires:       libatk-bridge-2_0-0
-Requires:       libcups2
-Requires:       libdrm2
+Requires:       webkit2gtk4.1
+Requires:       libsoup-3.0
 Requires:       libgtk-3-0
-Requires:       libnotify4
-Requires:       libsecret-1-0
-Requires:       mozilla-nss
+Requires:       libdrm2
 Requires:       hicolor-icon-theme
 
 %description
@@ -54,8 +47,9 @@ sincronizado ao mixer (mute/solo, pitch, tempo, loop A-B), projetos,
 favoritos, BPM/tonalidade/afinação/acordes/letras e exportação de mixagens e
 stems individuais em WAV.
 
-Este pacote traz o Electron e baixa os modelos ONNX sob demanda na primeira
-execução. Os modelos ficam em userData/models e não fazem parte do RPM.
+Este pacote traz o aplicativo Tauri/Rust e baixa os modelos ONNX sob demanda
+na primeira execução. Os modelos ficam na pasta de dados do usuário e não
+fazem parte do RPM.
 
 %prep
 %autosetup -n griffin-%{version}
@@ -64,21 +58,7 @@ execução. Os modelos ficam em userData/models e não fazem parte do RPM.
 test -x griffin-music
 
 %install
-# O bundle de origem pode ter sido gerado antes da mudança para download sob
-# demanda. Remover modelos em qualquer um dos layouts conhecidos garante que
-# o RPM do OBS não volte a carregar centenas de megabytes desnecessários.
-rm -rf ./resources/models ./models ./src/main/models
-
-# electron-builder inclui no pacote do onnxruntime-node os binários de todas
-# as plataformas suportadas. Para este RPM x86_64, manter os diretórios
-# darwin, win32 e linux/arm64 faz o gerador automático de dependências do RPM
-# descobrir ld-linux-aarch64.so.1 e tornar o pacote instalável apenas em
-# sistemas que forneçam o loader ARM.
-find . -type d \( \
-    -path '*/onnxruntime-node/bin/napi-*/darwin' -o \
-    -path '*/onnxruntime-node/bin/napi-*/win32' -o \
-    -path '*/onnxruntime-node/bin/napi-*/linux/arm64' \
-\) -prune -exec rm -rf -- {} +
+rm -rf ./resources/models ./models ./src-tauri/models
 
 install -d %{buildroot}%{_libdir}/griffin-music
 cp -a . %{buildroot}%{_libdir}/griffin-music/
@@ -87,9 +67,7 @@ rm -f %{buildroot}%{_libdir}/griffin-music/chrome-sandbox
 install -d %{buildroot}%{_bindir}
 cat > %{buildroot}%{_bindir}/griffin-music <<WRAPPER
 #!/bin/sh
-# O chrome-sandbox setuid não é empacotado; --no-sandbox evita depender de
-# um binário setuid-root dentro do RPM.
-exec %{_libdir}/griffin-music/griffin-music --no-sandbox "\$@"
+exec %{_libdir}/griffin-music/griffin-music "\$@"
 WRAPPER
 chmod 0755 %{buildroot}%{_bindir}/griffin-music
 

@@ -1,5 +1,6 @@
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { api } from './api'
 import { applyVisualPreferences } from './preferences'
 import { addRecentTrack, playerSnapshot, usePlayer } from './store'
@@ -90,7 +91,12 @@ function App() {
       <div className="sidebar-footer"><div><span className="offline-dot" />Processamento local</div><div className="version">v0.1.2</div></div>
     </aside>
     <div className="content">
-      <header className="app-header">
+      <header className="app-header" data-tauri-drag-region="deep" onMouseDown={(event) => {
+        if (event.button !== 0) return
+        const target = event.target as HTMLElement
+        if (target.closest('button, input, select, textarea, a, [role="button"], .window-controls')) return
+        void getCurrentWindow().startDragging()
+      }}>
         <div className="header-title"><span>Griffin Music</span><i>/</i><strong>{view === 'preferences' ? 'Preferências' : selected ? selected.name : 'Biblioteca'}</strong></div>
         <div className="header-actions">
           <button className="settings" title="Abrir preferências" aria-label="Abrir preferências" onClick={showPreferences}>⚙</button>

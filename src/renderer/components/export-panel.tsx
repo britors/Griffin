@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import { getActiveStemAudioPlayer } from '../audio-player'
 import { usePlayer } from '../store'
 import { ALL_STEMS, STEM_LABELS, type AudioExportMode, type AudioExportOptions, type StemName } from '../../shared/types'
 
 const stemNames: StemName[] = ALL_STEMS
 
 export function ExportPanel() {
-  const { selected, volumes, pans, routes, equalizer, muted, solo, pitch, tempo, loopEnabled, loopStart, loopEnd } = usePlayer()
+  const { selected, volumes, pans, routes, equalizer, muted, solo, pitch, tempo, loopEnabled, loopStart, loopEnd, setPlaying } = usePlayer()
   const [stems, setStems] = useState<StemName[]>(stemNames)
   const [useLoop, setUseLoop] = useState(false)
   const [working, setWorking] = useState(false)
@@ -18,12 +19,13 @@ export function ExportPanel() {
   const [mode, setMode] = useState<AudioExportMode>('mix')
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const selectedStemKey = ALL_STEMS.filter((stem) => Boolean(selected?.stems?.[stem])).join(',')
 
   useEffect(() => {
     setStems(stemNames.filter((stem) => Boolean(selected?.stems?.[stem])))
     setMessage(null)
     setError(null)
-  }, [selected?.id])
+  }, [selected?.id, selectedStemKey])
   useEffect(() => api.onExportProgress((event) => { if (event.requestId === requestId) { setProgress(event.progress); setStage(event.stage) } }), [requestId])
 
   if (!selected?.stems) return null
@@ -31,6 +33,9 @@ export function ExportPanel() {
   const toggleStem = (stem: StemName) => setStems((current) => current.includes(stem) ? current.filter((item) => item !== stem) : [...current, stem])
   const exportAudio = async () => {
     if (stems.length === 0 || working) return
+    const player = getActiveStemAudioPlayer()
+    setPlaying(false)
+    player?.unload()
     const nextRequestId = crypto.randomUUID()
     setWorking(true); setRequestId(nextRequestId); setProgress(0); setStage('Iniciando'); setMessage(null); setError(null)
     const options: AudioExportOptions = { stems, volumes, pans, routes, equalizer, muted, solo, mode, pitch, tempo, format: 'wav', sampleRate, bitDepth, requestId: nextRequestId, ...(useLoop && loopEnabled ? { loop: { start: loopStart, end: loopEnd } } : {}) }
@@ -39,7 +44,9 @@ export function ExportPanel() {
       setMessage(mode === 'individual' ? `${result.paths.length} stems exportados em: ${result.paths[0]}` : `Mix exportada: ${result.path}`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Não foi possível exportar a mix.')
-    } finally { setWorking(false); setRequestId(null) }
+    } finally {
+      setWorking(false); setRequestId(null)
+    }
   }
 
   const cancelExport = () => { if (requestId) { void api.cancelExport(requestId); setMessage('Cancelando exportação…') } }

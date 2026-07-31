@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
+import { getActiveStemAudioPlayer } from '../audio-player'
 import { usePlayer } from '../store'
 import { ALL_STEMS, CORE_STEMS, STEM_LABELS, type SeparationProvider, type SeparationTarget, type SeparationStatus, type StemName } from '../../shared/types'
 import { PlayerTransport } from '../components/player-transport'
@@ -11,12 +12,13 @@ import { PerformanceRecorder } from '../components/performance-recorder'
 import { useRemoteProvider } from '../hooks/use-remote-provider'
 import { confirmDialog } from '../components/dialog-store'
 import { useModelDownload } from '../hooks/use-model-download'
+import { errorMessage } from '../error-message'
 
 // Resets on app restart — a lightweight per-session consent flag, not persisted to disk.
 let remoteConsentedThisSession = false
 
 export function PlayerPage() {
-  const { selected, progress, setTracks, select, replaceSelected, setProgress } = usePlayer()
+  const { selected, progress, setTracks, select, replaceSelected, setProgress, setPlaying } = usePlayer()
   const [error, setError] = useState<string | null>(null)
   const [modelStatus, setModelStatus] = useState<SeparationStatus | null>(null)
   const [cancelling, setCancelling] = useState(false)
@@ -38,7 +40,7 @@ export function PlayerPage() {
     void api.analysis.analyze(selected.id).then((analyzed) => {
       setTracks(usePlayer.getState().tracks.map((track) => track.id === analyzed.id ? analyzed : track))
       replaceSelected(analyzed)
-    }).catch((reason) => setAnalysisError(reason instanceof Error ? reason.message : 'Não foi possível analisar a faixa.'))
+    }).catch((reason) => setAnalysisError(errorMessage(reason, 'Não foi possível analisar a faixa.')))
   }, [selected, replaceSelected, setTracks])
 
   const targetStems = modelStatus?.sixStemAvailable ? ALL_STEMS : CORE_STEMS
@@ -60,6 +62,8 @@ export function PlayerPage() {
     setError(null)
     setLastRemoteError(false)
     setCancelling(false)
+    setPlaying(false)
+    getActiveStemAudioPlayer()?.unload()
     setProgress({ trackId: selected.id, progress: 0, stage: `Preparando ${targetLabel}` })
     try {
       const separated = await api.separation.start(selected, target === 'all' ? undefined : target, useProvider)

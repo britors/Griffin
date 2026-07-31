@@ -109,15 +109,16 @@ O modo padrão preserva configurações, cache de stems e projetos. `--purge` re
 O projeto usa arquitetura hexagonal com DDD:
 
 - `src/shared/domain`: agregados e regras de domínio;
-- `src/main/application`: casos de uso e portas;
-- `src/main/infrastructure`: filesystem, JSON, ONNX e áudio;
-- `src/main/presentation`: handlers IPC;
+- `src-tauri/src`: comandos, estado persistido, importação/exportação, áudio e integrações nativas;
+- `src-tauri/src/bin/griffin-onnx-worker.rs`: worker ONNX separado, com limite de memória;
+- `src/main/application` e parte de `src/main/infrastructure`: serviços TypeScript puros mantidos para testes e referência;
 - `src/renderer`: React, Zustand e player.
 
 Documentação adicional:
 
 - [Arquitetura](docs/ARCHITECTURE.md)
 - [Validação de áudio e cache](docs/VALIDATION.md)
+- [Griffin com OBS no Windows](docs/OBS_WINDOWS.md)
 - [Processo de release](docs/RELEASE.md)
 - [Separação remota opcional](docs/REMOTE_SEPARATION.md)
 - [Política de privacidade](PRIVACY.md)

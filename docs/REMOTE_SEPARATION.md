@@ -30,7 +30,7 @@ O Griffin separa stems localmente por padrão, sem rede. Este documento registra
 
 ## Como funciona no Griffin
 
-- Requer uma chave de API própria do usuário (Preferências → Processamento → "Separação na nuvem"), armazenada localmente cifrada via `safeStorage` do Electron quando o sistema operacional suporta.
+- Requer uma chave de API própria do usuário (Preferências → Processamento → "Separação na nuvem"). No Windows e macOS ela fica no cofre nativo do sistema; no Linux, em arquivo separado com permissão restrita ao usuário. Ela não é retornada por `settings_get` nem gravada em `settings.json`.
 - Só aparece como opção no player quando a chave está configurada **e** verificada (saldo consultado com sucesso).
 - Sempre exige consentimento explícito antes do primeiro envio da sessão, com estimativa de custo e resumo da retenção.
 - Se a separação remota falhar, o app oferece "Tentar localmente" como fallback — a separação local continua funcionando normalmente sem qualquer configuração de nuvem.

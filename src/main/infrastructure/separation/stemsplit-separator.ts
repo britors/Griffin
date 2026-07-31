@@ -16,7 +16,7 @@ const POLL_INTERVAL_MS = 2_500
 const qualityByProfile: Record<SeparationProfile, Quality> = { speed: 'FAST', balanced: 'BALANCED', quality: 'BEST' }
 
 // @stemsplit/sdk ships ESM-only ("exports": { "import": ... }, no "require"). The
-// Electron main process bundle is CJS, so it must be loaded via dynamic import().
+// Keep the SDK lazy so opening the app does not allocate cloud-provider resources.
 type StemSplitModule = typeof import('@stemsplit/sdk')
 
 /** Sends the track to the StemSplit cloud API and caches the returned stems locally. */

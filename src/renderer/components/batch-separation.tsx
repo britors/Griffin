@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
+import { getActiveStemAudioPlayer } from '../audio-player'
+import { usePlayer } from '../store'
 import type { SeparationProgress, Track } from '../../shared/types'
 
 type BatchStatus = 'queued' | 'processing' | 'done' | 'error' | 'cancelled'
@@ -58,9 +60,14 @@ export function BatchSeparation({ tracks, activeProjectId, onTracksChanged }: { 
       if (!track) { updateItem(item.id, (current) => ({ ...current, status: 'error', error: 'Faixa não encontrada na biblioteca.' })); continue }
       activeIdRef.current = item.id
       updateItem(item.id, (current) => ({ ...current, status: 'processing', progress: 0, error: undefined }))
+      const selectedBeforeSeparation = usePlayer.getState().selected
       try {
-        await api.separation.start(track)
+        usePlayer.getState().setPlaying(false)
+        getActiveStemAudioPlayer()?.unload()
+        const separated = await api.separation.start(track)
         onTracksChanged(await api.library.list())
+        const selectedAfterSeparation = selectedBeforeSeparation?.id === track.id ? separated : selectedBeforeSeparation
+        if (selectedAfterSeparation) usePlayer.getState().replaceSelected({ ...selectedAfterSeparation })
         updateItem(item.id, (current) => ({ ...current, status: 'done', progress: 1 }))
       } catch (reason) {
         const cancelled = cancelledRef.current.delete(item.id)

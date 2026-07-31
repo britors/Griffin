@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-model_dir="${GRIFFIN_MODEL_DIR:-src/main/models}"
+model_dir="${GRIFFIN_MODEL_DIR:-src-tauri/models}"
 base_url="https://huggingface.co/StemSplitio"
 mkdir -p "${model_dir}/htdemucs-ft"
 

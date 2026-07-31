@@ -8,18 +8,32 @@ export class WavAudioExportProcessor implements AudioExportProcessor {
   constructor(private readonly files: AudioFileGateway, private readonly decoder: AudioDecoder) {}
 
   async render(stems: Record<StemName, string>, options: AudioExportOptions, report: (progress: number, stage: string) => void, isCancelled: () => boolean) {
-    const entries = Object.entries(stems)
-    const decoded = await Promise.all(entries.map(async ([stem, path], index) => {
+    const entries = Object.entries(stems) as Array<[StemName, string]>
+    if (entries.length === 0) throw new Error('Nenhum stem disponível para exportar.')
+    let left: Float32Array | null = null
+    let right: Float32Array | null = null
+    let availableFrames = Infinity
+    for (const [index, [stem, path]] of entries.entries()) {
       if (isCancelled()) throw new Error('Exportação cancelada.')
       const bytes = await this.files.read(path)
       const audio = resampleTo(await this.decoder.decode(bytes), options.sampleRate)
       report(0.1 + ((index + 1) / entries.length) * 0.25, `Lendo ${stem}`)
-      return { stem: stem as StemName, audio: applyEqualizer(audio, options.equalizer[stem as StemName] ?? [], options.sampleRate) }
-    }))
+      const channels = toStereo(applyEqualizer(audio, options.equalizer[stem] ?? [], options.sampleRate))
+      const frames = Math.min(channels[0].length, channels[1].length)
+      availableFrames = Math.min(availableFrames, frames)
+      if (!left || !right) {
+        left = new Float32Array(frames)
+        right = new Float32Array(frames)
+      }
+      mixInto(left, right, channels, stem, options)
+    }
     if (isCancelled()) throw new Error('Exportação cancelada.')
-    const [left, right] = mix(decoded, options)
+    const start = Math.floor(clamp(options.loop?.start ?? 0) * availableFrames)
+    const end = Math.max(start + 1, Math.ceil(clamp(options.loop?.end ?? 1) * availableFrames))
+    const mixedLeft = left!.subarray(start, Math.min(end, left!.length))
+    const mixedRight = right!.subarray(start, Math.min(end, right!.length))
     report(0.45, 'Mixando stems')
-    const processed = processOffline(left, right, options.pitch, options.tempo, options.sampleRate, isCancelled)
+    const processed = processOffline(mixedLeft, mixedRight, options.pitch, options.tempo, options.sampleRate, isCancelled)
     report(0.9, 'Codificando WAV')
     return { bytes: encodeStereoWav(processed.left, processed.right, options.sampleRate, options.bitDepth), duration: processed.left.length / options.sampleRate }
   }
@@ -27,25 +41,16 @@ export class WavAudioExportProcessor implements AudioExportProcessor {
 
 type DecodedAudio = { channelData: Float32Array[]; sampleRate: number }
 
-function mix(decoded: Array<{ stem: StemName; audio: DecodedAudio }>, options: AudioExportOptions): [Float32Array, Float32Array] {
-  const stereo = decoded.map(({ stem, audio }) => ({ stem, channels: toStereo(audio) }))
-  const availableFrames = Math.min(...stereo.map(({ channels }) => Math.min(channels[0].length, channels[1].length)))
-  const start = Math.floor(clamp(options.loop?.start ?? 0) * availableFrames)
-  const end = Math.max(start + 1, Math.ceil(clamp(options.loop?.end ?? 1) * availableFrames))
-  const left = new Float32Array(end - start)
-  const right = new Float32Array(end - start)
-  for (let outputIndex = 0; outputIndex < left.length; outputIndex += 1) {
-    const sourceIndex = start + outputIndex
-    for (const { stem, channels } of stereo) {
-      const volume = Math.max(0, Math.min(1, options.volumes[stem] ?? 0))
-      const route = options.routes[stem] ?? 'stereo'
-      const pan = route === 'left' ? -1 : route === 'right' ? 1 : Math.max(-1, Math.min(1, options.pans[stem] ?? 0))
-      const angle = (pan + 1) * Math.PI / 4
-      left[outputIndex] += channels[0][sourceIndex] * volume * Math.cos(angle)
-      right[outputIndex] += channels[1][sourceIndex] * volume * Math.sin(angle)
-    }
+function mixInto(left: Float32Array, right: Float32Array, channels: [Float32Array, Float32Array], stem: StemName, options: AudioExportOptions) {
+  const volume = Math.max(0, Math.min(1, options.volumes[stem] ?? 0))
+  const route = options.routes[stem] ?? 'stereo'
+  const pan = route === 'left' ? -1 : route === 'right' ? 1 : Math.max(-1, Math.min(1, options.pans[stem] ?? 0))
+  const angle = (pan + 1) * Math.PI / 4
+  const frames = Math.min(left.length, channels[0].length, channels[1].length)
+  for (let index = 0; index < frames; index += 1) {
+    left[index] += channels[0][index] * volume * Math.cos(angle)
+    right[index] += channels[1][index] * volume * Math.sin(angle)
   }
-  return [left, right]
 }
 
 function processOffline(left: Float32Array, right: Float32Array, pitch: number, tempo: number, sampleRate: number, isCancelled: () => boolean): { left: Float32Array; right: Float32Array } {

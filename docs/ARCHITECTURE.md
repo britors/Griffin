@@ -1,29 +1,28 @@
 # Arquitetura do Griffin Music
 
-O Griffin Music segue uma arquitetura hexagonal orientada a domínio. O processo principal é o composition root; Electron e filesystem são detalhes substituíveis.
+O Griffin Music segue uma arquitetura orientada a domínio. O frontend React roda na janela Tauri e o composition root nativo fica em Rust.
 
 ```text
-Renderer/API ──> Presentation (IPC) ──> Application Services ──> Ports
-                                          │                    ▲
-                                          └── Domain            │
-Infrastructure adapters ───────────────────────────────────────┘
+Renderer/API ──> Tauri commands ──> Rust state/services ──> filesystem/processos nativos
+                                      │
+                                      └── worker ONNX separado
 ```
 
 ## Camadas
 
 - `src/shared/domain`: agregados e regras invariantes serializáveis entre processos. `AudioTrack` é o aggregate root da biblioteca.
-- `src/main/application`: casos de uso (`LibraryApplicationService`, `SeparationApplicationService`) e portas. Não importa Electron, React ou filesystem.
-- `src/main/infrastructure`: implementações das portas: JSON, arquivos locais, picker Electron, cache de stems e ONNX.
-- `src/main/presentation`: handlers IPC finos, sem regra de negócio.
+- `src-tauri/src`: comandos, estado persistido, importação/exportação, análise, separação e integrações nativas.
+- `src-tauri/src/bin/griffin-onnx-worker.rs`: processo separado que carrega o ONNX, processa um stem por vez e encerra ao finalizar.
+- `src/renderer`: estado, componentes e player da interface. A comunicação usa `@tauri-apps/api` e comandos explicitamente registrados.
+- `src/main/application` e parte de `src/main/infrastructure`: serviços TypeScript puros mantidos como referência e testes de domínio; não são carregados pelo aplicativo Tauri.
 - `src/renderer`: estado e componentes da interface. O renderer só conhece o contrato público exposto pelo preload.
 
 ## Fluxo de separação
 
-1. IPC recebe um snapshot da faixa.
-2. `SeparationApplicationService` reidrata o aggregate pelo repositório.
-3. `StemSeparator` verifica cache e modelo, executa o adapter ONNX e retorna os quatro caminhos.
-4. O aggregate recebe `attachStems`.
-5. O repositório persiste o novo snapshot.
-6. O resultado serializado volta ao renderer.
+1. O renderer invoca `separation_start` com o snapshot da faixa.
+2. Rust inicia um único `griffin-onnx-worker` e envia uma requisição JSON.
+3. O worker verifica memória, cache e modelo, processa os stems sequencialmente e retorna os caminhos WAV.
+4. Rust mescla os stems novos com os já existentes e persiste `library.json`.
+5. O resultado serializado volta ao renderer.
 
-O tensor contract está isolado em `OnnxDemucsSeparator`: entrada `mix [1, 2, 343980]`, saída `stems [1, 4, 2, 343980]`, na ordem Demucs `drums`, `bass`, `other`, `vocals`. O modo padrão executa os quatro especialistas `htdemucs_ft`; o arquivo único `htdemucs.onnx` permanece como fallback rápido.
+O contrato do tensor está isolado no worker Rust: entrada `mix [1, 2, 343980]`, saída Demucs na ordem `drums`, `bass`, `other`, `vocals` e, quando `htdemucs_6s.onnx` está instalado, também `guitar` e `piano`. O worker executa um stem por vez para limitar o pico de RAM.

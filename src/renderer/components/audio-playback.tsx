@@ -43,7 +43,15 @@ export function AudioPlayback() {
 
   useEffect(() => {
     const player = engine.current
-    if (!player || !selected) return
+    if (!player) return
+    if (!selected) {
+      player.unload()
+      return
+    }
+    if (!playing) {
+      player.unload()
+      return
+    }
     const requestedPosition = position
     void player.load(selected, takePath).then(() => {
       const state = usePlayer.getState()
@@ -56,7 +64,7 @@ export function AudioPlayback() {
       if (!resetPlaybackOnTrackChange && player.length > 0) player.seek(requestedPosition * player.length, false, tempo, pitch)
       if (state.playing && state.selected?.id === selected.id) void player.play(state.position * player.length, state.tempo, state.pitch, advanceQueue)
     }).catch(() => setPlaying(false))
-  }, [selected, takePath, resetPlaybackOnTrackChange, setPlaying])
+  }, [selected, takePath, playing, resetPlaybackOnTrackChange, setPlaying])
 
   useEffect(() => {
     const player = engine.current

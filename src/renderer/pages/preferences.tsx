@@ -3,17 +3,18 @@ import QRCode from 'qrcode'
 import { api } from '../api'
 import { ACCENT_PRESETS, applyVisualPreferences } from '../preferences'
 import { usePlayer, type MetronomeSubdivision } from '../store'
-import type { AppUpdateStatus, ExecutionProviderPreference, LocalResourcesSummary, SeparationProfile, SeparationStatus, SeparationModelProfile } from '../../shared/types'
+import type { AppUpdateStatus, ExecutionProviderPreference, LocalResourcesSummary, SeparationProfile, SeparationStatus, SeparationModelProfile, YtDlpProgress, YtDlpStatus } from '../../shared/types'
 import { useRemoteProvider } from '../hooks/use-remote-provider'
 import { useModelDownload } from '../hooks/use-model-download'
 import { confirmDialog } from '../components/dialog-store'
 
-type Section = 'appearance' | 'playback' | 'processing' | 'about'
+type Section = 'appearance' | 'playback' | 'obs' | 'processing' | 'about'
 type Settings = Record<string, unknown>
 
 const sections: Array<{ id: Section; label: string }> = [
   { id: 'appearance', label: 'Aparência' },
   { id: 'playback', label: 'Reprodução' },
+  { id: 'obs', label: 'OBS / Windows' },
   { id: 'processing', label: 'Processamento' },
   { id: 'about', label: 'Sobre' },
 ]
@@ -61,7 +62,8 @@ export function PreferencesPage() {
       <div className="preferences-content">
         {activeSection === 'appearance' && <AppearanceSection settings={settings} onChange={updateSetting} />}
         {activeSection === 'playback' && <PlaybackSection settings={settings} onChange={updateSetting} />}
-        {activeSection === 'processing' && <><ProcessingSection settings={settings} status={modelStatus} resources={resources} onChange={updateSetting} onCacheCleared={setResources} modelDownload={modelDownload} /><RemoteProviderSection /></>}
+        {activeSection === 'obs' && <ObsSection />}
+        {activeSection === 'processing' && <><ProcessingSection settings={settings} status={modelStatus} resources={resources} onChange={updateSetting} onCacheCleared={setResources} modelDownload={modelDownload} /><YtDlpSection /><RemoteProviderSection /></>}
         {activeSection === 'about' && <AboutSection />}
       </div>
     </div>
@@ -119,6 +121,29 @@ function PlaybackSection({ settings, onChange }: { settings: Settings; onChange:
   </PreferenceSection>
 }
 
+function ObsSection() {
+  return <PreferenceSection title="OBS Studio no Windows" description="Capture o áudio e a janela do Griffin sem instalar cabo virtual no fluxo padrão.">
+    <PreferenceRow label="Áudio recomendado" description="No OBS, adicione uma fonte Application Audio Capture (BETA) e selecione a janela do Griffin Music.">
+      <span className="preference-value">WASAPI por aplicativo</span>
+    </PreferenceRow>
+    <PreferenceRow label="Imagem" description="Adicione Window Capture para transmitir a interface do Griffin junto com o áudio.">
+      <span className="preference-value">Window Capture</span>
+    </PreferenceRow>
+    <PreferenceRow label="Evitar eco" description="Quando usar captura por aplicativo, desative o áudio global do desktop em Configurações → Áudio no OBS.">
+      <span className="status-pill ready">Recomendado</span>
+    </PreferenceRow>
+    <PreferenceRow label="Qualidade" description="Mantenha a taxa do Griffin e do OBS iguais; 48 kHz é recomendado para transmissão e gravação.">
+      <span className="preference-value">48 kHz</span>
+    </PreferenceRow>
+    <PreferenceRow label="Compatibilidade" description="Se o OBS não listar o Griffin, use uma saída virtual do Windows como fallback e capture-a como Audio Input Capture.">
+      <a className="secondary-button compact-control" href="https://obsproject.com/kb/application-audio-capture-guide" target="_blank" rel="noreferrer">Abrir guia do OBS</a>
+    </PreferenceRow>
+    <PreferenceRow label="Escopo atual" description="O Griffin não controla cenas, gravação ou transmissão. O OBS apenas captura o áudio já processado pelo player.">
+      <span className="preference-value">Captura nativa</span>
+    </PreferenceRow>
+  </PreferenceSection>
+}
+
 function ProcessingSection({ settings, status, resources, onChange, onCacheCleared, modelDownload }: { settings: Settings; status: SeparationStatus | null; resources: LocalResourcesSummary | null; onChange: (key: string, value: unknown) => Promise<void>; onCacheCleared: (summary: LocalResourcesSummary) => void; modelDownload: ReturnType<typeof useModelDownload> }) {
   const processingThreads = typeof settings.processingThreads === 'number' ? settings.processingThreads : 0
   const profile: SeparationProfile = settings.processingProfile === 'speed' || settings.processingProfile === 'balanced' ? settings.processingProfile : 'quality'
@@ -138,7 +163,7 @@ function ProcessingSection({ settings, status, resources, onChange, onCacheClear
           : <button className="secondary-button compact-control" disabled={modelDownload.status.downloading !== null} onClick={() => void modelDownload.download('extended')}>Ativar guitarra e piano</button>)}
       </div>
     </PreferenceRow>
-    <PreferenceRow label="Status do modelo" description="O modelo é carregado pelo processo principal do Electron."><span className={`status-pill ${status?.available ? 'ready' : ''}`}>{status?.available ? 'Disponível' : status?.message ?? 'Verificando…'}</span></PreferenceRow>
+    <PreferenceRow label="Status do modelo" description="O modelo é carregado por um processo nativo separado para limitar o uso de memória da interface."><span className={`status-pill ${status?.available ? 'ready' : ''}`}>{status?.available ? 'Disponível' : status?.message ?? 'Verificando…'}</span></PreferenceRow>
     <PreferenceRow label="Provider ONNX" description="GPU é testada automaticamente; se não estiver disponível, o processamento retorna para CPU."><span className="preference-value">{status?.provider === 'cuda' ? 'CUDA / GPU' : 'CPU'}{status?.memoryBytes ? ` · ${formatBytes(status.memoryBytes)}` : ''}{status?.lastDurationMs ? ` · último ${formatDurationMs(status.lastDurationMs)}` : ''}</span></PreferenceRow>
     <PreferenceRow label="Perfil de separação" description="Qualidade usa htdemucs_ft; Rápido prioriza velocidade com o modelo single-file quando disponível."><select className="preference-control" value={profile} onChange={(event) => void onChange('processingProfile', event.target.value)}><option value="quality">Qualidade máxima</option><option value="balanced">Balanceado</option><option value="speed">Velocidade</option></select></PreferenceRow>
     <PreferenceRow label="Aceleração" description="Escolha Automático para detectar CUDA e manter fallback CPU; a mudança vale para a próxima separação."><select className="preference-control" value={provider} onChange={(event) => void onChange('executionProvider', event.target.value)}><option value="auto">Automático</option><option value="cpu">Somente CPU</option><option value="cuda">Preferir GPU</option></select></PreferenceRow>
@@ -147,6 +172,39 @@ function ProcessingSection({ settings, status, resources, onChange, onCacheClear
     <PreferenceRow label="Uso do modelo" description="O modelo ONNX também permanece somente neste computador."><span className="preference-value">{resources ? formatBytes(resources.modelBytes) : 'Calculando…'}</span></PreferenceRow>
     <PreferenceRow label="Threads de processamento" description="Limita o paralelismo do ONNX; Automático usa a configuração padrão do runtime."><select className="preference-control" value={processingThreads} onChange={(event) => void onChange('processingThreads', Number(event.target.value))}><option value="0">Automático</option><option value="1">1 thread</option><option value="2">2 threads</option><option value="4">4 threads</option><option value="8">8 threads</option></select></PreferenceRow>
     <PreferenceRow label="Privacidade" description="O áudio, os stems e as métricas ficam locais; nenhuma faixa é enviada para a nuvem."><span className="status-pill ready">Somente local</span></PreferenceRow>
+  </PreferenceSection>
+}
+
+function YtDlpSection() {
+  const [status, setStatus] = useState<YtDlpStatus | null>(null)
+  const [progress, setProgress] = useState<YtDlpProgress | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const refresh = () => { void api.ytDlp.status().then(setStatus) }
+  useEffect(() => {
+    refresh()
+    return api.ytDlp.onProgress((next) => {
+      setProgress(next)
+      if (next.stage === 'ready') { setProgress(null); refresh() }
+    })
+  }, [])
+
+  const download = async () => {
+    setError(null)
+    setProgress({ progress: 0, stage: 'downloading', message: 'Preparando download…' })
+    try { await api.ytDlp.download(); refresh() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível baixar o yt-dlp.') } finally { setProgress(null) }
+  }
+  const busy = Boolean(progress)
+  return <PreferenceSection title="Importação do YouTube" description="Baixe e mantenha o yt-dlp dentro da pasta de dados do Griffin. O binário é verificado por SHA-256 antes de ser usado.">
+    <PreferenceRow label="yt-dlp" description={status?.message ?? 'Verificando…'}>
+      <div className="preference-inline-controls">
+        {status?.installed && !busy && <span className="status-pill ready">Instalado{status.version ? ` · ${status.version}` : ''}</span>}
+        {busy && <span className="preference-value">{progress ? `${progress.message} · ${Math.round(progress.progress * 100)}%` : 'Baixando…'}</span>}
+        {!busy && <button className={status?.installed ? 'secondary-button compact-control' : 'primary-button compact-control'} onClick={() => void download()}>{status?.installed ? 'Atualizar' : 'Baixar yt-dlp'}</button>}
+        {busy && <button className="text-button" onClick={() => void api.ytDlp.cancel()}>Cancelar</button>}
+      </div>
+    </PreferenceRow>
+    {error && <PreferenceRow label="Erro" description={error}><span className="status-pill" /></PreferenceRow>}
   </PreferenceSection>
 }
 
@@ -207,7 +265,7 @@ function formatDurationMs(milliseconds: number) { return milliseconds < 1000 ? `
 function AboutSection() {
   return <PreferenceSection title="Sobre" description="Informações desta instalação do Griffin Music.">
     <PreferenceRow label="Versão" description="Versão atual do aplicativo."><span className="preference-value">0.1.2</span></PreferenceRow>
-    <PreferenceRow label="Arquitetura" description="Aplicativo desktop com processamento local."><span className="preference-value">Electron + React + TypeScript</span></PreferenceRow>
+    <PreferenceRow label="Arquitetura" description="Aplicativo desktop com processamento local."><span className="preference-value">Tauri + Rust + React</span></PreferenceRow>
     <PreferenceRow label="Criado por" description="Autor e mantenedor do Griffin Music."><span className="preference-value">Rodrigo Brito</span></PreferenceRow>
     <PreferenceRow label="Contato" description="Dúvidas, sugestões ou problemas."><a className="preference-value" href="mailto:rodrigo@w3ti.com.br">rodrigo@w3ti.com.br</a></PreferenceRow>
     <PreferenceRow label="Licença" description="Código aberto sob os termos da GPLv3."><a className="preference-value" href="https://github.com/britors/Griffin/blob/main/LICENSE" target="_blank" rel="noreferrer">GPLv3</a></PreferenceRow>

@@ -1,9 +1,9 @@
 import { access } from 'node:fs/promises'
 import { join } from 'node:path'
-import { STEM_LABELS, type AudioExportOptions, type AudioExportResult, type StemName, type Track } from '../../shared/types'
+import { ALL_STEMS, STEM_LABELS, type AudioExportOptions, type AudioExportResult, type StemName, type Track } from '../../shared/types'
 import type { AudioExportDestination, AudioExportProcessor, TrackRepository } from './ports'
 
-const stemNames: StemName[] = ['vocals', 'drums', 'bass', 'other']
+const stemNames: StemName[] = ALL_STEMS
 
 export class AudioExportApplicationService {
   private readonly cancelled = new Set<string>()

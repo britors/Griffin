@@ -230,6 +230,21 @@ export interface YoutubeImportProgress {
   message: string
 }
 
+export interface YtDlpStatus {
+  installed: boolean
+  downloading: boolean
+  asset: string
+  version?: string
+  path?: string
+  message: string
+}
+
+export interface YtDlpProgress {
+  progress: number
+  stage: 'downloading' | 'ready'
+  message: string
+}
+
 export interface GriffinAPI {
   window: {
     minimize: () => Promise<void>
@@ -248,9 +263,15 @@ export interface GriffinAPI {
     importUrl: (assetId: string) => Promise<Track>
     cancelRemoteImport: (assetId: string) => Promise<void>
     youtubePreview: (url: string) => Promise<YoutubeAudioPreview>
-    youtubeImport: (previewId: string) => Promise<Track>
+    youtubeImport: (previewId: string, fallbackUrl?: string) => Promise<Track>
     youtubeCancel: (previewId: string) => Promise<void>
     onYoutubeProgress: (callback: (progress: YoutubeImportProgress) => void) => () => void
+  }
+  ytDlp: {
+    status: () => Promise<YtDlpStatus>
+    download: () => Promise<void>
+    cancel: () => Promise<void>
+    onProgress: (callback: (progress: YtDlpProgress) => void) => () => void
   }
   projects: {
     list: () => Promise<Project[]>

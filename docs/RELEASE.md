@@ -2,7 +2,7 @@
 
 O workflow de release é disparado por tags `v*` e publica AppImage, `.deb`, `.rpm` e instalador NSIS x64. Os modelos ONNX não são mais empacotados no instalador: o próprio aplicativo os baixa sob demanda em runtime (`userData/models`), na primeira execução ou via Preferências.
 
-O instalador NSIS também publica `latest.yml` e usa o GitHub Releases como fonte do `electron-updater`. No Windows, o Griffin verifica atualizações em segundo plano e permite baixá-las e reiniciar para instalar. No Linux, o RPM/OBS continua sendo atualizado pelo gerenciador de pacotes (`zypper`); o auto-updater do Electron não substitui pacotes do sistema.
+O empacotamento é feito pelo Tauri: o instalador Windows usa NSIS e as distribuições Linux geram AppImage, `.deb` e `.rpm`. Após o build, os artefatos são coletados em `release/` para validação e publicação. Atualizações automáticas embutidas ainda estão desativadas; no Linux, o RPM/OBS continua sendo atualizado pelo gerenciador de pacotes (`zypper`).
 
 Validação local:
 
@@ -10,6 +10,7 @@ Validação local:
 npm run typecheck
 npm run build
 npm run package:linux
+npm run validate:packages
 ```
 
-O teste do instalador Windows deve ser executado em runner Windows ou máquina Windows 10/11 x64.
+O teste do instalador Windows deve ser executado em runner Windows ou máquina Windows 10/11 x64. O yt-dlp é baixado pelo próprio Griffin em runtime e armazenado por usuário.

@@ -5,7 +5,7 @@ O Griffin Music é um aplicativo desktop **local-first**: por padrão, seu áudi
 ## Resumo
 
 - **Sem telemetria.** O Griffin não coleta métricas de uso, não envia analytics, não tem crash reporting remoto e não "liga para casa". Não há nenhum SDK de telemetria/analytics no código-fonte — qualquer pessoa pode conferir isso lendo o repositório.
-- **Processamento local por padrão.** Separação de stems (ONNX), pitch/tempo, mixagem, exportação de áudio, metrônomo, cache, projetos e preferências — tudo roda e fica salvo no seu computador (`userData` do Electron), sem servidor próprio do Griffin.
+- **Processamento local por padrão.** Separação de stems (ONNX), pitch/tempo, mixagem, exportação de áudio, metrônomo, cache, projetos e preferências — tudo roda e fica salvo no diretório de dados local do Griffin, sem servidor próprio do Griffin.
 - **Nada é enviado sem uma ação explícita sua.** As únicas funções que se comunicam com a internet são as descritas abaixo, e todas exigem uma ação direta (colar uma URL, colar um link do YouTube, ou configurar e usar deliberadamente a separação em nuvem).
 
 ## O que fica 100% local
@@ -30,7 +30,7 @@ O Griffin oferece, como alternativa **opcional** ao motor local, o envio da faix
 - **Fica desativada por padrão** e só aparece na interface depois que você mesmo cria uma conta no StemSplit, gera uma chave de API e a cola em Preferências.
 - **Pede consentimento explícito** antes de cada envio na sessão, mostrando que o áudio vai sair da máquina, o custo estimado e o resumo da política de retenção do StemSplit.
 - Envia **apenas a faixa de áudio selecionada** no momento da separação — nada mais do seu computador, biblioteca ou preferências.
-- Usa uma chave de API que você mesmo cria e controla, armazenada localmente cifrada (via `safeStorage` do Electron, quando o sistema operacional oferece essa proteção) — nunca commitada no repositório, nunca enviada para o Griffin/W3TI.
+- Usa uma chave de API que você mesmo cria e controla, armazenada no cofre nativo do Windows/macOS ou em arquivo local restrito ao usuário no Linux — nunca commitada no repositório, nunca enviada para o Griffin/W3TI.
 
 Detalhes técnicos completos (limites, retenção, comparação de provedores avaliados) estão em [`docs/REMOTE_SEPARATION.md`](docs/REMOTE_SEPARATION.md). A política de retenção de dados de terceiros é a do próprio StemSplit — consulte [stemsplit.io/en/legal/privacy-policy](https://stemsplit.io/en/legal/privacy-policy).
 
@@ -43,7 +43,7 @@ Detalhes técnicos completos (limites, retenção, comparação de provedores av
 
 ## Código aberto e verificável
 
-Este é um projeto de código aberto. Qualquer alegação acima pode ser conferida diretamente no código-fonte — em particular, a ausência de telemetria pode ser confirmada pela ausência de qualquer dependência de analytics em `package.json` e pela busca por chamadas de rede em `src/main`.
+Este é um projeto de código aberto. Qualquer alegação acima pode ser conferida diretamente no código-fonte — em particular, a ausência de telemetria pode ser confirmada pela ausência de qualquer dependência de analytics em `package.json` e pela busca por chamadas de rede em `src-tauri/src`.
 
 ## Dúvidas
 
