@@ -6,7 +6,7 @@ Aplicativo desktop standalone da W3TI para separação local de stems e prática
 
 O MVP e a Fase 2 de prática musical já estão integrados na `main`:
 
-- separação local em vocal, bateria, baixo e outros com `htdemucs_ft`, com perfil opcional de seis stems para guitarra e piano;
+- separação local em vocal, bateria, baixo e outros com `htdemucs_ft`, com perfil opcional de seis stems para o canal combinado de guitarra / violão e piano;
 - player sincronizado com mixer, mute/solo, pitch, tempo e loop A-B;
 - projetos, favoritos, recentes e cache local;
 - BPM, tonalidade, afinação, seções, acordes e letras sincronizadas;
@@ -42,7 +42,7 @@ npm run dev
 
 O script baixa o modelo especialista `htdemucs_ft` e o fallback single-file `htdemucs` para `src/main/models/`. Esses arquivos não são versionados no Git; o workflow de release baixa os modelos antes do empacotamento.
 
-O perfil padrão produz quatro stems. Para instalar também o modelo opcional `htdemucs-6s` — que adiciona guitarra e piano — use:
+O perfil padrão produz quatro stems. Para instalar também o modelo opcional `htdemucs-6s` — que adiciona o canal combinado de guitarra / violão e piano — use:
 
 ```bash
 GRIFFIN_EXTENDED=1 bash scripts/download-models.sh

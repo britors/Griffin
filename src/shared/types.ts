@@ -265,6 +265,6 @@ export const STEM_LABELS: Record<StemName, string> = {
   drums: 'Bateria',
   bass: 'Baixo',
   other: 'Outros',
-  guitar: 'Guitarra',
+  guitar: 'Guitarra / violão',
   piano: 'Piano',
 }
