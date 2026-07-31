@@ -48,6 +48,9 @@ if [[ "${mode}" == "windows" ]]; then
   exe="$(find "${release_dir}" -maxdepth 1 -type f -iname '*.exe' -print -quit)"
   require_file "${exe}"
   file "${exe}" | grep -E 'PE32\+|MS Windows' >/dev/null || fail "instalador não parece ser um executável Windows x64: ${exe}"
+  latest="${release_dir}/latest.yml"
+  require_file "${latest}"
+  grep -F 'version:' "${latest}" >/dev/null || fail "metadados de atualização do Windows sem versão: ${latest}"
   echo "NSIS Windows x64 validado: ${exe}"
   exit 0
 fi

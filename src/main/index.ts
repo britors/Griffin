@@ -44,6 +44,7 @@ import { registerRemoteProviderHandlers } from './presentation/ipc/remote-provid
 import { ModelDownloadApplicationService } from './application/model-download-service'
 import { ElectronModelDownloader } from './infrastructure/electron/model-downloader'
 import { registerModelDownloadHandlers } from './presentation/ipc/model-download-handlers'
+import { ElectronUpdateService } from './infrastructure/electron/update-service'
 
 let window: BrowserWindow | undefined
 
@@ -159,7 +160,13 @@ app.whenReady().then(async () => {
   registerSeparationHandlers(separationService, () => window?.webContents)
   registerRemoteProviderHandlers(remoteProviderService)
   registerModelDownloadHandlers(modelDownload, () => window?.webContents)
+  const updates = new ElectronUpdateService(() => window?.webContents)
+  ipcMain.handle('updates:status', () => updates.status())
+  ipcMain.handle('updates:check', () => updates.check())
+  ipcMain.handle('updates:download', () => updates.download())
+  ipcMain.handle('updates:install', () => updates.install())
   await createWindow()
+  updates.checkInBackground()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow() })
 })
 

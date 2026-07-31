@@ -1,6 +1,6 @@
 {
   "name": "griffin-music",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Separação local de stems e prática instrumental.",
   "desktopName": "griffin-music",
   "main": "./out/main/index.js",
@@ -26,11 +26,14 @@
     "@soundtouchjs/core": "^2.1.0",
     "@stemsplit/sdk": "^0.1.0",
     "audio-decode": "^3.11.4",
+    "electron-updater": "^6.8.9",
     "onnxruntime-node": "^1.22.0",
+    "qrcode": "^1.5.4",
     "zustand": "^5.0.6"
   },
   "devDependencies": {
     "@types/node": "^22.15.21",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.4.1",
@@ -85,6 +88,12 @@
     },
     "directories": {
       "output": "release"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "britors",
+      "repo": "Griffin",
+      "releaseType": "release"
     }
   }
 }

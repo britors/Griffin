@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
+import QRCode from 'qrcode'
 import { api } from '../api'
 import { ACCENT_PRESETS, applyVisualPreferences } from '../preferences'
 import { usePlayer, type MetronomeSubdivision } from '../store'
-import type { ExecutionProviderPreference, LocalResourcesSummary, SeparationProfile, SeparationStatus, SeparationModelProfile } from '../../shared/types'
+import type { AppUpdateStatus, ExecutionProviderPreference, LocalResourcesSummary, SeparationProfile, SeparationStatus, SeparationModelProfile } from '../../shared/types'
 import { useRemoteProvider } from '../hooks/use-remote-provider'
 import { useModelDownload } from '../hooks/use-model-download'
 import { confirmDialog } from '../components/dialog-store'
@@ -205,13 +206,82 @@ function formatDurationMs(milliseconds: number) { return milliseconds < 1000 ? `
 
 function AboutSection() {
   return <PreferenceSection title="Sobre" description="Informações desta instalação do Griffin Music.">
-    <PreferenceRow label="Versão" description="Versão atual do aplicativo."><span className="preference-value">0.1.1</span></PreferenceRow>
+    <PreferenceRow label="Versão" description="Versão atual do aplicativo."><span className="preference-value">0.1.2</span></PreferenceRow>
     <PreferenceRow label="Arquitetura" description="Aplicativo desktop com processamento local."><span className="preference-value">Electron + React + TypeScript</span></PreferenceRow>
     <PreferenceRow label="Criado por" description="Autor e mantenedor do Griffin Music."><span className="preference-value">Rodrigo Brito</span></PreferenceRow>
     <PreferenceRow label="Contato" description="Dúvidas, sugestões ou problemas."><a className="preference-value" href="mailto:rodrigo@w3ti.com.br">rodrigo@w3ti.com.br</a></PreferenceRow>
     <PreferenceRow label="Licença" description="Código aberto sob os termos da GPLv3."><a className="preference-value" href="https://github.com/britors/Griffin/blob/main/LICENSE" target="_blank" rel="noreferrer">GPLv3</a></PreferenceRow>
     <PreferenceRow label="Privacidade" description="O áudio e os stems não são enviados para servidores externos."><span className="status-pill ready">Somente local</span></PreferenceRow>
+    <UpdateRow />
+    <PreferenceRow label="Apoie o projeto" description="Contribua com qualquer valor via Pix para ajudar a manter o Griffin Music."><PixDonation /></PreferenceRow>
   </PreferenceSection>
+}
+
+function UpdateRow() {
+  const [status, setStatus] = useState<AppUpdateStatus | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    const unsubscribe = api.updates.onStatus((next) => { if (mounted) setStatus(next) })
+    void api.updates.status().then((next) => { if (mounted) setStatus(next) })
+    return () => { mounted = false; unsubscribe() }
+  }, [])
+
+  const check = async () => setStatus(await api.updates.check())
+  const download = async () => setStatus(await api.updates.download())
+  const install = async () => { await api.updates.install() }
+  const busy = status?.stage === 'checking' || status?.stage === 'downloading'
+
+  return <PreferenceRow label="Atualizações" description={status?.message ?? 'Verificando suporte a atualizações…'}>
+    <div className="preference-inline-controls update-controls">
+      {status?.stage === 'system' && <span className="preference-value update-system">OBS / zypper</span>}
+      {status?.stage === 'disabled' && <span className="preference-value">Versão instalada</span>}
+      {status?.stage === 'available' && <button className="secondary-button compact-control" onClick={() => void download()}>Baixar{status.version ? ` v${status.version}` : ''}</button>}
+      {status?.stage === 'downloaded' && <button className="primary-button compact-control" onClick={() => void install()}>Reiniciar e atualizar</button>}
+      {busy && <span className="preference-value update-progress">{status?.progress ? `${Math.round(status.progress)}%` : 'Aguarde…'}</span>}
+      {(status?.stage === 'not-available' || status?.stage === 'error' || !status) && <button className="secondary-button compact-control" disabled={busy} onClick={() => void check()}>Verificar</button>}
+    </div>
+  </PreferenceRow>
+}
+
+const PIX_KEY = 'britors@live.com'
+
+function PixDonation() {
+  const [qrCode, setQrCode] = useState<string | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    void QRCode.toDataURL(createPixPayload(), {
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      width: 220,
+      color: { dark: '#0b1526', light: '#ffffff' },
+    }).then((dataUrl) => {
+      if (mounted) setQrCode(dataUrl)
+    })
+    return () => { mounted = false }
+  }, [])
+
+  return <div className="pix-donation">
+    {qrCode ? <img className="pix-qrcode" src={qrCode} alt="QR Code para apoiar o Griffin Music via Pix" /> : <span className="pix-qrcode-placeholder">Gerando QR Code…</span>}
+    <code className="pix-key">{PIX_KEY}</code>
+  </div>
+}
+
+function createPixPayload() {
+  const merchantAccountInformation = `0014BR.GOV.BCB.PIX01${PIX_KEY.length.toString().padStart(2, '0')}${PIX_KEY}`
+  const payload = `00020126${merchantAccountInformation.length.toString().padStart(2, '0')}${merchantAccountInformation}5204000053039865802BR5913GRIFFIN MUSIC6009SAO PAULO6304`
+  return `${payload}${calculateCrc16(payload)}`
+}
+
+function calculateCrc16(payload: string) {
+  let crc = 0xffff
+  for (const character of payload) {
+    crc ^= character.charCodeAt(0) << 8
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1
+    crc &= 0xffff
+  }
+  return crc.toString(16).toUpperCase().padStart(4, '0')
 }
 
 function PreferenceSection({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {

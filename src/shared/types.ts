@@ -181,6 +181,16 @@ export interface ModelDownloadStatus {
   downloading: ModelDownloadKind | null
 }
 
+export type AppUpdateStage = 'disabled' | 'system' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'not-available' | 'error'
+
+export interface AppUpdateStatus {
+  supported: boolean
+  stage: AppUpdateStage
+  version?: string
+  progress?: number
+  message: string
+}
+
 export interface LocalResourcesSummary {
   cachePath: string
   cacheBytes: number
@@ -272,6 +282,13 @@ export interface GriffinAPI {
     download: (kind: ModelDownloadKind) => Promise<void>
     cancel: (kind: ModelDownloadKind) => Promise<void>
     onProgress: (callback: (progress: ModelDownloadProgress) => void) => () => void
+  }
+  updates: {
+    status: () => Promise<AppUpdateStatus>
+    check: () => Promise<AppUpdateStatus>
+    download: () => Promise<AppUpdateStatus>
+    install: () => Promise<void>
+    onStatus: (callback: (status: AppUpdateStatus) => void) => () => void
   }
   settings: {
     get: () => Promise<Record<string, unknown>>

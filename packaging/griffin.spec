@@ -9,9 +9,9 @@
 # (at your option) any later version.
 #
 
-# Prebuilt Electron bundle (chromium, node_modules nativos, modelos ONNX
-# fp16 já baixados) — não há símbolos de depuração úteis para extrair, e
-# tentar processá-los deixa o build desnecessariamente lento.
+# Prebuilt Electron bundle (Chromium and native node_modules) — não há
+# símbolos de depuração úteis para extrair, e tentar processá-los deixa o
+# build desnecessariamente lento.
 %global debug_package %{nil}
 
 Name:           griffin
@@ -50,9 +50,8 @@ sincronizado ao mixer (mute/solo, pitch, tempo, loop A-B), projetos,
 favoritos, BPM/tonalidade/afinação/acordes/letras e exportação de mixagens e
 stems individuais em WAV.
 
-Este pacote traz o Electron e os modelos ONNX (htdemucs_ft) já embutidos;
-não é necessário acesso à rede após a instalação para o perfil padrão de
-quatro stems.
+Este pacote traz o Electron e baixa os modelos ONNX sob demanda na primeira
+execução. Os modelos ficam em userData/models e não fazem parte do RPM.
 
 %prep
 %autosetup
@@ -61,6 +60,11 @@ quatro stems.
 test -x griffin-music
 
 %install
+# O bundle de origem pode ter sido gerado antes da mudança para download sob
+# demanda. Remover modelos em qualquer um dos layouts conhecidos garante que
+# o RPM do OBS não volte a carregar centenas de megabytes desnecessários.
+rm -rf ./resources/models ./models ./src/main/models
+
 # electron-builder inclui no pacote do onnxruntime-node os binários de todas
 # as plataformas suportadas. Para este RPM x86_64, manter os diretórios
 # darwin, win32 e linux/arm64 faz o gerador automático de dependências do RPM

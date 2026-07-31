@@ -2,6 +2,8 @@
 
 Aplicativo desktop standalone da W3TI para separação local de stems e prática instrumental. O áudio permanece no computador: não há servidor próprio nem upload de faixas.
 
+[![Baixar Griffin Music](https://img.shields.io/badge/Baixar-Griffin%20Music-d4a531?style=for-the-badge&logo=github&logoColor=white)](https://github.com/britors/Griffin/releases/latest)
+
 ## Estado atual
 
 O MVP e a Fase 2 de prática musical já estão integrados na `main`:
@@ -15,7 +17,7 @@ O MVP e a Fase 2 de prática musical já estão integrados na `main`:
 - exportação de mixagens e stems individuais em WAV PCM, com sample rate e bit depth configuráveis;
 - build Linux AppImage/DEB/RPM e Windows NSIS configurado no GitHub Actions.
 
-A release pública `v0.1.1` ainda não foi criada. Ela será publicada quando a tag for autorizada e enviada ao GitHub.
+A release pública `v0.1.2` será publicada a partir da nova tag e ficará disponível pelo botão de download acima.
 
 ## Requisitos
 
