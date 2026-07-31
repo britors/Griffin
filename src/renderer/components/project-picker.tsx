@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { playerSnapshot, usePlayer } from '../store'
+import { confirmDialog } from './dialog-store'
 
 export function ProjectPicker() {
   const { projects, activeProjectId, setProjects, setActiveProject, applySnapshot } = usePlayer()
@@ -48,7 +49,7 @@ export function ProjectPicker() {
 
   const removeProject = async () => {
     const current = projects.find((project) => project.id === activeProjectId)
-    if (!current || projects.length === 1 || !window.confirm(`Remover o projeto “${current.name}”?`)) return
+    if (!current || projects.length === 1 || !(await confirmDialog(`Remover o projeto “${current.name}”?`, { confirmLabel: 'Remover', tone: 'danger' }))) return
     setBusy(true)
     try {
       await api.projects.remove(current.id)
@@ -88,7 +89,7 @@ export function ProjectPicker() {
   }
 
   const removeSnapshot = async (snapshotId: string) => {
-    if (!activeProjectId || !window.confirm('Remover este snapshot?')) return
+    if (!activeProjectId || !(await confirmDialog('Remover este snapshot?', { confirmLabel: 'Remover', tone: 'danger' }))) return
     setBusy(true)
     try {
       const updated = await api.projects.removeSnapshot(activeProjectId, snapshotId)

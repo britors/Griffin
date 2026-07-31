@@ -9,6 +9,7 @@ import { AudioFileDecoder } from '../audio/audio-file-decoder'
 import { resampleTo44100, toStereo } from '../audio/audio-resampler'
 import { encodeStereoWav } from '../audio/wav-encoder'
 import { hashAudioFile, FileStemCache } from './stem-cache'
+import { singlePath, specialistPath, sixStemPath } from './model-catalog'
 
 const modelStemOrder: StemName[] = ['drums', 'bass', 'other', 'vocals']
 const extendedModelStemOrder: StemName[] = ['drums', 'bass', 'other', 'vocals', 'guitar', 'piano']
@@ -231,9 +232,9 @@ export class OnnxDemucsSeparator implements StemSeparator {
 
   private modelPath(model: 'htdemucs' | 'htdemucs-6s' | StemName) { return model === 'htdemucs' ? this.singlePath() : model === 'htdemucs-6s' ? this.sixStemPath() : this.specialistPath(model) }
 
-  private specialistPath(stem: StemName) { return join(this.modelsDirectory(), 'htdemucs-ft', `htdemucs_ft_${stem}_fp16weights.onnx`) }
-  private singlePath() { return join(this.modelsDirectory(), 'htdemucs.onnx') }
-  private sixStemPath() { return join(this.modelsDirectory(), 'htdemucs_6s.onnx') }
+  private specialistPath(stem: StemName) { return specialistPath(this.modelsDirectory(), stem) }
+  private singlePath() { return singlePath(this.modelsDirectory()) }
+  private sixStemPath() { return sixStemPath(this.modelsDirectory()) }
   private modelsDirectory() { return this.modelsDirectoryPath }
   private async fileExists(path: string) { return access(path).then(() => true).catch(() => false) }
 }

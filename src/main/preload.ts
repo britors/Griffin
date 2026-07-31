@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, GriffinAPI, LyricsLine, PlayerSnapshot, SeparationProgress, StemName, Track, TrackAnalysis, YoutubeImportProgress } from '../shared/types'
+import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, GriffinAPI, LyricsLine, ModelDownloadKind, ModelDownloadProgress, PlayerSnapshot, SeparationProgress, StemName, Track, TrackAnalysis, YoutubeImportProgress } from '../shared/types'
 
 const api: GriffinAPI = {
   window: {
@@ -65,6 +65,16 @@ const api: GriffinAPI = {
       const listener = (_event: Electron.IpcRendererEvent, progress: SeparationProgress) => callback(progress)
       ipcRenderer.on('separation:progress', listener)
       return () => ipcRenderer.removeListener('separation:progress', listener)
+    },
+  },
+  models: {
+    status: () => ipcRenderer.invoke('models:status'),
+    download: (kind: ModelDownloadKind) => ipcRenderer.invoke('models:download', kind),
+    cancel: (kind: ModelDownloadKind) => ipcRenderer.invoke('models:cancel', kind),
+    onProgress: (callback: (progress: ModelDownloadProgress) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, progress: ModelDownloadProgress) => callback(progress)
+      ipcRenderer.on('models:progress', listener)
+      return () => ipcRenderer.removeListener('models:progress', listener)
     },
   },
   settings: {

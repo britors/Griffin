@@ -153,6 +153,20 @@ export interface SeparationStatus {
   sixStemAvailable?: boolean
 }
 
+export type ModelDownloadKind = 'standard' | 'extended'
+
+export interface ModelDownloadProgress {
+  kind: ModelDownloadKind
+  progress: number
+  stage: string
+}
+
+export interface ModelDownloadStatus {
+  standardInstalled: boolean
+  extendedInstalled: boolean
+  downloading: ModelDownloadKind | null
+}
+
 export interface LocalResourcesSummary {
   cachePath: string
   cacheBytes: number
@@ -232,6 +246,12 @@ export interface GriffinAPI {
     start: (track: Track, target?: StemName) => Promise<Track>
     cancel: (trackId: string) => Promise<void>
     onProgress: (callback: (progress: SeparationProgress) => void) => () => void
+  }
+  models: {
+    status: () => Promise<ModelDownloadStatus>
+    download: (kind: ModelDownloadKind) => Promise<void>
+    cancel: (kind: ModelDownloadKind) => Promise<void>
+    onProgress: (callback: (progress: ModelDownloadProgress) => void) => () => void
   }
   settings: {
     get: () => Promise<Record<string, unknown>>

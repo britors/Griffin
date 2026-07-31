@@ -1,13 +1,12 @@
 # Release 0.1.0
 
-O workflow de release é disparado por tags `v*` e publica AppImage, `.deb`, `.rpm` e instalador NSIS x64. Os modelos `htdemucs_ft` e o fallback `htdemucs` são baixados no runner antes do empacotamento e incluídos em `extraResources/models`.
+O workflow de release é disparado por tags `v*` e publica AppImage, `.deb`, `.rpm` e instalador NSIS x64. Os modelos ONNX não são mais empacotados no instalador: o próprio aplicativo os baixa sob demanda em runtime (`userData/models`), na primeira execução ou via Preferências.
 
 Validação local:
 
 ```bash
 npm run typecheck
 npm run build
-bash scripts/download-models.sh
 npm run package:linux
 ```
 

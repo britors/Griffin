@@ -3,6 +3,8 @@ import { api } from '../api'
 import { ACCENT_PRESETS, applyVisualPreferences } from '../preferences'
 import { usePlayer, type MetronomeSubdivision } from '../store'
 import type { ExecutionProviderPreference, LocalResourcesSummary, SeparationProfile, SeparationStatus, SeparationModelProfile } from '../../shared/types'
+import { useModelDownload } from '../hooks/use-model-download'
+import { confirmDialog } from '../components/dialog-store'
 
 type Section = 'appearance' | 'playback' | 'processing' | 'about'
 type Settings = Record<string, unknown>
@@ -20,6 +22,7 @@ export function PreferencesPage() {
   const [modelStatus, setModelStatus] = useState<SeparationStatus | null>(null)
   const [resources, setResources] = useState<LocalResourcesSummary | null>(null)
   const { setResetPlaybackOnTrackChange, setMetronomeEnabled, setMetronomeSubdivision, setMetronomeVolume, setCountInEnabled, setCountInBars } = usePlayer()
+  const modelDownload = useModelDownload()
 
   useEffect(() => {
     void api.settings.get().then((loaded) => {
@@ -30,6 +33,7 @@ export function PreferencesPage() {
     void api.separation.status().then(setModelStatus)
     void api.resources.summary().then(setResources)
   }, [])
+  useEffect(() => { if (modelDownload.status?.extendedInstalled) void api.separation.status().then(setModelStatus) }, [modelDownload.status?.extendedInstalled])
 
   const updateSetting = async (key: string, value: unknown) => {
     const next = { ...settings, [key]: value }
@@ -55,7 +59,7 @@ export function PreferencesPage() {
       <div className="preferences-content">
         {activeSection === 'appearance' && <AppearanceSection settings={settings} onChange={updateSetting} />}
         {activeSection === 'playback' && <PlaybackSection settings={settings} onChange={updateSetting} />}
-        {activeSection === 'processing' && <ProcessingSection settings={settings} status={modelStatus} resources={resources} onChange={updateSetting} onCacheCleared={setResources} />}
+        {activeSection === 'processing' && <ProcessingSection settings={settings} status={modelStatus} resources={resources} onChange={updateSetting} onCacheCleared={setResources} modelDownload={modelDownload} />}
         {activeSection === 'about' && <AboutSection />}
       </div>
     </div>
@@ -113,23 +117,30 @@ function PlaybackSection({ settings, onChange }: { settings: Settings; onChange:
   </PreferenceSection>
 }
 
-function ProcessingSection({ settings, status, resources, onChange, onCacheCleared }: { settings: Settings; status: SeparationStatus | null; resources: LocalResourcesSummary | null; onChange: (key: string, value: unknown) => Promise<void>; onCacheCleared: (summary: LocalResourcesSummary) => void }) {
+function ProcessingSection({ settings, status, resources, onChange, onCacheCleared, modelDownload }: { settings: Settings; status: SeparationStatus | null; resources: LocalResourcesSummary | null; onChange: (key: string, value: unknown) => Promise<void>; onCacheCleared: (summary: LocalResourcesSummary) => void; modelDownload: ReturnType<typeof useModelDownload> }) {
   const processingThreads = typeof settings.processingThreads === 'number' ? settings.processingThreads : 0
   const profile: SeparationProfile = settings.processingProfile === 'speed' || settings.processingProfile === 'balanced' ? settings.processingProfile : 'quality'
   const provider: ExecutionProviderPreference = settings.executionProvider === 'cpu' || settings.executionProvider === 'cuda' ? settings.executionProvider : 'auto'
   const modelProfile: SeparationModelProfile = settings.modelProfile === 'six-stem' ? 'six-stem' : 'four-stem'
   const clearCache = async () => {
-    if (!window.confirm('Limpar o cache de stems?\n\nAs faixas originais, projetos e modelos serão preservados.')) return
+    if (!(await confirmDialog('Limpar o cache de stems?\n\nAs faixas originais, projetos e modelos serão preservados.', { confirmLabel: 'Limpar', tone: 'danger' }))) return
     onCacheCleared(await api.resources.clearCache())
   }
   return <PreferenceSection title="Processamento" description="Modelo e armazenamento usados pela separação local.">
     <PreferenceRow label="Modelo" description="Variante de maior qualidade para separar quatro stems."><span className="preference-value">htdemucs_ft</span></PreferenceRow>
-    <PreferenceRow label="Perfil de stems" description="O perfil de seis stems adiciona guitarra e piano quando htdemucs_6s.onnx estiver instalado; quatro stems é o fallback."><select className="preference-control" value={modelProfile} onChange={(event) => void onChange('modelProfile', event.target.value)}><option value="four-stem">4 stems · padrão</option><option value="six-stem" disabled={!status?.sixStemAvailable}>6 stems · guitarra/piano{status?.sixStemAvailable ? '' : ' · não instalado'}</option></select></PreferenceRow>
+    <PreferenceRow label="Perfil de stems" description="O perfil de seis stems adiciona guitarra e piano quando o modelo estendido estiver instalado; quatro stems é o fallback.">
+      <div className="preference-inline-controls">
+        <select className="preference-control" value={modelProfile} onChange={(event) => void onChange('modelProfile', event.target.value)}><option value="four-stem">4 stems · padrão</option><option value="six-stem" disabled={!status?.sixStemAvailable}>6 stems · guitarra/piano{status?.sixStemAvailable ? '' : ' · não instalado'}</option></select>
+        {modelDownload.status && !modelDownload.status.extendedInstalled && (modelDownload.progress?.kind === 'extended'
+          ? <span className="preference-value">{modelDownload.progress.stage} · {Math.round(modelDownload.progress.progress * 100)}%</span>
+          : <button className="secondary-button compact-control" disabled={modelDownload.status.downloading !== null} onClick={() => void modelDownload.download('extended')}>Ativar guitarra e piano</button>)}
+      </div>
+    </PreferenceRow>
     <PreferenceRow label="Status do modelo" description="O modelo é carregado pelo processo principal do Electron."><span className={`status-pill ${status?.available ? 'ready' : ''}`}>{status?.available ? 'Disponível' : status?.message ?? 'Verificando…'}</span></PreferenceRow>
     <PreferenceRow label="Provider ONNX" description="GPU é testada automaticamente; se não estiver disponível, o processamento retorna para CPU."><span className="preference-value">{status?.provider === 'cuda' ? 'CUDA / GPU' : 'CPU'}{status?.memoryBytes ? ` · ${formatBytes(status.memoryBytes)}` : ''}{status?.lastDurationMs ? ` · último ${formatDurationMs(status.lastDurationMs)}` : ''}</span></PreferenceRow>
     <PreferenceRow label="Perfil de separação" description="Qualidade usa htdemucs_ft; Rápido prioriza velocidade com o modelo single-file quando disponível."><select className="preference-control" value={profile} onChange={(event) => void onChange('processingProfile', event.target.value)}><option value="quality">Qualidade máxima</option><option value="balanced">Balanceado</option><option value="speed">Velocidade</option></select></PreferenceRow>
     <PreferenceRow label="Aceleração" description="Escolha Automático para detectar CUDA e manter fallback CPU; a mudança vale para a próxima separação."><select className="preference-control" value={provider} onChange={(event) => void onChange('executionProvider', event.target.value)}><option value="auto">Automático</option><option value="cpu">Somente CPU</option><option value="cuda">Preferir GPU</option></select></PreferenceRow>
-    <PreferenceRow label="Cache de stems" description={`Evita recalcular uma faixa já processada. ${resources ? `${formatBytes(resources.cacheBytes)} armazenados.` : 'Calculando tamanho…'}`}><div className="preference-inline-controls"><span className="preference-value">Ativo</span><button className="secondary-button compact-control" onClick={() => void clearCache}>Limpar cache</button></div></PreferenceRow>
+    <PreferenceRow label="Cache de stems" description={`Evita recalcular uma faixa já processada. ${resources ? `${formatBytes(resources.cacheBytes)} armazenados.` : 'Calculando tamanho…'}`}><div className="preference-inline-controls"><span className="preference-value">Ativo</span><button className="secondary-button compact-control" onClick={() => void clearCache()}>Limpar cache</button></div></PreferenceRow>
     <PreferenceRow label="Local do cache" description="Os stems separados ficam neste diretório local."><span className="preference-path">{resources?.cachePath ?? 'Calculando…'}</span></PreferenceRow>
     <PreferenceRow label="Uso do modelo" description="O modelo ONNX também permanece somente neste computador."><span className="preference-value">{resources ? formatBytes(resources.modelBytes) : 'Calculando…'}</span></PreferenceRow>
     <PreferenceRow label="Threads de processamento" description="Limita o paralelismo do ONNX; Automático usa a configuração padrão do runtime."><select className="preference-control" value={processingThreads} onChange={(event) => void onChange('processingThreads', Number(event.target.value))}><option value="0">Automático</option><option value="1">1 thread</option><option value="2">2 threads</option><option value="4">4 threads</option><option value="8">8 threads</option></select></PreferenceRow>

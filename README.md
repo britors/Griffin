@@ -6,7 +6,7 @@ Aplicativo desktop standalone da W3TI para separação local de stems e prática
 
 O MVP e a Fase 2 de prática musical já estão integrados na `main`:
 
-- separação local em vocal, bateria, baixo e outros com `htdemucs_ft`, com perfil opcional de seis stems para guitarra e piano;
+- separação local em vocal, bateria, baixo e outros com `htdemucs_ft`, com perfil opcional de seis stems para guitarra e piano, modelos baixados sob demanda pelo próprio app;
 - player sincronizado com mixer, mute/solo, pitch, tempo e loop A-B;
 - projetos, favoritos, recentes e cache local;
 - BPM, tonalidade, afinação, seções, acordes e letras sincronizadas;
@@ -21,7 +21,7 @@ A release pública `v0.1.0` ainda não foi criada. Ela será publicada quando a 
 
 - Node.js 22.x recomendado (o CI usa Node 22);
 - npm;
-- aproximadamente 1 GB livre para os modelos ONNX e alguns GB adicionais para empacotar os instaladores;
+- aproximadamente 1 GB livre para os modelos ONNX (baixados pelo app na primeira execução) e alguns GB adicionais para empacotar os instaladores;
 - Linux: GTK3, NSS, ALSA e, para gerar RPM localmente, `rpm-build`.
 
 No openSUSE Leap:
@@ -36,19 +36,14 @@ sudo zypper install rpm-build
 git clone git@github.com:britors/Griffin.git
 cd Griffin
 npm ci
-bash scripts/download-models.sh
 npm run dev
 ```
 
-O script baixa o modelo especialista `htdemucs_ft` e o fallback single-file `htdemucs` para `src/main/models/`. Esses arquivos não são versionados no Git; o workflow de release baixa os modelos antes do empacotamento.
+Os modelos ONNX não são versionados no Git nem empacotados no instalador. Na primeira execução, o app oferece um download (~1 GB) do modelo especialista `htdemucs_ft` e do fallback single-file `htdemucs`, salvos em `userData/models`. O perfil padrão produz quatro stems.
 
-O perfil padrão produz quatro stems. Para instalar também o modelo opcional `htdemucs-6s` — que adiciona guitarra e piano — use:
+Para instalar também o modelo opcional `htdemucs-6s` — que adiciona guitarra e piano — use o botão "Ativar guitarra e piano" em Preferências → Processamento, depois que o modelo padrão estiver instalado.
 
-```bash
-GRIFFIN_EXTENDED=1 bash scripts/download-models.sh
-```
-
-O arquivo é baixado como `src/main/models/htdemucs_6s.onnx`. Se ele não estiver presente, o aplicativo mantém o perfil de quatro stems e informa nas preferências que o modelo estendido precisa ser instalado.
+Alternativamente, `scripts/download-models.sh` continua disponível para baixar os modelos manualmente (por exemplo, em CI de testes ou provisionamento em lote), aceitando `GRIFFIN_MODEL_DIR` e `GRIFFIN_EXTENDED=1`.
 
 ## Validação e build
 
@@ -72,7 +67,7 @@ npm run package:win
 
 Os artefatos são gravados em `release/`. O RPM local exige o executável `rpmbuild`; no GitHub Actions ele é instalado automaticamente.
 
-Depois de gerar os pacotes Linux, valide os formatos, o logo e os modelos empacotados:
+Depois de gerar os pacotes Linux, valide os formatos e o logo:
 
 ```bash
 npm run validate:packages

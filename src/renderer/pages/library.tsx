@@ -7,6 +7,7 @@ import { RemoteImport } from '../components/remote-import'
 import { YoutubeImport } from '../components/youtube-import'
 import { formatDuration } from '../../shared/utils'
 import type { Track } from '../../shared/types'
+import { confirmDialog } from '../components/dialog-store'
 
 type LibraryFilter = 'all' | 'favorites' | 'recent'
 
@@ -42,7 +43,7 @@ export function LibraryPage({ filter = 'all' }: { filter?: LibraryFilter }) {
   }
 
   const removeTrack = async (track: Track) => {
-    if (!window.confirm(`Remover “${track.name}” da biblioteca?\n\nA entrada será removida, mas os stems em cache serão preservados neste computador.`)) return
+    if (!(await confirmDialog(`Remover “${track.name}” da biblioteca?\n\nA entrada será removida, mas os stems em cache serão preservados neste computador.`, { confirmLabel: 'Remover', tone: 'danger' }))) return
     await api.library.remove(track.id)
     if (selected?.id === track.id) select(null)
     setTracks(await api.library.list())

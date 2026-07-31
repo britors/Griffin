@@ -8,6 +8,7 @@ import { LyricsPanel } from '../components/lyrics-panel'
 import { ExportPanel } from '../components/export-panel'
 import { GraphicEqualizer } from '../components/graphic-equalizer'
 import { PerformanceRecorder } from '../components/performance-recorder'
+import { useModelDownload } from '../hooks/use-model-download'
 
 export function PlayerPage() {
   const { selected, progress, setTracks, select, replaceSelected, setProgress } = usePlayer()
@@ -17,8 +18,10 @@ export function PlayerPage() {
   const [analysisError, setAnalysisError] = useState<string | null>(null)
   const [target, setTarget] = useState<SeparationTarget>('all')
   const analysisRequested = useRef<string | null>(null)
+  const modelDownload = useModelDownload()
 
   useEffect(() => { void api.separation.status().then(setModelStatus) }, [])
+  useEffect(() => { if (modelDownload.status?.standardInstalled) void api.separation.status().then(setModelStatus) }, [modelDownload.status?.standardInstalled])
   useEffect(() => {
     if (!selected || selected.analysis || analysisRequested.current === selected.id) return
     analysisRequested.current = selected.id
@@ -69,7 +72,13 @@ export function PlayerPage() {
     </div>
     {error && <div className="error-banner">{error}</div>}
     {analysisError && <div className="error-banner">{analysisError}</div>}
-    {selected && modelStatus && !modelStatus.available && <div className="model-notice"><span className="model-status-dot" />{modelStatus.message}</div>}
+    {selected && modelStatus && !modelStatus.available && <div className="model-notice">
+      <span className="model-status-dot" /><span>{modelStatus.message}</span>
+      {modelDownload.status && !modelDownload.status.standardInstalled && (modelDownload.progress?.kind === 'standard'
+        ? <div className="model-download-progress"><div className="separation-progress-meta" aria-live="polite"><span>{modelDownload.progress.stage}</span><strong>{Math.round(modelDownload.progress.progress * 100)}%</strong></div><div className="separation-progress-track" role="progressbar" aria-label="Progresso do download do modelo" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(modelDownload.progress.progress * 100)}><span style={{ width: `${Math.round(modelDownload.progress.progress * 100)}%` }} /></div></div>
+        : <button className="secondary-button compact-control" disabled={modelDownload.status.downloading !== null} onClick={() => void modelDownload.download('standard')}>Baixar modelo (~1 GB)</button>)}
+      {modelDownload.error && <span className="model-download-error">{modelDownload.error}</span>}
+    </div>}
     <PlayerTransport />
     <LyricsPanel />
     <StemMixer />
