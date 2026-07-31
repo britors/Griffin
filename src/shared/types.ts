@@ -167,6 +167,20 @@ export interface RemoteCostEstimate {
   estimatedUsd: number
 }
 
+export type ModelDownloadKind = 'standard' | 'extended'
+
+export interface ModelDownloadProgress {
+  kind: ModelDownloadKind
+  progress: number
+  stage: string
+}
+
+export interface ModelDownloadStatus {
+  standardInstalled: boolean
+  extendedInstalled: boolean
+  downloading: ModelDownloadKind | null
+}
+
 export interface LocalResourcesSummary {
   cachePath: string
   cacheBytes: number
@@ -252,6 +266,12 @@ export interface GriffinAPI {
     saveApiKey: (key: string) => Promise<RemoteSeparationStatus>
     clearApiKey: () => Promise<RemoteSeparationStatus>
     estimateCost: (trackId: string) => Promise<RemoteCostEstimate>
+  }
+  models: {
+    status: () => Promise<ModelDownloadStatus>
+    download: (kind: ModelDownloadKind) => Promise<void>
+    cancel: (kind: ModelDownloadKind) => Promise<void>
+    onProgress: (callback: (progress: ModelDownloadProgress) => void) => () => void
   }
   settings: {
     get: () => Promise<Record<string, unknown>>

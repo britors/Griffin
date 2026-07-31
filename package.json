@@ -53,13 +53,6 @@
     ],
     "extraResources": [
       {
-        "from": "src/main/models",
-        "to": "models",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
         "from": "resources/icon.png",
         "to": "icon.png"
       }

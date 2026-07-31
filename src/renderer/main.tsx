@@ -8,9 +8,10 @@ import { PlayerPage } from './pages/player'
 import { PreferencesPage } from './pages/preferences'
 import { AudioPlayback } from './components/audio-playback'
 import { Splash } from './components/splash'
+import { ModelSetupModal } from './components/model-setup-modal'
+import { DialogHost } from './components/dialog-host'
 import { KeyboardShortcuts } from './components/keyboard-shortcuts'
 import { Metronome } from './components/metronome'
-import { DialogHost } from './components/dialog-host'
 import './styles.css'
 
 type View = 'library' | 'preferences'
@@ -73,6 +74,7 @@ function App() {
   const showPreferences = () => setView('preferences')
 
   return <div className="app-shell">
+    <ModelSetupModal />
     <DialogHost />
     <KeyboardShortcuts />
     <Metronome />

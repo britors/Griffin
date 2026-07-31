@@ -1,5 +1,5 @@
 import type { AudioTrack } from '../../shared/domain/audio-track'
-import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, ChordEvent, RemoteAudioAsset, SeparationProgress, SeparationStatus, StemName, Track, TrackAnalysis, YoutubeAudioPreview, YoutubeImportProgress } from '../../shared/types'
+import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, ChordEvent, ModelDownloadKind, ModelDownloadProgress, ModelDownloadStatus, RemoteAudioAsset, SeparationProgress, SeparationStatus, StemName, Track, TrackAnalysis, YoutubeAudioPreview, YoutubeImportProgress } from '../../shared/types'
 import type { Project } from '../../shared/types'
 
 export interface TrackRepository {
@@ -90,6 +90,11 @@ export interface SecretStore {
   get(key: string): Promise<string | null>
   set(key: string, value: string): Promise<void>
   remove(key: string): Promise<void>
+}
+
+export interface ModelDownloader {
+  status(): Promise<ModelDownloadStatus>
+  download(kind: ModelDownloadKind, report: (progress: ModelDownloadProgress) => void, signal: AbortSignal): Promise<void>
 }
 
 export type TrackSnapshot = Track

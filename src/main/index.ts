@@ -41,6 +41,9 @@ import { StemSplitSeparator } from './infrastructure/separation/stemsplit-separa
 import { ElectronSecretStore } from './infrastructure/electron/secret-store'
 import { RemoteProviderApplicationService } from './application/remote-provider-service'
 import { registerRemoteProviderHandlers } from './presentation/ipc/remote-provider-handlers'
+import { ModelDownloadApplicationService } from './application/model-download-service'
+import { ElectronModelDownloader } from './infrastructure/electron/model-downloader'
+import { registerModelDownloadHandlers } from './presentation/ipc/model-download-handlers'
 
 let window: BrowserWindow | undefined
 
@@ -74,7 +77,7 @@ app.whenReady().then(async () => {
   app.setPath('userData', join(app.getPath('appData'), 'GriffinMusic'))
   const trackRepository = new JsonTrackRepository(); await trackRepository.init()
   const projectRepository = new JsonProjectRepository(); await projectRepository.init()
-  const modelsDirectory = app.isPackaged ? join(process.resourcesPath, 'models') : join(app.getAppPath(), 'src/main/models')
+  const modelsDirectory = join(app.getPath('userData'), 'models')
   const settingsRepository = new JsonSettingsRepository()
   const initialSettings = await settingsRepository.get()
   const cacheDirectory = join(app.getPath('userData'), 'stems')
@@ -93,6 +96,7 @@ app.whenReady().then(async () => {
   const libraryService = new LibraryApplicationService(trackRepository, new FileAudioGateway(), new ElectronAudioPicker())
   const remoteImport = new RemoteAudioImportApplicationService(new ElectronRemoteAudioDownloader(), libraryService, join(app.getPath('userData'), 'imports'))
   const youtubeImport = new YoutubeImportApplicationService(new ElectronYoutubeAudioDownloader(), libraryService, join(app.getPath('userData'), 'imports'))
+  const modelDownload = new ModelDownloadApplicationService(new ElectronModelDownloader(modelsDirectory))
   const separationService = new SeparationApplicationService(trackRepository, separator, remoteSeparator)
   const projectService = new ProjectApplicationService(projectRepository)
   const analysisService = new TrackAnalysisApplicationService(trackRepository, new FileAudioGateway(), new LocalTrackAnalyzer())
@@ -154,6 +158,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('projects:update-player-state', (_event, projectId: string, player) => projects.updatePlayerState(_event, projectId, player))
   registerSeparationHandlers(separationService, () => window?.webContents)
   registerRemoteProviderHandlers(remoteProviderService)
+  registerModelDownloadHandlers(modelDownload, () => window?.webContents)
   await createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow() })
 })

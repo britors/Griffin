@@ -70,20 +70,12 @@ deb_listing="$(dpkg-deb --contents "${deb}")"
 rpm_listing="$(rpm -qlp "${rpm}")"
 for listing in "${deb_listing}" "${rpm_listing}"; do
   require_listing_entry "${listing}" 'resources/icon.png'
-  require_listing_entry "${listing}" 'resources/models/htdemucs.onnx'
-  for stem in bass drums other vocals; do
-    require_listing_entry "${listing}" "resources/models/htdemucs-ft/htdemucs_ft_${stem}_fp16weights.onnx"
-  done
 done
 
 temp_dir="$(mktemp -d)"
 trap 'rm -rf "${temp_dir}"' EXIT
 (cd "${temp_dir}" && "${OLDPWD}/${appimage}" --appimage-extract >/dev/null)
 require_file "${temp_dir}/squashfs-root/resources/icon.png"
-require_file "${temp_dir}/squashfs-root/resources/models/htdemucs.onnx"
-for stem in bass drums other vocals; do
-  require_file "${temp_dir}/squashfs-root/resources/models/htdemucs-ft/htdemucs_ft_${stem}_fp16weights.onnx"
-done
 "${appimage}" --appimage-version >/dev/null
 
-echo "AppImage, DEB e RPM validados com logo e modelos ONNX: ${release_dir}"
+echo "AppImage, DEB e RPM validados com logo: ${release_dir}"
