@@ -207,6 +207,9 @@ function AboutSection() {
   return <PreferenceSection title="Sobre" description="Informações desta instalação do Griffin Music.">
     <PreferenceRow label="Versão" description="Versão atual do aplicativo."><span className="preference-value">0.1.0</span></PreferenceRow>
     <PreferenceRow label="Arquitetura" description="Aplicativo desktop com processamento local."><span className="preference-value">Electron + React + TypeScript</span></PreferenceRow>
+    <PreferenceRow label="Criado por" description="Autor e mantenedor do Griffin Music."><span className="preference-value">Rodrigo Brito</span></PreferenceRow>
+    <PreferenceRow label="Contato" description="Dúvidas, sugestões ou problemas."><a className="preference-value" href="mailto:rodrigo@w3ti.com.br">rodrigo@w3ti.com.br</a></PreferenceRow>
+    <PreferenceRow label="Licença" description="Código aberto sob os termos da GPLv3."><a className="preference-value" href="https://github.com/britors/Griffin/blob/main/LICENSE" target="_blank" rel="noreferrer">GPLv3</a></PreferenceRow>
     <PreferenceRow label="Privacidade" description="O áudio e os stems não são enviados para servidores externos."><span className="status-pill ready">Somente local</span></PreferenceRow>
   </PreferenceSection>
 }
