@@ -34,6 +34,17 @@ require_file PKGBUILD
 bash -n PKGBUILD
 grep -F "pkgname=griffin-music" PKGBUILD >/dev/null || fail "PKGBUILD sem pkgname esperado"
 grep -F "package()" PKGBUILD >/dev/null || fail "PKGBUILD sem função package()"
+
+if command -v rpmspec >/dev/null; then
+  require_file packaging/griffin.spec
+  rpmspec --parse packaging/griffin.spec >/dev/null || fail "griffin.spec inválido"
+  grep -E '^Name:[[:space:]]+griffin-music$' packaging/griffin.spec >/dev/null || fail "griffin.spec sem identidade esperada"
+  grep -F 'Obsoletes:      griffin < ' packaging/griffin.spec >/dev/null || fail "griffin.spec sem migração do pacote antigo griffin"
+  echo "Spec RPM validado por rpmspec."
+else
+  echo "rpmspec não disponível; spec RPM não validado."
+fi
+
 if command -v makepkg >/dev/null; then
   srcinfo="$(mktemp)"
   trap 'rm -f "${srcinfo}"' EXIT

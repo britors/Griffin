@@ -8,7 +8,7 @@
     "name": "W3TI",
     "email": "opensource@w3ti.com"
   },
-  "homepage": "https://github.com/w3ti/griffin-music",
+  "homepage": "https://github.com/britors/Griffin",
   "license": "GPL-3.0-only",
   "scripts": {
     "dev": "electron-vite dev",

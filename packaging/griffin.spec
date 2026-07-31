@@ -14,15 +14,19 @@
 # build desnecessariamente lento.
 %global debug_package %{nil}
 
-Name:           griffin
-Version:        0.1.0
+Name:           griffin-music
+Version:        0.1.2
 Release:        0
+Provides:       griffin = %{version}
+Obsoletes:      griffin < %{version}
 Summary:        Separação local de stems e prática instrumental
 License:        GPL-3.0-only
 Group:          Productivity/Multimedia/Sound/Editors and Convertors
 URL:            https://github.com/britors/Griffin
-Source0:        %{name}-%{version}.tar.zst
+Source0:        griffin-%{version}.tar.zst
 Source1:        com.w3ti.griffinmusic.desktop
+Source2:        LICENSE
+Source3:        README.md
 ExclusiveArch:  x86_64
 
 BuildRequires:  desktop-file-utils
@@ -54,7 +58,7 @@ Este pacote traz o Electron e baixa os modelos ONNX sob demanda na primeira
 execução. Os modelos ficam em userData/models e não fazem parte do RPM.
 
 %prep
-%autosetup
+%autosetup -n griffin-%{version}
 
 %build
 test -x griffin-music
@@ -78,7 +82,7 @@ find . -type d \( \
 
 install -d %{buildroot}%{_libdir}/griffin-music
 cp -a . %{buildroot}%{_libdir}/griffin-music/
-rm -f %{buildroot}%{_libdir}/griffin-music/{LICENSE,README.md,chrome-sandbox}
+rm -f %{buildroot}%{_libdir}/griffin-music/chrome-sandbox
 
 install -d %{buildroot}%{_bindir}
 cat > %{buildroot}%{_bindir}/griffin-music <<WRAPPER
@@ -91,12 +95,16 @@ chmod 0755 %{buildroot}%{_bindir}/griffin-music
 
 install -Dm0644 %{SOURCE1} %{buildroot}%{_datadir}/applications/com.w3ti.griffinmusic.desktop
 install -Dm0644 resources/icon.png %{buildroot}%{_datadir}/icons/hicolor/256x256/apps/com.w3ti.griffinmusic.png
+install -Dm0644 %{SOURCE2} %{buildroot}%{_datadir}/licenses/%{name}/LICENSE
+install -Dm0644 %{SOURCE3} %{buildroot}%{_docdir}/%{name}/README.md
 
 desktop-file-validate %{buildroot}%{_datadir}/applications/com.w3ti.griffinmusic.desktop
 
 %files
-%license LICENSE
-%doc README.md
+%dir %{_datadir}/licenses/%{name}
+%license %{_datadir}/licenses/%{name}/LICENSE
+%dir %{_docdir}/%{name}
+%doc %{_docdir}/%{name}/README.md
 %{_bindir}/griffin-music
 %{_libdir}/griffin-music
 %{_datadir}/applications/com.w3ti.griffinmusic.desktop
