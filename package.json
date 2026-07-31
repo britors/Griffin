@@ -1,6 +1,6 @@
 {
   "name": "griffin-music",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Separação local de stems e prática instrumental.",
   "desktopName": "griffin-music",
   "main": "./out/main/index.js",
