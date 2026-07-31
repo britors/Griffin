@@ -122,6 +122,8 @@ Documentação adicional:
 - [Arquitetura](docs/ARCHITECTURE.md)
 - [Validação de áudio e cache](docs/VALIDATION.md)
 - [Processo de release](docs/RELEASE.md)
+- [Separação remota opcional](docs/REMOTE_SEPARATION.md)
+- [Política de privacidade](PRIVACY.md)
 - [Contribuição](CONTRIBUTING.md)
 
 ## Licença

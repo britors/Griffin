@@ -3,6 +3,8 @@ import { api } from '../api'
 import { ACCENT_PRESETS, applyVisualPreferences } from '../preferences'
 import { usePlayer, type MetronomeSubdivision } from '../store'
 import type { ExecutionProviderPreference, LocalResourcesSummary, SeparationProfile, SeparationStatus, SeparationModelProfile } from '../../shared/types'
+import { useRemoteProvider } from '../hooks/use-remote-provider'
+import { confirmDialog } from '../components/dialog-store'
 
 type Section = 'appearance' | 'playback' | 'processing' | 'about'
 type Settings = Record<string, unknown>
@@ -55,7 +57,7 @@ export function PreferencesPage() {
       <div className="preferences-content">
         {activeSection === 'appearance' && <AppearanceSection settings={settings} onChange={updateSetting} />}
         {activeSection === 'playback' && <PlaybackSection settings={settings} onChange={updateSetting} />}
-        {activeSection === 'processing' && <ProcessingSection settings={settings} status={modelStatus} resources={resources} onChange={updateSetting} onCacheCleared={setResources} />}
+        {activeSection === 'processing' && <><ProcessingSection settings={settings} status={modelStatus} resources={resources} onChange={updateSetting} onCacheCleared={setResources} /><RemoteProviderSection /></>}
         {activeSection === 'about' && <AboutSection />}
       </div>
     </div>
@@ -119,7 +121,7 @@ function ProcessingSection({ settings, status, resources, onChange, onCacheClear
   const provider: ExecutionProviderPreference = settings.executionProvider === 'cpu' || settings.executionProvider === 'cuda' ? settings.executionProvider : 'auto'
   const modelProfile: SeparationModelProfile = settings.modelProfile === 'six-stem' ? 'six-stem' : 'four-stem'
   const clearCache = async () => {
-    if (!window.confirm('Limpar o cache de stems?\n\nAs faixas originais, projetos e modelos serão preservados.')) return
+    if (!(await confirmDialog('Limpar o cache de stems?\n\nAs faixas originais, projetos e modelos serão preservados.', { confirmLabel: 'Limpar', tone: 'danger' }))) return
     onCacheCleared(await api.resources.clearCache())
   }
   return <PreferenceSection title="Processamento" description="Modelo e armazenamento usados pela separação local.">
@@ -129,11 +131,56 @@ function ProcessingSection({ settings, status, resources, onChange, onCacheClear
     <PreferenceRow label="Provider ONNX" description="GPU é testada automaticamente; se não estiver disponível, o processamento retorna para CPU."><span className="preference-value">{status?.provider === 'cuda' ? 'CUDA / GPU' : 'CPU'}{status?.memoryBytes ? ` · ${formatBytes(status.memoryBytes)}` : ''}{status?.lastDurationMs ? ` · último ${formatDurationMs(status.lastDurationMs)}` : ''}</span></PreferenceRow>
     <PreferenceRow label="Perfil de separação" description="Qualidade usa htdemucs_ft; Rápido prioriza velocidade com o modelo single-file quando disponível."><select className="preference-control" value={profile} onChange={(event) => void onChange('processingProfile', event.target.value)}><option value="quality">Qualidade máxima</option><option value="balanced">Balanceado</option><option value="speed">Velocidade</option></select></PreferenceRow>
     <PreferenceRow label="Aceleração" description="Escolha Automático para detectar CUDA e manter fallback CPU; a mudança vale para a próxima separação."><select className="preference-control" value={provider} onChange={(event) => void onChange('executionProvider', event.target.value)}><option value="auto">Automático</option><option value="cpu">Somente CPU</option><option value="cuda">Preferir GPU</option></select></PreferenceRow>
-    <PreferenceRow label="Cache de stems" description={`Evita recalcular uma faixa já processada. ${resources ? `${formatBytes(resources.cacheBytes)} armazenados.` : 'Calculando tamanho…'}`}><div className="preference-inline-controls"><span className="preference-value">Ativo</span><button className="secondary-button compact-control" onClick={() => void clearCache}>Limpar cache</button></div></PreferenceRow>
+    <PreferenceRow label="Cache de stems" description={`Evita recalcular uma faixa já processada. ${resources ? `${formatBytes(resources.cacheBytes)} armazenados.` : 'Calculando tamanho…'}`}><div className="preference-inline-controls"><span className="preference-value">Ativo</span><button className="secondary-button compact-control" onClick={() => void clearCache()}>Limpar cache</button></div></PreferenceRow>
     <PreferenceRow label="Local do cache" description="Os stems separados ficam neste diretório local."><span className="preference-path">{resources?.cachePath ?? 'Calculando…'}</span></PreferenceRow>
     <PreferenceRow label="Uso do modelo" description="O modelo ONNX também permanece somente neste computador."><span className="preference-value">{resources ? formatBytes(resources.modelBytes) : 'Calculando…'}</span></PreferenceRow>
     <PreferenceRow label="Threads de processamento" description="Limita o paralelismo do ONNX; Automático usa a configuração padrão do runtime."><select className="preference-control" value={processingThreads} onChange={(event) => void onChange('processingThreads', Number(event.target.value))}><option value="0">Automático</option><option value="1">1 thread</option><option value="2">2 threads</option><option value="4">4 threads</option><option value="8">8 threads</option></select></PreferenceRow>
     <PreferenceRow label="Privacidade" description="O áudio, os stems e as métricas ficam locais; nenhuma faixa é enviada para a nuvem."><span className="status-pill ready">Somente local</span></PreferenceRow>
+  </PreferenceSection>
+}
+
+function RemoteProviderSection() {
+  const { status, error, saveApiKey, clearApiKey } = useRemoteProvider()
+  const [keyInput, setKeyInput] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const save = async () => {
+    if (!keyInput.trim()) return
+    setBusy(true)
+    await saveApiKey(keyInput.trim())
+    setKeyInput('')
+    setBusy(false)
+  }
+
+  const remove = async () => {
+    if (!(await confirmDialog('Remover a chave de API do StemSplit deste computador?', { confirmLabel: 'Remover', tone: 'danger' }))) return
+    setBusy(true)
+    await clearApiKey()
+    setBusy(false)
+  }
+
+  const statusLabel = status?.verified ? `Conectado${status.balanceFormatted ? ` · saldo ${status.balanceFormatted}` : ''}` : status?.configured ? 'Chave salva, não verificada' : 'Não configurado'
+
+  return <PreferenceSection title="Separação na nuvem (opcional)" description="Envie a faixa para o StemSplit.io quando quiser uma alternativa ao motor local. Totalmente opcional — o Griffin continua funcionando 100% offline sem isso.">
+    <ol className="onboarding-steps">
+      <li>Crie uma conta grátis em <a href="https://stemsplit.io/free-trial" target="_blank" rel="noreferrer">stemsplit.io</a> — novas contas ganham 5 minutos grátis.</li>
+      <li>Gere uma API key em <a href="https://stemsplit.io/app/settings/api" target="_blank" rel="noreferrer">stemsplit.io/app/settings/api</a>.</li>
+      <li>Cole a chave abaixo e clique em "Salvar e testar". Sem uma chave configurada, a opção de nuvem simplesmente não aparece no player.</li>
+    </ol>
+    <PreferenceRow label="Chave de API" description="Fica cifrada neste computador (quando o sistema suporta), nunca é enviada a não ser para o próprio StemSplit.">
+      <div className="preference-inline-controls">
+        <input type="password" className="preference-control" placeholder="sk_live_..." autoComplete="off" value={keyInput} onChange={(event) => setKeyInput(event.target.value)} />
+        <button className="secondary-button compact-control" disabled={busy || !keyInput.trim()} onClick={() => void save()}>Salvar e testar</button>
+        {status?.configured && <button className="secondary-button compact-control" disabled={busy} onClick={() => void remove()}>Remover chave</button>}
+      </div>
+    </PreferenceRow>
+    <PreferenceRow label="Status" description={status?.message ?? 'Verificando…'}>
+      <span className={`status-pill ${status?.verified ? 'ready' : ''}`}>{statusLabel}</span>
+    </PreferenceRow>
+    <PreferenceRow label="Preço e retenção" description='Pay-as-you-go, ~$0,10/minuto de áudio, sem assinatura fixa. O arquivo original enviado é apagado em até 48h; os stems ficam disponíveis para download por 7-14 dias e depois somem automaticamente. Seu áudio não é usado para treinar modelos.'>
+      <a className="secondary-button compact-control" href="https://stemsplit.io/en/legal/privacy-policy" target="_blank" rel="noreferrer">Ver política completa</a>
+    </PreferenceRow>
+    {error && <PreferenceRow label="Erro" description={error}><span className="status-pill" /></PreferenceRow>}
   </PreferenceSection>
 }
 

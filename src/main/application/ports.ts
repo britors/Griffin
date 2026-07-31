@@ -85,4 +85,11 @@ export interface YoutubeAudioDownloader {
   cleanup(asset: RemoteAudioAsset): Promise<void>
 }
 
+export interface SecretStore {
+  isAvailable(): boolean
+  get(key: string): Promise<string | null>
+  set(key: string, value: string): Promise<void>
+  remove(key: string): Promise<void>
+}
+
 export type TrackSnapshot = Track

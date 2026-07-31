@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, GriffinAPI, LyricsLine, PlayerSnapshot, SeparationProgress, StemName, Track, TrackAnalysis, YoutubeImportProgress } from '../shared/types'
+import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, GriffinAPI, LyricsLine, PlayerSnapshot, SeparationProgress, SeparationProvider, StemName, Track, TrackAnalysis, YoutubeImportProgress } from '../shared/types'
 
 const api: GriffinAPI = {
   window: {
@@ -59,13 +59,19 @@ const api: GriffinAPI = {
   chords: { export: (trackId: string, format: ChordExportFormat) => ipcRenderer.invoke('chords:export', trackId, format) },
   separation: {
     status: () => ipcRenderer.invoke('separation:status'),
-    start: (track: Track, target?: StemName) => ipcRenderer.invoke('separation:start', track, target),
+    start: (track: Track, target?: StemName, provider?: SeparationProvider) => ipcRenderer.invoke('separation:start', track, target, provider),
     cancel: (trackId: string) => ipcRenderer.invoke('separation:cancel', trackId),
     onProgress: (callback: (progress: SeparationProgress) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, progress: SeparationProgress) => callback(progress)
       ipcRenderer.on('separation:progress', listener)
       return () => ipcRenderer.removeListener('separation:progress', listener)
     },
+  },
+  remoteProvider: {
+    status: () => ipcRenderer.invoke('remote-provider:status'),
+    saveApiKey: (key: string) => ipcRenderer.invoke('remote-provider:save-key', key),
+    clearApiKey: () => ipcRenderer.invoke('remote-provider:clear-key'),
+    estimateCost: (trackId: string) => ipcRenderer.invoke('remote-provider:estimate-cost', trackId),
   },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),

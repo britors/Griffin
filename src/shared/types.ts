@@ -153,6 +153,20 @@ export interface SeparationStatus {
   sixStemAvailable?: boolean
 }
 
+export type SeparationProvider = 'local' | 'remote'
+
+export interface RemoteSeparationStatus {
+  configured: boolean
+  verified: boolean
+  balanceFormatted?: string
+  message: string
+}
+
+export interface RemoteCostEstimate {
+  durationSeconds: number
+  estimatedUsd: number
+}
+
 export interface LocalResourcesSummary {
   cachePath: string
   cacheBytes: number
@@ -229,9 +243,15 @@ export interface GriffinAPI {
   }
   separation: {
     status: () => Promise<SeparationStatus>
-    start: (track: Track, target?: StemName) => Promise<Track>
+    start: (track: Track, target?: StemName, provider?: SeparationProvider) => Promise<Track>
     cancel: (trackId: string) => Promise<void>
     onProgress: (callback: (progress: SeparationProgress) => void) => () => void
+  }
+  remoteProvider: {
+    status: () => Promise<RemoteSeparationStatus>
+    saveApiKey: (key: string) => Promise<RemoteSeparationStatus>
+    clearApiKey: () => Promise<RemoteSeparationStatus>
+    estimateCost: (trackId: string) => Promise<RemoteCostEstimate>
   }
   settings: {
     get: () => Promise<Record<string, unknown>>

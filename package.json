@@ -24,6 +24,7 @@
   "dependencies": {
     "@soundtouchjs/audio-worklet": "^2.1.0",
     "@soundtouchjs/core": "^2.1.0",
+    "@stemsplit/sdk": "^0.1.0",
     "audio-decode": "^3.11.4",
     "onnxruntime-node": "^1.22.0",
     "zustand": "^5.0.6"

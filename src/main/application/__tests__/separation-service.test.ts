@@ -29,7 +29,7 @@ describe('SeparationApplicationService', () => {
   it('passes the selected stem and preserves stems already attached to the track', async () => {
     const track = AudioTrack.restore({ id: 'track-1', name: 'song.wav', path: '/music/song.wav', importedAt: 'now', stems: { drums: '/cache/drums.wav' } } satisfies Track)
     const separator = new FixedStemSeparator()
-    const service = new SeparationApplicationService(new InMemoryTrackRepository([track]), separator)
+    const service = new SeparationApplicationService(new InMemoryTrackRepository([track]), separator, new FixedStemSeparator())
 
     const result = await service.start(track.snapshot(), () => undefined, 'vocals')
 

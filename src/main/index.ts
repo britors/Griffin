@@ -37,6 +37,10 @@ import { RemoteAudioImportApplicationService } from './application/remote-audio-
 import { ElectronRemoteAudioDownloader } from './infrastructure/electron/remote-audio-downloader'
 import { YoutubeImportApplicationService } from './application/youtube-import-service'
 import { ElectronYoutubeAudioDownloader } from './infrastructure/electron/youtube-audio-downloader'
+import { StemSplitSeparator } from './infrastructure/separation/stemsplit-separator'
+import { ElectronSecretStore } from './infrastructure/electron/secret-store'
+import { RemoteProviderApplicationService } from './application/remote-provider-service'
+import { registerRemoteProviderHandlers } from './presentation/ipc/remote-provider-handlers'
 
 let window: BrowserWindow | undefined
 
@@ -80,10 +84,16 @@ app.whenReady().then(async () => {
   separator.setModelProfile(isModelProfile(initialSettings.modelProfile) ? initialSettings.modelProfile : 'four-stem')
   separator.setExecutionProvider(isExecutionProvider(initialSettings.executionProvider) ? initialSettings.executionProvider : 'auto')
   await separator.init()
+  const secretStore = new ElectronSecretStore()
+  const remoteSeparator = new StemSplitSeparator(cacheDirectory, secretStore)
+  remoteSeparator.setProcessingProfile(isSeparationProfile(initialSettings.processingProfile) ? initialSettings.processingProfile : 'quality')
+  remoteSeparator.setModelProfile(isModelProfile(initialSettings.modelProfile) ? initialSettings.modelProfile : 'four-stem')
+  await remoteSeparator.init()
+  const remoteProviderService = new RemoteProviderApplicationService(secretStore, trackRepository)
   const libraryService = new LibraryApplicationService(trackRepository, new FileAudioGateway(), new ElectronAudioPicker())
   const remoteImport = new RemoteAudioImportApplicationService(new ElectronRemoteAudioDownloader(), libraryService, join(app.getPath('userData'), 'imports'))
   const youtubeImport = new YoutubeImportApplicationService(new ElectronYoutubeAudioDownloader(), libraryService, join(app.getPath('userData'), 'imports'))
-  const separationService = new SeparationApplicationService(trackRepository, separator)
+  const separationService = new SeparationApplicationService(trackRepository, separator, remoteSeparator)
   const projectService = new ProjectApplicationService(projectRepository)
   const analysisService = new TrackAnalysisApplicationService(trackRepository, new FileAudioGateway(), new LocalTrackAnalyzer())
   const lyricsService = new LyricsApplicationService(trackRepository)
@@ -121,8 +131,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('chords:export', chordExport.export)
   const settings = registerSettingsHandlers(settingsRepository, (key, value) => {
     if (key === 'processingThreads' && typeof value === 'number') separator.setProcessingThreads(value)
-    if (key === 'processingProfile' && isSeparationProfile(value)) separator.setProcessingProfile(value)
-    if (key === 'modelProfile' && isModelProfile(value)) separator.setModelProfile(value)
+    if (key === 'processingProfile' && isSeparationProfile(value)) { separator.setProcessingProfile(value); remoteSeparator.setProcessingProfile(value) }
+    if (key === 'modelProfile' && isModelProfile(value)) { separator.setModelProfile(value); remoteSeparator.setModelProfile(value) }
     if (key === 'executionProvider' && isExecutionProvider(value)) separator.setExecutionProvider(value)
   })
   ipcMain.handle('settings:get', settings.get)
@@ -143,6 +153,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('projects:remove-snapshot', (_event, projectId: string, snapshotId: string) => projects.removeSnapshot(_event, projectId, snapshotId))
   ipcMain.handle('projects:update-player-state', (_event, projectId: string, player) => projects.updatePlayerState(_event, projectId, player))
   registerSeparationHandlers(separationService, () => window?.webContents)
+  registerRemoteProviderHandlers(remoteProviderService)
   await createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow() })
 })

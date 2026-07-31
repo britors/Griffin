@@ -8,9 +8,9 @@ import { PlayerPage } from './pages/player'
 import { PreferencesPage } from './pages/preferences'
 import { AudioPlayback } from './components/audio-playback'
 import { Splash } from './components/splash'
-import { ProjectPicker } from './components/project-picker'
 import { KeyboardShortcuts } from './components/keyboard-shortcuts'
 import { Metronome } from './components/metronome'
+import { DialogHost } from './components/dialog-host'
 import './styles.css'
 
 type View = 'library' | 'preferences'
@@ -73,12 +73,12 @@ function App() {
   const showPreferences = () => setView('preferences')
 
   return <div className="app-shell">
+    <DialogHost />
     <KeyboardShortcuts />
     <Metronome />
     <AudioPlayback />
     <aside className="sidebar">
       <div className="brand"><img className="brand-logo" src="./logo.svg" alt="Griffin Music" /><div><strong>Griffin</strong><span>Music</span></div></div>
-      <ProjectPicker />
       <nav>
         <button className={view === 'library' && libraryFilter === 'all' ? 'active' : ''} onClick={() => showLibrary()}>⌂ <span>Biblioteca</span></button>
         <button className={view === 'library' && libraryFilter === 'favorites' ? 'active' : ''} onClick={() => showLibrary('favorites')}>◈ <span>Favoritos</span></button>
