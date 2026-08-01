@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { tmpdir } from 'node:os'
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const tauriConfig = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'))
@@ -12,10 +13,15 @@ function validateSignature(file, signaturePath, publicKey, environment) {
   if (!signature || !/^[A-Za-z0-9+/]+={0,2}$/.test(signature)) throw new Error(`assinatura inválida para ${file}`)
   if (Buffer.from(signature, 'base64').length < 64) throw new Error(`assinatura curta ou inválida para ${file}`)
   if (environment.GRIFFIN_SIGNATURE_VERIFIER !== 'format-only') {
+    const signatureDirectory = mkdtempSync(join(tmpdir(), 'griffin-minisign-'))
+    const decodedSignaturePath = join(signatureDirectory, 'signature.minisig')
     try {
-      execFileSync('minisign', ['-Vm', file, '-x', signaturePath, '-P', publicKey], { stdio: 'ignore' })
+      writeFileSync(decodedSignaturePath, Buffer.from(signature, 'base64'))
+      execFileSync('minisign', ['-Vm', file, '-x', decodedSignaturePath, '-P', publicKey], { stdio: 'ignore' })
     } catch (error) {
       throw new Error(`assinatura criptográfica inválida ou minisign ausente para ${file}: ${error.message}`)
+    } finally {
+      rmSync(signatureDirectory, { recursive: true, force: true })
     }
   }
   return signature
