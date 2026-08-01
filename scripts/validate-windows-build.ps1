@@ -39,6 +39,27 @@ function AssertPeX64([string]$Path) {
   }
 }
 
+function AssertInstallerContains([string]$InstallerPath, [string]$Pattern) {
+  $archiveCommand = @("7z", "7zz", "7za") |
+    ForEach-Object { Get-Command $_ -ErrorAction SilentlyContinue } |
+    Select-Object -First 1
+  if ($null -eq $archiveCommand) {
+    Fail "7-Zip (7z, 7zz ou 7za) é obrigatório para validar o conteúdo do instalador"
+  }
+  $listing = & $archiveCommand.Source l -slt $InstallerPath 2>&1 | Out-String
+  if ($LASTEXITCODE -ne 0) {
+    Fail "não foi possível listar o conteúdo do instalador: $InstallerPath"
+  }
+  $entry = $listing -split "`r?`n" |
+    Where-Object { $_ -like "Path = *" } |
+    ForEach-Object { $_.Substring(7) } |
+    Where-Object { $_ -match $Pattern } |
+    Select-Object -First 1
+  if ($null -eq $entry) {
+    Fail "conteúdo obrigatório não encontrado no instalador: $Pattern"
+  }
+}
+
 $binaryDir = Join-Path $PSScriptRoot "..\src-tauri\binaries"
 $worker = Get-ChildItem -LiteralPath $binaryDir -Filter "griffin-onnx-worker-x86_64-pc-windows-msvc.exe" -File | Select-Object -First 1
 if ($null -eq $worker) {
@@ -69,6 +90,9 @@ if (-not $SkipInstaller) {
     Fail "instalador NSIS suspeito: arquivo muito pequeno"
   }
   AssertPeX64 $installer.FullName
+  AssertInstallerContains $installer.FullName "griffin-onnx-worker.*\.exe$"
+  AssertInstallerContains $installer.FullName "onnxruntime_providers_cuda\.dll$"
+  AssertInstallerContains $installer.FullName "onnxruntime_providers_shared\.dll$"
 }
 
 Write-Host "Windows x64 validado: worker, providers CUDA/shared e $(if ($SkipInstaller) { 'binários nativos' } else { 'instalador NSIS' })."

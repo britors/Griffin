@@ -1,7 +1,7 @@
 use crate::{
     state::{
-        load_stem_split_api_key, remove_stem_split_api_key, save_stem_split_api_key, AppState,
-        RemoteAsset, YoutubePreview,
+        load_stem_split_api_key, remove_stem_split_api_key, save_stem_split_api_key,
+        write_json_atomic, AppState, RemoteAsset, StateData, YoutubePreview,
     },
     types::*,
 };
@@ -25,7 +25,7 @@ use symphonia::{
 };
 use tauri::{ipc::Response, AppHandle, Emitter, Manager, State, Window};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader},
     process::Command,
     sync::Mutex,
 };
@@ -43,6 +43,11 @@ const MAX_MODEL_DOWNLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const HTTP_IO_TIMEOUT: Duration = Duration::from_secs(30);
 const REMOTE_PREVIEW_TTL: Duration = Duration::from_secs(30 * 60);
 const MAX_REMOTE_PREVIEWS: usize = 32;
+const MAX_EXTERNAL_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
+const MAX_EXTERNAL_RESPONSE_BYTES: u64 = 4 * 1024 * 1024;
+const LOCAL_SEPARATION_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const REMOTE_SEPARATION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const YOUTUBE_OPERATION_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const MODEL_SHA256: &[(&str, &str)] = &[
     ("htdemucs.onnx", "d05c269d0178d2a72ad484b10b11dd370193fc923201c3b27a99f848745db70a"),
     ("htdemucs_ft_bass_fp16weights.onnx", "b533037176b14b2df31c92a5d5b3d5660d0811b9b360d3db761964768b079961"),
@@ -269,7 +274,7 @@ fn cuda_runtime_library_names() -> &'static [&'static str] {
 }
 
 fn validate_cuda_library_architecture(path: &Path) -> Result<(), String> {
-    let bytes = fs::read(path).map_err(|error| {
+    let mut file = fs::File::open(path).map_err(|error| {
         format!(
             "Não foi possível ler a biblioteca NVIDIA {}: {error}",
             path.display()
@@ -277,10 +282,12 @@ fn validate_cuda_library_architecture(path: &Path) -> Result<(), String> {
     })?;
     #[cfg(target_os = "linux")]
     {
-        let valid = bytes.len() >= 20
-            && &bytes[0..4] == b"\x7fELF"
-            && bytes[4] == 2
-            && u16::from_le_bytes([bytes[18], bytes[19]]) == 62;
+        let mut header = [0u8; 20];
+        let read_ok = file.read_exact(&mut header).is_ok();
+        let valid = read_ok
+            && &header[0..4] == b"\x7fELF"
+            && header[4] == 2
+            && u16::from_le_bytes([header[18], header[19]]) == 62;
         if !valid {
             return Err(format!(
                 "A biblioteca NVIDIA {} não é um binário ELF x64 compatível.",
@@ -290,18 +297,24 @@ fn validate_cuda_library_architecture(path: &Path) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        let pe_offset = bytes
-            .get(0x3c..0x40)
-            .and_then(|value| value.try_into().ok())
-            .map(u32::from_le_bytes)
-            .map(|offset| offset as usize);
-        let valid = bytes.starts_with(b"MZ")
-            && pe_offset
-                .and_then(|offset| bytes.get(offset..offset.saturating_add(6)))
-                .is_some_and(|header| {
-                    header.starts_with(b"PE\0\0")
-                        && u16::from_le_bytes([header[4], header[5]]) == 0x8664
-                });
+        use std::io::{Seek, SeekFrom};
+        let mut dos_header = [0u8; 0x40];
+        let read_ok = file.read_exact(&mut dos_header).is_ok();
+        let pe_offset = u32::from_le_bytes([
+            dos_header[0x3c],
+            dos_header[0x3d],
+            dos_header[0x3e],
+            dos_header[0x3f],
+        ]) as u64;
+        let seek_ok = file.seek(SeekFrom::Start(pe_offset)).is_ok();
+        let mut pe_header = [0u8; 6];
+        let pe_read_ok = file.read_exact(&mut pe_header).is_ok();
+        let valid = read_ok
+            && seek_ok
+            && pe_read_ok
+            && dos_header.starts_with(b"MZ")
+            && pe_header.starts_with(b"PE\0\0")
+            && u16::from_le_bytes([pe_header[4], pe_header[5]]) == 0x8664;
         if !valid {
             return Err(format!(
                 "A biblioteca NVIDIA {} não é um binário PE x64 compatível.",
@@ -309,6 +322,8 @@ fn validate_cuda_library_architecture(path: &Path) -> Result<(), String> {
             ));
         }
     }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    let _ = file;
     Ok(())
 }
 
@@ -685,9 +700,7 @@ fn cuda_runtime_install_blocking(
             emit_cuda_runtime_progress(&app, progress, &format!("Baixando componente NVIDIA · {}%", (fraction * 100.0) as u32));
             Ok(())
         });
-        if let Err(error) = copy_result {
-            return Err(error);
-        }
+        copy_result?;
         file.sync_all().map_err(|error| error.to_string())?;
         drop(file);
         if sha256_file(&temporary)? != asset.sha256 {
@@ -835,15 +848,23 @@ pub fn library_import(
     state: State<'_, AppState>,
     file_path: Option<String>,
 ) -> Result<Option<Track>, String> {
-    let path = match file_path.or_else(pick_audio) {
+    let source = match file_path.or_else(pick_audio) {
         Some(value) => PathBuf::from(value),
         None => return Ok(None),
     };
-    if !is_supported_audio(&path) {
+    if !is_supported_audio(&source) {
         return Ok(None);
     }
-    let path_string = path.to_string_lossy().to_string();
     let mut data = state.data.lock().map_err(lock_error)?;
+    if let Some(existing) = data
+        .tracks
+        .iter()
+        .find(|track| same_path(&track.path, &source.to_string_lossy()))
+    {
+        return Ok(Some(existing.clone()));
+    }
+    let path = import_audio_into_managed_storage(&data, &source)?;
+    let path_string = path.to_string_lossy().to_string();
     if let Some(existing) = data
         .tracks
         .iter()
@@ -897,17 +918,22 @@ pub fn library_import_many(
 #[tauri::command(rename_all = "camelCase")]
 pub fn library_read(state: State<'_, AppState>, file_path: String) -> Result<Response, String> {
     let data = state.data.lock().map_err(lock_error)?;
-    let allowed = data.tracks.iter().any(|track| {
-        track.path == file_path
-            || track
-                .stems
-                .as_ref()
-                .is_some_and(|stems| stems.values().any(|path| path == &file_path))
-    });
+    let requested = fs::canonicalize(&file_path)
+        .map_err(|_| "Arquivo de áudio não pertence à biblioteca.".to_string())?;
+    let managed = is_path_within(&requested, &data.imports_dir)
+        || is_path_within(&requested, &data.cache_dir);
+    let allowed = managed
+        && data.tracks.iter().any(|track| {
+            track.path == file_path
+                || track
+                    .stems
+                    .as_ref()
+                    .is_some_and(|stems| stems.values().any(|path| path == &file_path))
+        });
     if !allowed {
         return Err("Arquivo de áudio não pertence à biblioteca.".into());
     }
-    fs::read(file_path)
+    fs::read(requested)
         .map(Response::new)
         .map_err(|e| e.to_string())
 }
@@ -1048,7 +1074,7 @@ pub async fn youtube_preview(
         id: preview_id.clone(),
     };
     emit_youtube_progress(&app, &preview_id, 0.02, "downloading", "Consultando vídeo…");
-    let result = async {
+    let result = match tokio::time::timeout(YOUTUBE_OPERATION_TIMEOUT, async {
         let url = tokio::task::spawn_blocking(move || validate_youtube_url(&url))
             .await
             .map_err(|error| format!("Falha ao validar o link do YouTube: {error}"))??;
@@ -1068,6 +1094,11 @@ pub async fn youtube_preview(
             .stderr(Stdio::piped());
         let child = command.spawn().map_err(normalize_yt_dlp_error)?;
         let process = register_youtube_process(&state.youtube_processes, &preview_id, child).await;
+        if youtube_cancel_requested(&state.youtube_cancelled, &preview_id) {
+            terminate_youtube_process(&process).await?;
+            unregister_youtube_process(&state.youtube_processes, &preview_id, &process).await;
+            return Err("Consulta do YouTube cancelada.".into());
+        }
         let (mut stdout, mut stderr) = {
             let mut child = process.lock().await;
             let stdout = child.stdout.take().ok_or_else(|| {
@@ -1079,14 +1110,14 @@ pub async fn youtube_preview(
             (stdout, stderr)
         };
         let collect_output = async {
-            let mut stdout_bytes = Vec::new();
-            let mut stderr_bytes = Vec::new();
             let (stdout_result, stderr_result) = tokio::join!(
-                stdout.read_to_end(&mut stdout_bytes),
-                stderr.read_to_end(&mut stderr_bytes),
+                read_async_to_end_limited(&mut stdout, MAX_EXTERNAL_OUTPUT_BYTES),
+                read_async_to_end_limited(&mut stderr, MAX_EXTERNAL_OUTPUT_BYTES),
             );
-            stdout_result.map_err(|error| format!("Falha ao ler os metadados do YouTube: {error}"))?;
-            stderr_result.map_err(|error| format!("Falha ao ler os erros do YouTube: {error}"))?;
+            let stdout_bytes = stdout_result
+                .map_err(|error| format!("Falha ao ler os metadados do YouTube: {error}"))?;
+            let stderr_bytes = stderr_result
+                .map_err(|error| format!("Falha ao ler os erros do YouTube: {error}"))?;
             Ok::<_, String>((stdout_bytes, stderr_bytes))
         };
         tokio::pin!(collect_output);
@@ -1134,8 +1165,12 @@ pub async fn youtube_preview(
         Ok(
             serde_json::json!({ "id": preview_id, "url": url, "title": title, "duration": duration, "format": "wav" }),
         )
-    }
-    .await;
+    })
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err("A consulta do YouTube excedeu o tempo limite.".into()),
+    };
     cleanup_youtube_process(&state.youtube_processes, &preview_id).await;
     result
 }
@@ -1148,16 +1183,11 @@ pub async fn youtube_import(
 ) -> Result<Track, String> {
     let _ = cleanup_remote_preview_state(&state);
     let _ = cleanup_youtube_cancelled(&state).await;
-    state
-        .youtube_cancelled
-        .lock()
-        .map_err(lock_error)?
-        .remove(&preview_id);
     let _cancelled_guard = CancellationFlagGuard {
         cancelled: Arc::clone(&state.youtube_cancelled),
         id: preview_id.clone(),
     };
-    let result = async {
+    let result = match tokio::time::timeout(YOUTUBE_OPERATION_TIMEOUT, async {
     let preview = state
         .youtube_previews
         .lock()
@@ -1215,6 +1245,12 @@ pub async fn youtube_import(
         .stderr(Stdio::piped());
     let child = command.spawn().map_err(normalize_yt_dlp_error)?;
     let process = register_youtube_process(&state.youtube_processes, &preview_id, child).await;
+    if youtube_cancel_requested(&state.youtube_cancelled, &preview_id) {
+        terminate_youtube_process(&process).await?;
+        unregister_youtube_process(&state.youtube_processes, &preview_id, &process).await;
+        cleanup_youtube_download(&imports_dir, &file_prefix);
+        return Err("Download do YouTube cancelado.".into());
+    }
     let stderr = match process.lock().await.stderr.take() {
         Some(stderr) => stderr,
         None => {
@@ -1223,7 +1259,7 @@ pub async fn youtube_import(
         }
     };
     let mut error_output = Vec::new();
-    let mut lines = BufReader::new(stderr).lines();
+    let mut lines = BufReader::new(stderr.take(MAX_EXTERNAL_OUTPUT_BYTES as u64 + 1)).lines();
     let cancel_wait = wait_for_youtube_cancel(
         Arc::clone(&state.youtube_cancelled),
         preview_id.clone(),
@@ -1243,6 +1279,12 @@ pub async fn youtube_import(
                             &format!("Baixando áudio · {percent:.0}%"),
                         );
                     } else {
+                        if error_output.len().saturating_add(line.len() + 1)
+                            > MAX_EXTERNAL_OUTPUT_BYTES
+                        {
+                            cleanup_youtube_download(&imports_dir, &file_prefix);
+                            return Err("A saída de erro do YouTube excedeu o limite de segurança.".into());
+                        }
                         error_output.extend_from_slice(line.as_bytes());
                         error_output.push(b'\n');
                     }
@@ -1310,8 +1352,12 @@ pub async fn youtube_import(
     state.youtube_cancelled.lock().map_err(lock_error)?.remove(&preview_id);
     emit_youtube_progress(&app, &preview_id, 1.0, "importing", "Importação concluída.");
     Ok(track)
-    }
-    .await;
+    })
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err("O download do YouTube excedeu o tempo limite.".into()),
+    };
     cleanup_youtube_process(&state.youtube_processes, &preview_id).await;
     result
 }
@@ -1333,12 +1379,6 @@ pub async fn youtube_cancel(state: State<'_, AppState>, preview_id: String) -> R
     if let Some(process) = process {
         terminate_youtube_process(&process).await?;
         unregister_youtube_process(&state.youtube_processes, &preview_id, &process).await;
-    } else {
-        state
-            .youtube_cancelled
-            .lock()
-            .map_err(lock_error)?
-            .remove(&preview_id);
     }
     Ok(())
 }
@@ -1463,9 +1503,7 @@ fn yt_dlp_download_blocking(
         let _ = app.emit("yt-dlp:progress", serde_json::json!({ "progress": progress * 0.9, "stage": "downloading", "message": format!("Baixando yt-dlp · {}%", (progress * 100.0) as u32) }));
         Ok(())
     });
-    if let Err(error) = copy_result {
-        return Err(error);
-    }
+    copy_result?;
     file.sync_all().map_err(|e| e.to_string())?;
     drop(file);
     let expected_hash = download_checksum(checksum_asset, asset)?;
@@ -2015,12 +2053,12 @@ pub async fn separation_start(
         id: track.id.clone(),
     };
     if provider.as_deref() == Some("remote") {
-        state
-            .remote_cancelled
-            .lock()
-            .map_err(lock_error)?
-            .remove(&track.id);
-        let stems = separate_remote(&app, &state, &track, target.as_deref()).await?;
+        let stems = tokio::time::timeout(
+            REMOTE_SEPARATION_TIMEOUT,
+            separate_remote(&app, &state, &track, target.as_deref()),
+        )
+        .await
+        .map_err(|_| "A separação remota excedeu o tempo limite.".to_string())??;
         let mut data = state.data.lock().map_err(lock_error)?;
         let stored = data
             .tracks
@@ -2136,11 +2174,29 @@ pub async fn separation_start(
             return Err("O worker ONNX não abriu a saída.".into());
         }
     };
-    let mut lines = BufReader::new(stdout).lines();
-    let worker_result = read_worker_output(&mut lines, |progress| {
+    let mut lines = BufReader::new(stdout.take(MAX_EXTERNAL_OUTPUT_BYTES as u64 + 1)).lines();
+    if state
+        .remote_cancelled
+        .lock()
+        .map_err(lock_error)?
+        .contains(&track_id)
+    {
+        terminate_worker(&state.workers, &track_id, &child).await;
+        return Err("Separação cancelada.".into());
+    }
+    let read_output = read_worker_output(&mut lines, |progress| {
         let _ = app.emit("separation:progress", progress);
-    })
-    .await;
+    });
+    tokio::pin!(read_output);
+    let worker_result = tokio::select! {
+        result = &mut read_output => result,
+        _ = wait_for_separation_cancel(Arc::clone(&state.remote_cancelled), track_id.clone()) => {
+            Err("Separação cancelada.".into())
+        }
+        _ = tokio::time::sleep(LOCAL_SEPARATION_TIMEOUT) => {
+            Err("A separação ONNX excedeu o tempo limite.".into())
+        }
+    };
     terminate_worker(&state.workers, &track_id, &child).await;
     let (stems, active_provider) = worker_result?;
     state
@@ -2202,6 +2258,9 @@ async fn separate_remote(
         };
         (key, data.cache_dir.join("remote"), output_type, quality)
     };
+    if remote_cancel_requested(state, &track.id)? {
+        return Err("Separação remota cancelada antes do envio.".into());
+    }
     let size = fs::metadata(&track.path).map_err(|e| e.to_string())?.len();
     if size > 100 * 1024 * 1024 {
         return Err("O arquivo excede o limite de 100 MB do StemSplit.".into());
@@ -2229,6 +2288,9 @@ async fn separate_remote(
         serde_json::json!({ "filename": file_name, "contentType": content_type }),
     )
     .await?;
+    if remote_cancel_requested(state, &track.id)? {
+        return Err("Separação remota cancelada antes do upload.".into());
+    }
     let upload_url = upload
         .get("uploadUrl")
         .and_then(|value| value.as_str())
@@ -2238,6 +2300,9 @@ async fn separate_remote(
         .and_then(|value| value.as_str())
         .ok_or_else(|| "O StemSplit não retornou a chave de upload.".to_string())?;
     remote_upload_audio(upload_url, content_type, Path::new(&track.path)).await?;
+    if remote_cancel_requested(state, &track.id)? {
+        return Err("Upload cancelado antes de criar o job remoto.".into());
+    }
     let job = remote_post_json_async(
         "https://stemsplit.io/api/v1/jobs",
         &key,
@@ -2248,6 +2313,12 @@ async fn separate_remote(
         .get("id")
         .and_then(|value| value.as_str())
         .ok_or_else(|| "O StemSplit não retornou o identificador do job.".to_string())?;
+    if remote_cancel_requested(state, &track.id)? {
+        return Err(
+            "Separação remota cancelada após criar o job; o StemSplit pode cobrar o processamento já iniciado."
+                .into(),
+        );
+    }
     let stem_names: Vec<&str> = match target {
         Some(stem) => vec![stem],
         None if output_type == "SIX_STEMS" => {
@@ -2255,19 +2326,24 @@ async fn separate_remote(
         }
         None => vec!["vocals", "drums", "bass", "other"],
     };
-    let output_dir = cache_dir.join(format!("{}-{}", cache_component(&track.id), target.unwrap_or("all")));
-    fs::create_dir_all(&output_dir).map_err(|e| e.to_string())?;
+    let output_dir = cache_dir.join(format!(
+        "{}-{}",
+        cache_component(&track.id),
+        target.unwrap_or("all")
+    ));
+    let staging_dir = cache_dir.join(format!(
+        ".{}-partial-{}",
+        cache_component(&track.id),
+        Uuid::new_v4()
+    ));
+    fs::create_dir_all(&staging_dir).map_err(|e| e.to_string())?;
+    let staging_guard = TemporaryDirectoryGuard(Some(staging_dir.clone()));
     let poll_started = Instant::now();
     loop {
         if poll_started.elapsed() > Duration::from_secs(10 * 60) {
             return Err("O StemSplit demorou mais de 10 minutos para concluir.".into());
         }
-        if state
-            .remote_cancelled
-            .lock()
-            .map_err(lock_error)?
-            .contains(&track.id)
-        {
+        if remote_cancel_requested(state, &track.id)? {
             return Err("Separação cancelada.".into());
         }
         let status = remote_get_json_async(&format!("https://stemsplit.io/api/v1/jobs/{job_id}"), &key).await?;
@@ -2308,7 +2384,7 @@ async fn separate_remote(
                     .and_then(|value| value.get("url"))
                     .and_then(|value| value.as_str())
                     .ok_or_else(|| format!("O StemSplit não retornou o stem {stem}."))?;
-                let path = output_dir.join(format!("{stem}.wav"));
+                let path = staging_dir.join(format!("{stem}.wav"));
                 remote_download_stem(
                     url,
                     &path,
@@ -2316,8 +2392,14 @@ async fn separate_remote(
                     track.id.clone(),
                 )
                 .await?;
-                stems.insert(stem.to_string(), path.to_string_lossy().to_string());
+                stems.insert(
+                    stem.to_string(),
+                    output_dir.join(format!("{stem}.wav")).to_string_lossy().to_string(),
+                );
             }
+            remove_dir_if_exists(&output_dir)?;
+            fs::rename(&staging_dir, &output_dir).map_err(|error| error.to_string())?;
+            staging_guard.keep();
             let _ = app.emit(
                 "separation:progress",
                 serde_json::json!({ "trackId": track.id, "progress": 1.0, "stage": "Stems prontos" }),
@@ -2326,6 +2408,14 @@ async fn separate_remote(
         }
         tokio::time::sleep(Duration::from_millis(2500)).await;
     }
+}
+
+fn remote_cancel_requested(state: &State<'_, AppState>, track_id: &str) -> Result<bool, String> {
+    Ok(state
+        .remote_cancelled
+        .lock()
+        .map_err(lock_error)?
+        .contains(track_id))
 }
 
 async fn remote_post_json_async(
@@ -2351,10 +2441,10 @@ fn remote_post_json_blocking(
         .header("Authorization", format!("Bearer {key}"))
         .send_json(body)
         .map_err(|error| format!("Falha na API do StemSplit: {error}"))?;
-    let text = response
-        .into_body()
-        .read_to_string()
-        .map_err(|error| error.to_string())?;
+    let text = read_to_string_limited(
+        response.into_body().into_reader(),
+        MAX_EXTERNAL_RESPONSE_BYTES,
+    )?;
     serde_json::from_str(&text).map_err(|error| error.to_string())
 }
 
@@ -2373,10 +2463,10 @@ fn remote_get_json_blocking(url: &str, key: &str) -> Result<serde_json::Value, S
         .header("Authorization", format!("Bearer {key}"))
         .call()
         .map_err(|error| format!("Falha na API do StemSplit: {error}"))?;
-    let text = response
-        .into_body()
-        .read_to_string()
-        .map_err(|error| error.to_string())?;
+    let text = read_to_string_limited(
+        response.into_body().into_reader(),
+        MAX_EXTERNAL_RESPONSE_BYTES,
+    )?;
     serde_json::from_str(&text).map_err(|error| error.to_string())
 }
 
@@ -2433,6 +2523,13 @@ async fn remote_download_stem(
         })?;
         file.sync_all().map_err(|error| error.to_string())?;
         drop(file);
+        if cancelled
+            .lock()
+            .map_err(lock_error)?
+            .contains(&track_id)
+        {
+            return Err("Separação cancelada.".into());
+        }
         remove_file_if_exists(&path)?;
         fs::rename(&temporary, &path).map_err(|error| error.to_string())?;
         temporary_guard.keep();
@@ -2445,14 +2542,14 @@ async fn remote_download_stem(
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn separation_cancel(state: State<'_, AppState>, track_id: String) -> Result<(), String> {
-    if let Some(child) = state.workers.lock().await.remove(&track_id) {
-        let _ = child.lock().await.kill().await;
-    }
     state
         .remote_cancelled
         .lock()
         .map_err(lock_error)?
-        .insert(track_id);
+        .insert(track_id.clone());
+    if let Some(child) = state.workers.lock().await.remove(&track_id) {
+        let _ = child.lock().await.kill().await;
+    }
     Ok(())
 }
 
@@ -2741,9 +2838,7 @@ fn models_download_blocking(
             );
             Ok(())
         });
-        if let Err(error) = copy_result {
-            return Err(error);
-        }
+        copy_result?;
         file.sync_all().map_err(|e| e.to_string())?;
         drop(file);
         if sha256_file(&temporary).map_err(|e| e.to_string())? != expected_hash {
@@ -2860,6 +2955,50 @@ fn sanitize_file_name(value: &str, fallback: &str) -> String {
     } else {
         normalized.to_string()
     }
+}
+
+fn is_path_within(path: &Path, root: &Path) -> bool {
+    let Ok(root) = fs::canonicalize(root) else {
+        return false;
+    };
+    path.starts_with(root)
+}
+
+fn import_audio_into_managed_storage(data: &StateData, source: &Path) -> Result<PathBuf, String> {
+    let source = fs::canonicalize(source)
+        .map_err(|error| format!("Não foi possível acessar o áudio selecionado: {error}"))?;
+    if !source.is_file() {
+        return Err("O caminho selecionado não é um arquivo de áudio.".into());
+    }
+    let imports_dir = fs::canonicalize(&data.imports_dir).map_err(|error| error.to_string())?;
+    if source.starts_with(&imports_dir) {
+        return Ok(source);
+    }
+
+    let extension = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .ok_or_else(|| "O arquivo de áudio não possui uma extensão válida.".to_string())?;
+    let stem = source
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .map(|value| sanitize_file_name(value, "audio"))
+        .unwrap_or_else(|| "audio".into());
+    let destination = data
+        .imports_dir
+        .join(format!("{stem}-{}.{}", Uuid::new_v4(), extension));
+    let temporary = destination.with_extension(format!("{extension}.importing"));
+    remove_file_if_exists(&temporary)?;
+    let temporary_guard = TemporaryFileGuard(Some(temporary.clone()));
+    let mut input = fs::File::open(&source).map_err(|error| error.to_string())?;
+    let mut output = fs::File::create(&temporary).map_err(|error| error.to_string())?;
+    copy_with_limit(&mut input, &mut output, 200 * 1024 * 1024)?;
+    output.sync_all().map_err(|error| error.to_string())?;
+    drop(output);
+    fs::rename(&temporary, &destination).map_err(|error| error.to_string())?;
+    temporary_guard.keep();
+    Ok(destination)
 }
 
 fn render_midi(chords: &[ChordEvent], bpm: f64, duration: f64) -> Vec<u8> {
@@ -3055,7 +3194,19 @@ fn remote_provider_status_blocking(key: &str) -> serde_json::Value {
         });
     match response {
         Ok(response) => {
-            let body_text = response.into_body().read_to_string().unwrap_or_default();
+            let body_text = match read_to_string_limited(
+                response.into_body().into_reader(),
+                MAX_EXTERNAL_RESPONSE_BYTES,
+            ) {
+                Ok(body_text) => body_text,
+                Err(error) => {
+                    return serde_json::json!({
+                        "configured": true,
+                        "verified": false,
+                        "message": format!("Resposta do StemSplit excedeu o limite de segurança: {error}")
+                    });
+                }
+            };
             let body: serde_json::Value = serde_json::from_str(&body_text).unwrap_or_default();
             let balance = body
                 .get("balanceFormatted")
@@ -3171,11 +3322,7 @@ fn save_settings_locked(data: &crate::state::StateData) -> Result<(), String> {
     write_json(&data.data_dir.join("settings.json"), &data.settings)
 }
 fn write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<(), String> {
-    fs::write(
-        path,
-        serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())
+    write_json_atomic(path, value)
 }
 fn lock_error<T>(_: std::sync::PoisonError<T>) -> String {
     "estado indisponível".into()
@@ -3301,6 +3448,13 @@ fn audio_content_type(path: &Path) -> Option<&'static str> {
             }
         })
 }
+
+fn read_to_string_limited<R: Read>(mut reader: R, limit: u64) -> Result<String, String> {
+    let mut bytes = Vec::new();
+    copy_with_limit(&mut reader, &mut bytes, limit)?;
+    String::from_utf8(bytes).map_err(|error| error.to_string())
+}
+
 fn copy_with_limit<R: Read, W: std::io::Write>(
     reader: &mut R,
     writer: &mut W,
@@ -3587,6 +3741,26 @@ fn youtube_download_percent(line: &str) -> Option<f64> {
     let percent = value.parse::<f64>().ok()?;
     percent.is_finite().then_some(percent.clamp(0.0, 100.0))
 }
+
+async fn read_async_to_end_limited<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    limit: usize,
+) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    let mut limited = reader.take(limit as u64 + 1);
+    limited
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(|error| error.to_string())?;
+    if bytes.len() > limit {
+        return Err(format!(
+            "A saída do processo excedeu o limite de {} MiB.",
+            limit / (1024 * 1024)
+        ));
+    }
+    Ok(bytes)
+}
+
 type YoutubeProcess = Arc<Mutex<tokio::process::Child>>;
 
 async fn register_youtube_process(
@@ -3663,6 +3837,22 @@ async fn wait_for_youtube_cancel(
 ) {
     loop {
         if youtube_cancel_requested(&cancelled, &operation_id) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+async fn wait_for_separation_cancel(
+    cancelled: Arc<std::sync::Mutex<HashSet<String>>>,
+    track_id: String,
+) {
+    loop {
+        let requested = cancelled
+            .lock()
+            .map(|values| values.contains(&track_id))
+            .unwrap_or(true);
+        if requested {
             return;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -3762,8 +3952,8 @@ fn download_checksum(url: &str, asset_url: &str) -> Result<String, String> {
         .call()
         .map_err(|e| format!("Não foi possível obter a assinatura do yt-dlp: {e}"))?
         .into_body()
-        .read_to_string()
-        .map_err(|e| e.to_string())?;
+        .into_reader();
+    let body = read_to_string_limited(body, MAX_EXTERNAL_RESPONSE_BYTES)?;
     let asset = asset_url.rsplit('/').next().unwrap_or(url);
     body.lines()
         .find_map(|line| {
@@ -3952,6 +4142,7 @@ fn worker_path(app: &AppHandle) -> PathBuf {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
     use std::{fs, io::Cursor, time::{SystemTime, UNIX_EPOCH}};

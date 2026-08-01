@@ -4,6 +4,7 @@ use keyring::Entry;
 use std::{
     collections::{HashMap, HashSet},
     fs,
+    io::Write,
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, SystemTime},
@@ -185,10 +186,10 @@ impl AppState {
         fs::create_dir_all(&models_dir).map_err(|e| e.to_string())?;
         fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
         fs::create_dir_all(&imports_dir).map_err(|e| e.to_string())?;
-        let tracks: Vec<Track> = read_json(&data_dir.join("library.json")).unwrap_or_default();
-        let projects = read_json(&data_dir.join("projects.json")).unwrap_or_default();
+        let tracks: Vec<Track> = read_json(&data_dir.join("library.json"))?.unwrap_or_default();
+        let projects = read_json(&data_dir.join("projects.json"))?.unwrap_or_default();
         cleanup_stale_remote_imports(&imports_dir, &tracks);
-        let mut settings = read_json_map(&data_dir.join("settings.json")).unwrap_or_default();
+        let mut settings = read_json_map(&data_dir.join("settings.json"))?.unwrap_or_default();
         if let Some(legacy_key) = settings
             .get(STEMSPLIT_API_KEY)
             .and_then(|value| value.as_str())
@@ -197,10 +198,7 @@ impl AppState {
         {
             if save_stem_split_api_key(&data_dir, &legacy_key).is_ok() {
                 settings.remove(STEMSPLIT_API_KEY);
-                let _ = fs::write(
-                    data_dir.join("settings.json"),
-                    serde_json::to_vec_pretty(&settings).map_err(|e| e.to_string())?,
-                );
+                write_json_atomic(&data_dir.join("settings.json"), &settings)?;
             }
         }
         *self
@@ -255,11 +253,187 @@ fn is_managed_remote_import(path: &Path) -> bool {
             .is_some_and(|(_, suffix)| Uuid::parse_str(suffix).is_ok())
 }
 
-fn read_json<T: serde::de::DeserializeOwned>(path: &PathBuf) -> Option<T> {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
+fn backup_path(path: &Path) -> PathBuf {
+    path.with_file_name(format!(
+        "{}.bak",
+        path.file_name().and_then(|name| name.to_str()).unwrap_or("data")
+    ))
 }
-fn read_json_map(path: &PathBuf) -> Option<serde_json::Map<String, serde_json::Value>> {
+
+fn corrupt_path(path: &Path) -> PathBuf {
+    path.with_file_name(format!(
+        "{}.corrupt-{}",
+        path.file_name().and_then(|name| name.to_str()).unwrap_or("data"),
+        Uuid::new_v4()
+    ))
+}
+
+pub fn write_json_atomic<T: serde::Serialize>(path: &Path, value: &T) -> Result<(), String> {
+    let bytes = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+
+    let temporary = path.with_file_name(format!(
+        ".{}.tmp-{}",
+        path.file_name().and_then(|name| name.to_str()).unwrap_or("data"),
+        Uuid::new_v4()
+    ));
+    let backup = backup_path(path);
+    let mut temporary_file = fs::File::create(&temporary).map_err(|error| error.to_string())?;
+    if let Err(error) = temporary_file.write_all(&bytes).and_then(|_| temporary_file.sync_all()) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
+    drop(temporary_file);
+
+    let had_primary = path.exists();
+    if had_primary {
+        if backup.exists() {
+            fs::remove_file(&backup).map_err(|error| error.to_string())?;
+        }
+        if let Err(error) = fs::rename(path, &backup) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error.to_string());
+        }
+    }
+    if let Err(error) = fs::rename(&temporary, path) {
+        if had_primary {
+            let _ = fs::rename(&backup, path);
+        }
+        let _ = fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
+
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        fs::File::open(parent)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>, String> {
+    let backup = backup_path(path);
+    match fs::read_to_string(path) {
+        Ok(text) => {
+            if let Ok(value) = serde_json::from_str(&text) {
+                return Ok(Some(value));
+            }
+        }
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            return recover_from_backup(path, &backup, Some(error.to_string()));
+        }
+        Err(_) => {}
+    }
+
+    recover_from_backup(path, &backup, Some("conteúdo JSON inválido".to_string()))
+}
+
+fn recover_from_backup<T: serde::de::DeserializeOwned>(
+    path: &Path,
+    backup: &Path,
+    primary_error: Option<String>,
+) -> Result<Option<T>, String> {
+    let Ok(text) = fs::read_to_string(backup) else {
+        if path.exists() {
+            return Err(format!(
+                "não foi possível ler {}: {}",
+                path.display(),
+                primary_error.unwrap_or_else(|| "conteúdo JSON inválido".to_string())
+            ));
+        }
+        return Ok(None);
+    };
+    let value = serde_json::from_str(&text).map_err(|error| {
+        format!(
+            "{} e o backup {} também está corrompido: {}",
+            path.display(),
+            backup.display(),
+            error
+        )
+    })?;
+
+    if path.exists() {
+        fs::rename(path, corrupt_path(path)).map_err(|error| {
+            format!("não foi possível preservar o arquivo corrompido {}: {error}", path.display())
+        })?;
+    }
+    fs::rename(backup, path).map_err(|error| {
+        format!("não foi possível restaurar o backup {}: {error}", backup.display())
+    })?;
+    Ok(Some(value))
+}
+
+fn read_json_map(path: &Path) -> Result<Option<serde_json::Map<String, serde_json::Value>>, String> {
     read_json(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{read_json, write_json_atomic};
+    use serde::{Deserialize, Serialize};
+    use std::{fs, path::PathBuf};
+    use uuid::Uuid;
+
+    #[derive(Debug, Deserialize, PartialEq, Serialize)]
+    struct Fixture {
+        version: u8,
+    }
+
+    fn fixture_dir() -> PathBuf {
+        let path = std::env::temp_dir().join(format!("griffin-state-{}", Uuid::new_v4()));
+        fs::create_dir_all(&path).expect("create fixture directory");
+        path
+    }
+
+    #[test]
+    fn atomic_write_keeps_backup_and_recovers_missing_primary() {
+        let directory = fixture_dir();
+        let path = directory.join("library.json");
+        write_json_atomic(&path, &Fixture { version: 1 }).expect("write initial value");
+        write_json_atomic(&path, &Fixture { version: 2 }).expect("write updated value");
+        assert_eq!(
+            read_json::<Fixture>(&path).expect("read current value"),
+            Some(Fixture { version: 2 })
+        );
+        fs::remove_file(&path).expect("remove primary");
+        assert_eq!(
+            read_json::<Fixture>(&path).expect("recover backup"),
+            Some(Fixture { version: 1 })
+        );
+        assert!(path.exists());
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn corrupt_primary_is_preserved_and_recovered() {
+        let directory = fixture_dir();
+        let path = directory.join("library.json");
+        write_json_atomic(&path, &Fixture { version: 1 }).expect("write initial value");
+        write_json_atomic(&path, &Fixture { version: 2 }).expect("write updated value");
+        fs::write(&path, b"{").expect("corrupt primary");
+        assert_eq!(
+            read_json::<Fixture>(&path).expect("recover corrupt primary"),
+            Some(Fixture { version: 1 })
+        );
+        assert!(fs::read_dir(&directory).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with("library.json.corrupt-")
+        }));
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn corrupt_primary_without_backup_is_an_error() {
+        let directory = fixture_dir();
+        let path = directory.join("library.json");
+        fs::write(&path, b"{").expect("corrupt primary");
+        assert!(read_json::<Fixture>(&path).is_err());
+        let _ = fs::remove_dir_all(directory);
+    }
 }

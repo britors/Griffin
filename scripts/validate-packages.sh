@@ -62,6 +62,18 @@ if [[ "${mode}" == "windows" ]]; then
   require_file src-tauri/binaries/griffin-onnx-worker-x86_64-pc-windows-msvc.exe
   require_file src-tauri/binaries/onnxruntime_providers_cuda.dll
   require_file src-tauri/binaries/onnxruntime_providers_shared.dll
+  archive_tool=""
+  for candidate in 7z 7zz 7za; do
+    if command -v "${candidate}" >/dev/null; then
+      archive_tool="${candidate}"
+      break
+    fi
+  done
+  [[ -n "${archive_tool}" ]] || fail "7-Zip (7z, 7zz ou 7za) é obrigatório para validar o conteúdo do instalador"
+  installer_listing="$(${archive_tool} l -slt "${exe}")" || fail "não foi possível listar o conteúdo do instalador: ${exe}"
+  for required_entry in 'griffin-onnx-worker.*\.exe$' 'onnxruntime_providers_cuda\.dll$' 'onnxruntime_providers_shared\.dll$'; do
+    grep -E '^Path = .*' <<<"${installer_listing}" | grep -E "${required_entry}" >/dev/null || fail "conteúdo obrigatório não encontrado no instalador: ${required_entry}"
+  done
   echo "NSIS Windows x64 validado: ${exe}"
   exit 0
 fi
