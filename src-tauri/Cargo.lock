@@ -1521,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "griffin-music"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "dirs",
  "hex",

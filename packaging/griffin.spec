@@ -13,7 +13,7 @@
 %global debug_package %{nil}
 
 Name:           griffin-music
-Version:        1.0.0
+Version:        1.0.1
 Release:        0
 Provides:       griffin = %{version}
 Obsoletes:      griffin < %{version}

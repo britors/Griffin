@@ -44,6 +44,7 @@ export function PlayerPage() {
   const targetStems = modelStatus?.sixStemAvailable ? ALL_STEMS : CORE_STEMS
   const targetLabel = target === 'all' ? 'todos os stems' : STEM_LABELS[target]
   const canSeparate = provider === 'remote' ? remoteAvailable : Boolean(modelStatus?.available)
+  const hasSeparatedStems = Boolean(selected?.stems && Object.values(selected.stems).some(Boolean))
 
   const separate = async (useProvider: SeparationProvider = provider) => {
     if (!selected || progress) return
@@ -86,7 +87,7 @@ export function PlayerPage() {
       {selected && (progress ? <div className="separation-action">
         <div className="separation-progress"><div className="separation-progress-meta" aria-live="polite"><span>{progress.stage}</span><strong>{Math.round(progress.progress * 100)}%</strong></div><div className="separation-progress-track" role="progressbar" aria-label="Progresso da separação" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress.progress * 100)}><span style={{ width: `${Math.round(progress.progress * 100)}%` }} /></div></div>
         <button className="secondary-button" disabled={cancelling} onClick={() => void cancel()}>{cancelling ? 'Cancelando…' : 'Cancelar'}</button>
-      </div> : <div className="separation-controls">
+      </div> : !hasSeparatedStems && <div className="separation-controls">
         {remoteAvailable && <label>MOTOR<select value={provider} onChange={(event) => setProvider(event.target.value as SeparationProvider)}><option value="local">Local</option><option value="remote">Nuvem (StemSplit)</option></select></label>}
         <label>EXTRAIR<select value={target} disabled={!canSeparate} onChange={(event) => setTarget(event.target.value as SeparationTarget)}><option value="all">Todos os stems</option>{targetStems.map((stem) => <option key={stem} value={stem}>{STEM_LABELS[stem]}{selected.stems?.[stem] ? ' · já extraído' : ''}</option>)}</select></label>
         <button className="primary-button" disabled={!canSeparate} onClick={() => void separate()}>{target === 'all' ? 'Separar stems' : `Extrair ${STEM_LABELS[target]}`}</button>

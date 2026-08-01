@@ -106,6 +106,10 @@ export function AudioPlayback() {
   }, [playing, loopEnabled, loopStart, loopEnd, tempo, pitch, setPlaying, setPosition])
 
   useEffect(() => { engine.current?.setTempo(tempo) }, [tempo])
-  useEffect(() => { engine.current?.setPitch(pitch) }, [pitch])
+  useEffect(() => {
+    const player = engine.current
+    if (!player || !player.isLoaded || !playing) return
+    player.seek(player.currentTime(), true, tempo, pitch, advanceQueue)
+  }, [pitch])
   return null
 }

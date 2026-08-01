@@ -1,4 +1,4 @@
-# Release 1.0.0
+# Release 1.0.1
 
 O workflow de release é disparado por tags `v*` e publica `.deb`, `.rpm`, instalador NSIS x64 e o manifesto assinado do updater. Os modelos ONNX não são mais empacotados no instalador: o próprio aplicativo os baixa sob demanda em runtime (`userData/models`), na primeira execução ou via Preferências.
 

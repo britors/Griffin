@@ -40,7 +40,6 @@ const CORE_STEMS: [&str; 4] = ["vocals", "drums", "bass", "other"];
 const ALL_STEMS: [&str; 6] = ["vocals", "drums", "bass", "other", "guitar", "piano"];
 const MAX_REMOTE_DURATION_SECONDS: f64 = 60.0 * 60.0;
 const MAX_MODEL_DOWNLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
-const HTTP_IO_TIMEOUT: Duration = Duration::from_secs(30);
 const REMOTE_PREVIEW_TTL: Duration = Duration::from_secs(30 * 60);
 const MAX_REMOTE_PREVIEWS: usize = 32;
 const MAX_EXTERNAL_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
@@ -683,32 +682,99 @@ fn cuda_runtime_install_blocking(
         }
         let archive_path = runtime_parent.join(asset.archive_name);
         let temporary = archive_path.with_extension("download");
-        remove_file_if_exists(&temporary)?;
         let temporary_guard = TemporaryFileGuard(Some(temporary.clone()));
+        let mut offset = fs::metadata(&temporary).map(|metadata| metadata.len()).unwrap_or(0);
+        if offset > CUDNN_MAX_DOWNLOAD_BYTES {
+            remove_file_if_exists(&temporary)?;
+            offset = 0;
+        }
         emit_cuda_runtime_progress(
             &app,
-            index as f64 / total_assets as f64 * 0.85,
-            &format!("Baixando componente NVIDIA {}/{}…", index + 1, total_assets),
+            (index as f64 + if offset > 0 { 0.01 } else { 0.0 }) / total_assets as f64 * 0.85,
+            &format!(
+                "Baixando componente NVIDIA {}/{}{}…",
+                index + 1,
+                total_assets,
+                if offset > 0 { " · retomando" } else { "" }
+            ),
         );
-        let (asset_url, agent) = public_http_agent(asset.url)?;
-        let response = agent
-            .get(&asset_url)
-            .call()
-            .map_err(|error| format!("Falha ao baixar o runtime NVIDIA: {error}"))?;
-        let expected = response
+        let (asset_url, agent) = match public_http_agent(asset.url) {
+            Ok(value) => value,
+            Err(error) => {
+                temporary_guard.keep();
+                return Err(error);
+            }
+        };
+        let mut request = agent.get(&asset_url);
+        if offset > 0 {
+            request = request.header("Range", format!("bytes={offset}-"));
+        }
+        let mut response = match request.call() {
+            Ok(response) => response,
+            Err(error) => {
+                temporary_guard.keep();
+                return Err(format!("Falha ao baixar o runtime NVIDIA: {error}"));
+            }
+        };
+        let resumed = offset > 0
+            && response.status().as_u16() == 206
+            && response
+                .headers()
+                .get("content-range")
+                .and_then(|value| value.to_str().ok())
+                .and_then(parse_content_range)
+                .is_some_and(|(start, _)| start == offset);
+        if offset > 0 && !resumed {
+            drop(response);
+            remove_file_if_exists(&temporary)?;
+            offset = 0;
+            response = match agent.get(&asset_url).call() {
+                Ok(response) => response,
+                Err(error) => {
+                    temporary_guard.keep();
+                    return Err(format!("Falha ao baixar o runtime NVIDIA: {error}"));
+                }
+            };
+        }
+        let expected = if resumed {
+            response
+                .headers()
+                .get("content-range")
+                .and_then(|value| value.to_str().ok())
+                .and_then(parse_content_range)
+                .map(|(_, total)| total)
+                .or_else(|| {
+                    response
+                        .headers()
+                        .get("content-length")
+                        .and_then(|value| value.to_str().ok())
+                        .and_then(|value| value.parse::<u64>().ok())
+                        .map(|remaining| offset.saturating_add(remaining))
+                })
+        } else {
+            response
             .headers()
             .get("content-length")
             .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse::<u64>().ok());
+            .and_then(|value| value.parse::<u64>().ok())
+        };
         if expected.is_some_and(|size| size > CUDNN_MAX_DOWNLOAD_BYTES) {
             return Err(
                 "Um pacote do runtime NVIDIA excede o limite de segurança do Griffin.".into(),
             );
         }
         let mut reader = response.into_body().into_reader();
-        let mut file = fs::File::create(&temporary).map_err(|error| error.to_string())?;
+        let mut file = if resumed {
+            fs::OpenOptions::new()
+                .append(true)
+                .open(&temporary)
+                .map_err(|error| error.to_string())?
+        } else {
+            fs::File::create(&temporary).map_err(|error| error.to_string())?
+        };
         let copy_result = copy_with_progress(&mut reader, &mut file, expected, |received| {
-            if received > CUDNN_MAX_DOWNLOAD_BYTES {
+            let received_total = offset.saturating_add(received);
+            if received_total > CUDNN_MAX_DOWNLOAD_BYTES {
                 return Err(
                     "Um pacote do runtime NVIDIA excede o limite de segurança do Griffin.".into(),
                 );
@@ -717,7 +783,7 @@ fn cuda_runtime_install_blocking(
                 return Err("Download do runtime NVIDIA cancelado.".into());
             }
             let fraction = expected
-                .map(|total| (received as f64 / total.max(1) as f64).min(1.0))
+                .map(|total| (received_total as f64 / total.max(1) as f64).min(1.0))
                 .unwrap_or(0.0);
             let progress = (index as f64 + fraction) / total_assets as f64 * 0.85;
             emit_cuda_runtime_progress(
@@ -730,7 +796,10 @@ fn cuda_runtime_install_blocking(
             );
             Ok(())
         });
-        copy_result?;
+        if let Err(error) = copy_result {
+            temporary_guard.keep();
+            return Err(error);
+        }
         file.sync_all().map_err(|error| error.to_string())?;
         drop(file);
         if sha256_file(&temporary)? != asset.sha256 {
@@ -2602,7 +2671,7 @@ pub async fn separation_cancel(state: State<'_, AppState>, track_id: String) -> 
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn export_audio(
+pub async fn export_audio(
     app: AppHandle,
     state: State<'_, AppState>,
     track_id: String,
@@ -2659,13 +2728,39 @@ pub fn export_audio(
             .save_file()
             .ok_or_else(|| "Exportação cancelada.".to_string())?
     };
+    let cancelled = Arc::clone(&state.export_cancelled);
+    tokio::task::spawn_blocking(move || {
+        export_audio_blocking(
+            app,
+            cancelled,
+            request_id,
+            track,
+            selected,
+            options,
+            destination,
+        )
+    })
+    .await
+    .map_err(|error| format!("Falha no exportador de áudio: {error}"))?
+}
+
+fn export_audio_blocking(
+    app: AppHandle,
+    cancelled: Arc<std::sync::Mutex<HashSet<String>>>,
+    request_id: String,
+    track: Track,
+    selected: Vec<(&'static str, String)>,
+    options: AudioExportOptions,
+    destination: PathBuf,
+) -> Result<AudioExportResult, String> {
     if options.mode.as_deref() == Some("individual") {
         let mut paths = Vec::new();
+        let selected_count = selected.len();
         for (index, (stem, path)) in selected.into_iter().enumerate() {
             export_progress(
                 &app,
                 &request_id,
-                index as f64 / options.stems.len().max(1) as f64,
+                index as f64 / selected_count.max(1) as f64,
                 &format!("Mixando {stem}"),
             );
             let target = unique_export_path(
@@ -2678,17 +2773,22 @@ pub fn export_audio(
                 mode: Some("mix".into()),
                 ..options.clone()
             };
-            let mut check_cancelled = || export_is_cancelled(&state, &request_id);
+            let temporary = target.with_extension("exporting");
+            remove_file_if_exists(&temporary)?;
+            let temporary_guard = TemporaryFileGuard(Some(temporary.clone()));
+            let mut check_cancelled = || export_is_cancelled(&cancelled, &request_id);
             mix_wav(
                 &[(stem, path)],
                 &stem_options,
-                &target,
+                &temporary,
                 &mut check_cancelled,
             )?;
+            fs::rename(&temporary, &target).map_err(|error| error.to_string())?;
+            temporary_guard.keep();
             paths.push(target.to_string_lossy().to_string());
         }
         export_progress(&app, &request_id, 1.0, "Arquivos individuais concluídos");
-        clear_export_cancelled(&state, &request_id);
+        clear_export_cancelled(&cancelled, &request_id);
         let first = paths.first().cloned().unwrap_or_default();
         return Ok(AudioExportResult {
             path: first,
@@ -2701,10 +2801,10 @@ pub fn export_audio(
     }
     let path = destination;
     export_progress(&app, &request_id, 0.1, "Mixando stems");
-    let mut check_cancelled = || export_is_cancelled(&state, &request_id);
+    let mut check_cancelled = || export_is_cancelled(&cancelled, &request_id);
     let duration = mix_wav(&selected, &options, &path, &mut check_cancelled)?;
     export_progress(&app, &request_id, 1.0, "WAV exportado");
-    clear_export_cancelled(&state, &request_id);
+    clear_export_cancelled(&cancelled, &request_id);
     let path_string = path.to_string_lossy().to_string();
     Ok(AudioExportResult {
         path: path_string.clone(),
@@ -3565,6 +3665,15 @@ fn copy_with_progress<R: Read, W: std::io::Write, F: FnMut(u64) -> Result<(), St
         }
     }
 }
+fn parse_content_range(value: &str) -> Option<(u64, u64)> {
+    let (unit, range) = value.split_once(' ')?;
+    if unit != "bytes" {
+        return None;
+    }
+    let (bounds, total) = range.split_once('/')?;
+    let (start, _) = bounds.split_once('-')?;
+    Some((start.parse().ok()?, total.parse().ok()?))
+}
 fn audio_extension(url: &str, content_type: &str) -> Option<&'static str> {
     let path = url.split('?').next().unwrap_or(url).to_ascii_lowercase();
     if path.ends_with(".wav") || matches!(content_type, "audio/wav" | "audio/x-wav") {
@@ -3606,12 +3715,6 @@ fn public_http_agent(value: &str) -> Result<(String, ureq::Agent), String> {
     let url = parse_public_url(value)?;
     let addresses = resolve_public_addresses(&url)?;
     let config = ureq::Agent::config_builder()
-        .timeout_resolve(Some(HTTP_IO_TIMEOUT))
-        .timeout_connect(Some(HTTP_IO_TIMEOUT))
-        .timeout_send_request(Some(HTTP_IO_TIMEOUT))
-        .timeout_send_body(Some(HTTP_IO_TIMEOUT))
-        .timeout_recv_response(Some(HTTP_IO_TIMEOUT))
-        .timeout_recv_body(Some(HTTP_IO_TIMEOUT))
         .max_redirects(0)
         .max_redirects_will_error(true)
         .build();
@@ -5196,6 +5299,11 @@ fn mix_wav<F: FnMut() -> Result<(), String>>(
             mixed[frame * 2] += left[frame] * volume as f32 * angle.cos() as f32;
             mixed[frame * 2 + 1] += right[frame] * volume as f32 * angle.sin() as f32;
         }
+        drop(values);
+        drop(source_left);
+        drop(source_right);
+        drop(left);
+        drop(right);
     }
     if frames == 0 || mixed.is_empty() {
         return Err("Os stems selecionados estão vazios.".into());
@@ -5217,14 +5325,22 @@ fn mix_wav<F: FnMut() -> Result<(), String>>(
         .ceil() as usize)
         .max(start + 1)
         .min(frames);
-    let processed = apply_pitch_and_tempo(
-        &mixed[start * 2..end * 2],
-        end.saturating_sub(start),
-        sample_rate,
-        options.pitch,
-        options.tempo,
-        check_cancelled,
-    )?;
+    let processed = if start == 0
+        && end == frames
+        && options.pitch == 0.0
+        && (options.tempo - 1.0).abs() < f64::EPSILON
+    {
+        mixed
+    } else {
+        apply_pitch_and_tempo(
+            &mixed[start * 2..end * 2],
+            end.saturating_sub(start),
+            sample_rate,
+            options.pitch,
+            options.tempo,
+            check_cancelled,
+        )?
+    };
     let spec = hound::WavSpec {
         channels: 2,
         sample_rate,
@@ -5365,9 +5481,11 @@ fn stretch_interleaved<F: FnMut() -> Result<(), String>>(
     Ok(output)
 }
 
-fn export_is_cancelled(state: &State<'_, AppState>, request_id: &str) -> Result<(), String> {
-    if state
-        .export_cancelled
+fn export_is_cancelled(
+    cancelled: &Arc<std::sync::Mutex<HashSet<String>>>,
+    request_id: &str,
+) -> Result<(), String> {
+    if cancelled
         .lock()
         .map_err(lock_error)?
         .contains(request_id)
@@ -5378,8 +5496,11 @@ fn export_is_cancelled(state: &State<'_, AppState>, request_id: &str) -> Result<
     }
 }
 
-fn clear_export_cancelled(state: &State<'_, AppState>, request_id: &str) {
-    if let Ok(mut cancelled) = state.export_cancelled.lock() {
+fn clear_export_cancelled(
+    cancelled: &Arc<std::sync::Mutex<HashSet<String>>>,
+    request_id: &str,
+) {
+    if let Ok(mut cancelled) = cancelled.lock() {
         cancelled.remove(request_id);
     }
 }
