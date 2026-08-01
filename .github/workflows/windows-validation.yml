@@ -36,12 +36,8 @@ jobs:
         shell: bash
         run: |
           npx tauri signer generate --ci -w "$RUNNER_TEMP/griffin-validation-updater.key" --force
-          {
-            printf 'TAURI_SIGNING_PRIVATE_KEY<<GRIFFIN_UPDATER_KEY\n'
-            cat "$RUNNER_TEMP/griffin-validation-updater.key"
-            printf 'GRIFFIN_UPDATER_KEY\n'
-            printf 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD=\n'
-          } >> "$GITHUB_ENV"
+          printf 'TAURI_SIGNING_PRIVATE_KEY_PATH=%s\n' "$RUNNER_TEMP/griffin-validation-updater.key" >> "$GITHUB_ENV"
+          printf 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD=\n' >> "$GITHUB_ENV"
           npm run package:win
 
       - name: Validate NSIS installer and bundled prerequisites
