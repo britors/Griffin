@@ -11,6 +11,9 @@
 
 # Prebuilt Tauri bundle — não há símbolos de depuração úteis para extrair.
 %global debug_package %{nil}
+# O provider CUDA é opcional e o runtime é instalado pelo aplicativo quando
+# necessário; não transformar suas bibliotecas em dependências do RPM.
+%global __requires_exclude ^(libcublas|libcublasLt|libcudart|libcurand|libcuda)\.so
 
 Name:           griffin-music
 Version:        1.0.1
@@ -98,6 +101,12 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/com.w3ti.griffinmusic
 %{_libdir}/griffin-music
 %{_datadir}/applications/com.w3ti.griffinmusic.desktop
 %dir %{_datadir}/icons/hicolor
+%dir %{_datadir}/icons/hicolor/32x32
+%dir %{_datadir}/icons/hicolor/32x32/apps
+%dir %{_datadir}/icons/hicolor/128x128
+%dir %{_datadir}/icons/hicolor/128x128/apps
+%dir %{_datadir}/icons/hicolor/256x256
+%dir %{_datadir}/icons/hicolor/256x256/apps
 %{_datadir}/icons/hicolor/*/apps/griffin-music.png
 
 %changelog
