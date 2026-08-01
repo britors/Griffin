@@ -3,6 +3,7 @@ import { api } from '../api'
 import { getActiveStemAudioPlayer } from '../audio-player'
 import { usePlayer } from '../store'
 import { ALL_STEMS, STEM_LABELS, type AudioExportMode, type AudioExportOptions, type StemName } from '../../shared/types'
+import { errorMessage } from '../error-message'
 
 const stemNames: StemName[] = ALL_STEMS
 
@@ -43,7 +44,7 @@ export function ExportPanel() {
       const result = await api.exportAudio(selected.id, options)
       setMessage(mode === 'individual' ? `${result.paths.length} stems exportados em: ${result.paths[0]}` : `Mix exportada: ${result.path}`)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Não foi possível exportar a mix.')
+      setError(errorMessage(reason, mode === 'individual' ? 'Não foi possível exportar os arquivos individuais.' : 'Não foi possível exportar a mix.'))
     } finally {
       setWorking(false); setRequestId(null)
     }
