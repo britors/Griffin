@@ -4,6 +4,7 @@ set -euo pipefail
 platform="${1:-linux}"
 release_dir="release"
 bundle_dir="src-tauri/target/release/bundle"
+version="${GRIFFIN_VERSION:-$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([0-9][^"]*\)".*/\1/p' package.json | head -1)}"
 
 fail() {
   echo "Falha: $*" >&2
@@ -26,11 +27,15 @@ copy_files() {
 
 case "${platform}" in
   linux)
-    copy_files "${bundle_dir}/deb" '*.deb'
-    copy_files "${bundle_dir}/rpm" '*.rpm'
+    [[ -n "${version}" ]] || fail "versão da aplicação não encontrada"
+    rm -f "${release_dir}"/*.deb "${release_dir}"/*.rpm
+    copy_files "${bundle_dir}/deb" "*_${version}_*.deb"
+    copy_files "${bundle_dir}/rpm" "*-${version}-*.rpm"
     ;;
   windows)
-    copy_files "${bundle_dir}/nsis" '*.exe'
+    [[ -n "${version}" ]] || fail "versão da aplicação não encontrada"
+    rm -f "${release_dir}"/*.exe
+    copy_files "${bundle_dir}/nsis" "*${version}*.exe"
     ;;
   *)
     fail "plataforma inválida: ${platform} (use linux ou windows)"

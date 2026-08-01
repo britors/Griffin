@@ -88,7 +88,7 @@ function App() {
         <button className={view === 'library' && libraryFilter === 'recent' ? 'active' : ''} onClick={() => showLibrary('recent')}>◌ <span>Recentes</span></button>
         <button className={view === 'preferences' ? 'active' : ''} onClick={showPreferences}>⚙ <span>Preferências</span></button>
       </nav>
-      <div className="sidebar-footer"><div><span className="offline-dot" />Processamento local</div><div className="version">v0.1.2</div></div>
+      <div className="sidebar-footer"><div><span className="offline-dot" />Processamento local</div><div className="version">v0.1.3</div></div>
     </aside>
     <div className="content">
       <header className="app-header" data-tauri-drag-region="deep" onMouseDown={(event) => {

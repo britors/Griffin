@@ -282,7 +282,7 @@ function formatDurationMs(milliseconds: number) { return milliseconds < 1000 ? `
 
 function AboutSection() {
   return <PreferenceSection title="Sobre" description="Informações desta instalação do Griffin Music.">
-    <PreferenceRow label="Versão" description="Versão atual do aplicativo."><span className="preference-value">0.1.2</span></PreferenceRow>
+    <PreferenceRow label="Versão" description="Versão atual do aplicativo."><span className="preference-value">0.1.3</span></PreferenceRow>
     <PreferenceRow label="Arquitetura" description="Aplicativo desktop com processamento local."><span className="preference-value">Tauri + Rust + React</span></PreferenceRow>
     <PreferenceRow label="Criado por" description="Autor e mantenedor do Griffin Music."><span className="preference-value">Rodrigo Brito</span></PreferenceRow>
     <PreferenceRow label="Contato" description="Dúvidas, sugestões ou problemas."><a className="preference-value" href="mailto:rodrigo@w3ti.com.br">rodrigo@w3ti.com.br</a></PreferenceRow>

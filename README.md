@@ -17,7 +17,7 @@ O MVP e a Fase 2 de prática musical já estão integrados na `main`:
 - exportação de mixagens e stems individuais em WAV PCM, com sample rate e bit depth configuráveis;
 - build Linux DEB/RPM e Windows NSIS configurado no GitHub Actions.
 
-A release pública `v0.1.2` será publicada a partir da nova tag e ficará disponível pelo botão de download acima.
+A release pública `v0.1.3` será publicada a partir da nova tag e ficará disponível pelo botão de download acima.
 
 ## Requisitos
 
