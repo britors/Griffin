@@ -42,7 +42,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU5RkY5MTlCOTYzOTA0QTIKUldTaUJEbVdtNUgvV1l6aVUwTFFGeWR5bm0xcXU1V3N5clZpQmRNWm1KekJCbStvcG5lK0pnWlcK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYzMDhFNkQyNjA1NDM3MTgKUldRWU4xUmcwdVlJWXo0WEV2a0U4bCtTaWFjdkxsWUk5MGJqaERsV0liTzBqRldsZS9jVWVDaUIK",
       "endpoints": [
         "https://github.com/britors/Griffin/releases/latest/download/latest.json"
       ],
