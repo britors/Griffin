@@ -18,7 +18,7 @@ function RequireFile([string]$Path) {
   }
 }
 
-function AssertPeX64([string]$Path) {
+function AssertPe([string]$Path) {
   RequireFile $Path
   $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
   $bytes = [System.IO.File]::ReadAllBytes($resolvedPath)
@@ -29,12 +29,22 @@ function AssertPeX64([string]$Path) {
   if ($peOffset -lt 0 -or $peOffset + 6 -gt $bytes.Length) {
     Fail "cabeçalho PE inválido: $Path"
   }
-  $machine = [System.BitConverter]::ToUInt16($bytes, $peOffset + 4)
   $signatureValid = $bytes[$peOffset] -eq 0x50 -and
     $bytes[$peOffset + 1] -eq 0x45 -and
     $bytes[$peOffset + 2] -eq 0 -and
     $bytes[$peOffset + 3] -eq 0
-  if (-not $signatureValid -or $machine -ne 0x8664) {
+  if (-not $signatureValid) {
+    Fail "binário não é PE: $Path"
+  }
+}
+
+function AssertPeX64([string]$Path) {
+  AssertPe $Path
+  $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
+  $bytes = [System.IO.File]::ReadAllBytes($resolvedPath)
+  $peOffset = [System.BitConverter]::ToInt32($bytes, 0x3c)
+  $machine = [System.BitConverter]::ToUInt16($bytes, $peOffset + 4)
+  if ($machine -ne 0x8664) {
     Fail "binário não é PE x64: $Path"
   }
 }
@@ -123,7 +133,7 @@ if (-not $SkipInstaller) {
   if ($installer.Length -lt 100KB) {
     Fail "instalador NSIS suspeito: arquivo muito pequeno"
   }
-  AssertPeX64 $installer.FullName
+  AssertPe $installer.FullName
   AssertInstallerContains $installer.FullName "griffin-onnx-worker.*\.exe$"
   AssertInstallerContains $installer.FullName "onnxruntime_providers_cuda\.dll$"
   AssertInstallerContains $installer.FullName "onnxruntime_providers_shared\.dll$"
