@@ -82,6 +82,14 @@ npm run package:win
 
 Os artefatos são gravados em `release/`. O RPM local exige o executável `rpmbuild`; no GitHub Actions ele é instalado automaticamente.
 
+O workflow `Windows x64 validation` também compila o worker ONNX com os providers CUDA/shared, valida todos os binários como PE x64, executa um smoke test do protocolo sem exigir CUDA global e gera/valida o instalador NSIS. A validação de hardware e da experiência visual continua manual:
+
+1. Em uma instalação limpa do Windows 10/11 x64, instale o NSIS gerado e abra o Griffin.
+2. Em Preferências → Processamento, confirme que o botão de suporte NVIDIA aparece mesmo sem CUDA instalado globalmente.
+3. Baixe o modelo, faça uma separação com `Automático` e confirme que o provider exibido é `CPU` quando não houver CUDA utilizável.
+4. Em uma máquina NVIDIA compatível, instale o runtime pelo botão, repita a separação e confirme `CUDA / GPU`; se o runtime ou driver falhar, a separação deve voltar para CPU.
+5. Atualize por cima de uma instalação existente e depois valide a desinstalação, preservando a biblioteca do usuário.
+
 Depois de gerar os pacotes Linux, valide os formatos e o logo:
 
 ```bash

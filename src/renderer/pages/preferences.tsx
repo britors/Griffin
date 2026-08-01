@@ -152,9 +152,15 @@ function ProcessingSection({ settings, status, resources, onChange, onCacheClear
   const profile: SeparationProfile = settings.processingProfile === 'speed' || settings.processingProfile === 'balanced' ? settings.processingProfile : 'quality'
   const provider: ExecutionProviderPreference = settings.executionProvider === 'cpu' || settings.executionProvider === 'cuda' ? settings.executionProvider : 'auto'
   const modelProfile: SeparationModelProfile = settings.modelProfile === 'six-stem' ? 'six-stem' : 'four-stem'
+  const [cacheError, setCacheError] = useState<string | null>(null)
   const clearCache = async () => {
     if (!(await confirmDialog('Limpar o cache de stems?\n\nAs faixas originais, projetos e modelos serão preservados.', { confirmLabel: 'Limpar', tone: 'danger' }))) return
-    onCacheCleared(await api.resources.clearCache())
+    setCacheError(null)
+    try {
+      onCacheCleared(await api.resources.clearCache())
+    } catch (reason) {
+      setCacheError(reason instanceof Error ? reason.message : 'Não foi possível limpar o cache agora. Aguarde a separação terminar.')
+    }
   }
   return <PreferenceSection title="Processamento" description="Modelo e armazenamento usados pela separação local.">
     <PreferenceRow label="Modelo" description="Variante de maior qualidade para separar quatro stems."><span className="preference-value">htdemucs_ft</span></PreferenceRow>
@@ -179,7 +185,7 @@ function ProcessingSection({ settings, status, resources, onChange, onCacheClear
       </div>
     </PreferenceRow>
     {cudaRuntime.error && <PreferenceRow label="Erro no runtime NVIDIA" description={cudaRuntime.error}><span className="status-pill" /></PreferenceRow>}
-    <PreferenceRow label="Cache de stems" description={`Evita recalcular uma faixa já processada. ${resources ? `${formatBytes(resources.cacheBytes)} armazenados.` : 'Calculando tamanho…'}`}><div className="preference-inline-controls"><span className="preference-value">Ativo</span><button className="secondary-button compact-control" onClick={() => void clearCache()}>Limpar cache</button></div></PreferenceRow>
+    <PreferenceRow label="Cache de stems" description={`Evita recalcular uma faixa já processada. ${resources ? `${formatBytes(resources.cacheBytes)} armazenados.` : 'Calculando tamanho…'}`}><div className="preference-inline-controls"><span className="preference-value">Ativo</span><button className="secondary-button compact-control" onClick={() => void clearCache()}>Limpar cache</button>{cacheError && <span className="model-download-error">{cacheError}</span>}</div></PreferenceRow>
     <PreferenceRow label="Local do cache" description="Os stems separados ficam neste diretório local."><span className="preference-path">{resources?.cachePath ?? 'Calculando…'}</span></PreferenceRow>
     <PreferenceRow label="Uso do modelo" description="O modelo ONNX também permanece somente neste computador."><span className="preference-value">{resources ? formatBytes(resources.modelBytes) : 'Calculando…'}</span></PreferenceRow>
     <PreferenceRow label="Threads de processamento" description="Limita o paralelismo do ONNX; Automático usa um limite conservador para preservar a máquina."><select className="preference-control" value={processingThreads} onChange={(event) => void onChange('processingThreads', Number(event.target.value))}><option value="0">Automático</option><option value="1">1 thread</option><option value="2">2 threads</option><option value="4">4 threads</option><option value="8">8 threads</option></select></PreferenceRow>

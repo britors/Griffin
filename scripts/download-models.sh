@@ -11,11 +11,13 @@ download() {
     echo "Modelo já existe: ${target}"
     return
   fi
-  rm -f "${target}"
   echo "Baixando ${target}..."
-  curl --fail --location --retry 3 --retry-delay 2 "${url}" -o "${target}"
-  [[ -s "${target}" ]] || { echo "Download vazio: ${target}" >&2; exit 1; }
-  [[ "$(sha256sum "${target}" | awk '{print $1}')" == "${expected_hash}" ]] || { echo "Checksum inválido: ${target}" >&2; rm -f "${target}"; exit 1; }
+  local temporary="${target}.download"
+  rm -f "${temporary}"
+  curl --fail --location --retry 3 --retry-delay 2 "${url}" -o "${temporary}"
+  [[ -s "${temporary}" ]] || { echo "Download vazio: ${target}" >&2; rm -f "${temporary}"; exit 1; }
+  [[ "$(sha256sum "${temporary}" | awk '{print $1}')" == "${expected_hash}" ]] || { echo "Checksum inválido: ${target}" >&2; rm -f "${temporary}"; exit 1; }
+  mv -f "${temporary}" "${target}"
 }
 
 download "${model_dir}/htdemucs.onnx" "${base_url}/htdemucs-onnx/resolve/main/htdemucs_fp16weights.onnx" d05c269d0178d2a72ad484b10b11dd370193fc923201c3b27a99f848745db70a

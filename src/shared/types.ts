@@ -185,6 +185,7 @@ export interface CudaRuntimeStatus {
   supported: boolean
   installed: boolean
   downloading: boolean
+  state?: 'installed' | 'installing' | 'incomplete' | 'error'
   downloadBytes?: number
   version?: string
   message: string

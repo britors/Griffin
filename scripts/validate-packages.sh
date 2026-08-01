@@ -59,6 +59,7 @@ if [[ "${mode}" == "windows" ]]; then
   exe="$(find "${release_dir}" -maxdepth 1 -type f -iname '*.exe' -print -quit)"
   require_file "${exe}"
   file "${exe}" | grep -E 'PE32\+|MS Windows' >/dev/null || fail "instalador não parece ser um executável Windows x64: ${exe}"
+  require_file src-tauri/binaries/griffin-onnx-worker-x86_64-pc-windows-msvc.exe
   require_file src-tauri/binaries/onnxruntime_providers_cuda.dll
   require_file src-tauri/binaries/onnxruntime_providers_shared.dll
   echo "NSIS Windows x64 validado: ${exe}"

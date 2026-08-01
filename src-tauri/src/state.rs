@@ -6,9 +6,11 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::Arc,
+    time::{Duration, SystemTime},
 };
 use tauri::{AppHandle, Manager};
 use tokio::{process::Child, sync::Mutex};
+use uuid::Uuid;
 
 pub struct AppState {
     pub data: std::sync::Mutex<StateData>,
@@ -16,12 +18,15 @@ pub struct AppState {
     pub workers: tokio::sync::Mutex<HashMap<String, Arc<Mutex<Child>>>>,
     pub remote_assets: std::sync::Mutex<HashMap<String, RemoteAsset>>,
     pub youtube_previews: std::sync::Mutex<HashMap<String, YoutubePreview>>,
-    pub remote_cancelled: std::sync::Mutex<HashSet<String>>,
-    pub remote_active: std::sync::Mutex<HashSet<String>>,
+    pub youtube_processes: tokio::sync::Mutex<HashMap<String, Arc<Mutex<Child>>>>,
+    pub youtube_cancelled: Arc<std::sync::Mutex<HashSet<String>>>,
+    pub remote_cancelled: Arc<std::sync::Mutex<HashSet<String>>>,
+    pub active_separations: std::sync::Mutex<HashSet<String>>,
+    pub separation_cache_gate: tokio::sync::RwLock<()>,
     pub model_cancelled: Arc<std::sync::Mutex<HashSet<String>>>,
     pub model_downloading: Arc<std::sync::Mutex<Option<String>>>,
     pub export_cancelled: std::sync::Mutex<HashSet<String>>,
-    pub yt_dlp_cancelled: std::sync::Mutex<HashSet<String>>,
+    pub yt_dlp_cancelled: Arc<std::sync::Mutex<HashSet<String>>>,
     pub cuda_runtime_cancelled: Arc<std::sync::Mutex<bool>>,
     pub cuda_runtime_installing: Arc<std::sync::Mutex<bool>>,
 }
@@ -36,12 +41,14 @@ pub struct SeparationMetrics {
 pub struct RemoteAsset {
     pub path: PathBuf,
     pub format: String,
+    pub created_at: std::time::Instant,
 }
 
 #[derive(Clone)]
 pub struct YoutubePreview {
     pub url: String,
     pub title: String,
+    pub created_at: std::time::Instant,
 }
 
 pub struct StateData {
@@ -149,12 +156,15 @@ impl Default for AppState {
             workers: tokio::sync::Mutex::new(HashMap::new()),
             remote_assets: std::sync::Mutex::new(HashMap::new()),
             youtube_previews: std::sync::Mutex::new(HashMap::new()),
-            remote_cancelled: std::sync::Mutex::new(HashSet::new()),
-            remote_active: std::sync::Mutex::new(HashSet::new()),
+            youtube_processes: tokio::sync::Mutex::new(HashMap::new()),
+            youtube_cancelled: Arc::new(std::sync::Mutex::new(HashSet::new())),
+            remote_cancelled: Arc::new(std::sync::Mutex::new(HashSet::new())),
+            active_separations: std::sync::Mutex::new(HashSet::new()),
+            separation_cache_gate: tokio::sync::RwLock::new(()),
             model_cancelled: Arc::new(std::sync::Mutex::new(HashSet::new())),
             model_downloading: Arc::new(std::sync::Mutex::new(None)),
             export_cancelled: std::sync::Mutex::new(HashSet::new()),
-            yt_dlp_cancelled: std::sync::Mutex::new(HashSet::new()),
+            yt_dlp_cancelled: Arc::new(std::sync::Mutex::new(HashSet::new())),
             cuda_runtime_cancelled: Arc::new(std::sync::Mutex::new(false)),
             cuda_runtime_installing: Arc::new(std::sync::Mutex::new(false)),
         }
@@ -175,8 +185,9 @@ impl AppState {
         fs::create_dir_all(&models_dir).map_err(|e| e.to_string())?;
         fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
         fs::create_dir_all(&imports_dir).map_err(|e| e.to_string())?;
-        let tracks = read_json(&data_dir.join("library.json")).unwrap_or_default();
+        let tracks: Vec<Track> = read_json(&data_dir.join("library.json")).unwrap_or_default();
         let projects = read_json(&data_dir.join("projects.json")).unwrap_or_default();
+        cleanup_stale_remote_imports(&imports_dir, &tracks);
         let mut settings = read_json_map(&data_dir.join("settings.json")).unwrap_or_default();
         if let Some(legacy_key) = settings
             .get(STEMSPLIT_API_KEY)
@@ -206,6 +217,42 @@ impl AppState {
         };
         Ok(())
     }
+}
+
+const STALE_REMOTE_IMPORT_AGE: Duration = Duration::from_secs(30 * 60);
+
+fn cleanup_stale_remote_imports(imports_dir: &Path, tracks: &[Track]) {
+    let referenced = tracks
+        .iter()
+        .map(|track| PathBuf::from(&track.path))
+        .collect::<HashSet<_>>();
+    let Ok(entries) = fs::read_dir(imports_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() || referenced.contains(&path) || !is_managed_remote_import(&path) {
+            continue;
+        }
+        let old_enough = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+            .is_some_and(|age| age >= STALE_REMOTE_IMPORT_AGE);
+        if old_enough {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+fn is_managed_remote_import(path: &Path) -> bool {
+    let name = path.file_name().and_then(|value| value.to_str()).unwrap_or_default();
+    let stem = path.file_stem().and_then(|value| value.to_str()).unwrap_or_default();
+    name.starts_with("remote-preview-")
+        || stem
+            .rsplit_once('-')
+            .is_some_and(|(_, suffix)| Uuid::parse_str(suffix).is_ok())
 }
 
 fn read_json<T: serde::de::DeserializeOwned>(path: &PathBuf) -> Option<T> {

@@ -53,6 +53,13 @@ struct Track {
 }
 
 fn main() {
+    if std::env::args().any(|argument| argument == "--probe-cuda") {
+        if let Err(error) = probe_cuda() {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let input = io::stdin().lock().lines().next().and_then(Result::ok);
     let Some(input) = input else {
         return;
@@ -70,6 +77,26 @@ fn main() {
     }
     if let Err(error) = separate(request) {
         emit_error(&error);
+    }
+}
+
+fn probe_cuda() -> Result<(), String> {
+    let _ = ort::init().with_name("griffin-cuda-probe").commit();
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    {
+        Session::builder()
+            .map_err(|error| format!("ONNX Runtime incompatível: {error}"))?
+            .with_execution_providers([ep::CUDA::default()
+                .with_conv_algorithm_search(ep::cuda::ConvAlgorithmSearch::Heuristic)
+                .with_conv_max_workspace(false)
+                .build()
+                .error_on_failure()])
+            .map_err(|error| format!("CUDA/cuDNN não pôde ser carregado: {error}"))?;
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        Err("CUDA não está disponível neste sistema; use CPU.".into())
     }
 }
 
@@ -133,34 +160,21 @@ fn separate(request: Request) -> Result<(), String> {
         .iter()
         .map(|stem| choose_model(&request.models_dir, stem, processing_profile, model_profile))
         .collect::<Result<Vec<_>, _>>()?;
-    let mut model_hasher = Sha256::new();
-    for model in &models {
-        let metadata = std::fs::metadata(model).map_err(|error| error.to_string())?;
-        model_hasher.update(model.to_string_lossy().as_bytes());
-        model_hasher.update(metadata.len().to_le_bytes());
-        if let Ok(modified) = metadata.modified() {
-            if let Ok(since_epoch) = modified.duration_since(std::time::UNIX_EPOCH) {
-                model_hasher.update(since_epoch.as_secs().to_le_bytes());
-                model_hasher.update(since_epoch.subsec_nanos().to_le_bytes());
-            }
-        }
-    }
-    let model_key = hex::encode(model_hasher.finalize());
-    let provider_key = requested_provider;
-    let runtime_key = if matches!(requested_provider, "auto" | "cuda") {
-        request.cuda_runtime_available
-    } else {
-        false
-    };
+    let (effective_provider, mut probe_session) = effective_provider(
+        requested_provider,
+        &models[0],
+        processing_threads,
+    )?;
+    let model_key = model_content_hash(&names, &models)?;
     let key = format!(
         "{}-{}-{}-{}-{}-{}-{}{}",
         cache_component(&request.track.id),
         &source_hash[..16],
         if names.len() == 6 { "six" } else { "four" },
         processing_profile,
-        provider_key,
+        effective_provider,
         &model_key[..16],
-        runtime_key,
+        effective_provider == "cuda" && request.cuda_runtime_available,
         target_key
     );
     let output_dir = request.cache_dir.join(key);
@@ -170,7 +184,7 @@ fn separate(request: Request) -> Result<(), String> {
         .map(|stem| output_dir.join(format!("{stem}.wav")))
         .collect();
     if output_paths.iter().all(|path| path.is_file())
-        && cache_provider_matches(&output_dir, requested_provider, request.cuda_runtime_available)
+        && cache_provider_matches(&output_dir, effective_provider)
     {
         emit_done(&names, &output_paths);
         return Ok(());
@@ -197,21 +211,19 @@ fn separate(request: Request) -> Result<(), String> {
             .iter()
             .position(|name| name == stem)
             .ok_or_else(|| format!("O modelo não contém o stem {stem}."))?;
-        let (mut session, provider) = match requested_provider {
-            "cuda" | "auto" => match create_session(model, processing_threads, true) {
-                Ok(session) => (session, "cuda"),
-                Err(cuda_error) if requested_provider == "auto" || requested_provider == "cuda" => {
-                    eprintln!("CUDA indisponível; usando CPU: {cuda_error}");
-                    (
-                        create_session(model, processing_threads, false).map_err(|cpu_error| {
-                            format!("CUDA e CPU falharam: {cuda_error}; {cpu_error}")
-                        })?,
-                        "cpu",
-                    )
-                }
-                Err(error) => return Err(error),
-            },
-            _ => (create_session(model, processing_threads, false)?, "cpu"),
+        let (mut session, provider) = if index == 0 {
+            (
+                match probe_session.take() {
+                    Some(session) => session,
+                    None => create_session(model, processing_threads, effective_provider == "cuda")?,
+                },
+                effective_provider,
+            )
+        } else {
+            (
+                create_session(model, processing_threads, effective_provider == "cuda")?,
+                effective_provider,
+            )
         };
         active_provider = provider;
         let mut stem_left = vec![0.0f32; left.len()];
@@ -270,15 +282,49 @@ fn separate(request: Request) -> Result<(), String> {
     Ok(())
 }
 
-fn cache_provider_matches(output_dir: &Path, requested_provider: &str, cuda_runtime_available: bool) -> bool {
+fn cache_provider_matches(output_dir: &Path, effective_provider: &str) -> bool {
+    std::fs::read_to_string(output_dir.join(".provider"))
+        .map(|provider| provider.trim() == effective_provider)
+        .unwrap_or(false)
+}
+
+fn effective_provider(
+    requested_provider: &str,
+    first_model: &Path,
+    processing_threads: usize,
+) -> Result<(&'static str, Option<Session>), String> {
     if requested_provider == "cpu" {
-        return true;
+        return Ok(("cpu", None));
     }
-    let Ok(provider) = std::fs::read_to_string(output_dir.join(".provider")) else {
-        return false;
-    };
-    let provider = provider.trim();
-    provider == "cuda" || (provider == "cpu" && !cuda_runtime_available)
+    match create_session(first_model, processing_threads, true) {
+        Ok(session) => Ok(("cuda", Some(session))),
+        Err(cuda_error) => {
+            eprintln!("CUDA indisponível; usando CPU: {cuda_error}");
+            create_session(first_model, processing_threads, false)
+                .map(|session| ("cpu", Some(session)))
+                .map_err(|cpu_error| format!("CUDA e CPU falharam: {cuda_error}; {cpu_error}"))
+        }
+    }
+}
+
+fn model_content_hash(names: &[String], models: &[PathBuf]) -> Result<String, String> {
+    let mut hasher = Sha256::new();
+    for (name, model) in names.iter().zip(models) {
+        hasher.update(name.as_bytes());
+        hasher.update([0]);
+        let mut file = File::open(model).map_err(|error| error.to_string())?;
+        let mut buffer = [0u8; 1024 * 1024];
+        loop {
+            let read = std::io::Read::read(&mut file, &mut buffer)
+                .map_err(|error| error.to_string())?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+        }
+        hasher.update([0xff]);
+    }
+    Ok(hex::encode(hasher.finalize()))
 }
 
 fn create_session(model: &Path, threads: usize, use_cuda: bool) -> Result<Session, String> {
@@ -612,14 +658,13 @@ mod tests {
     #[test]
     fn cache_provider_rules_prevent_incorrect_cuda_reuse() {
         let temp = TempDir::new("cache");
-        assert!(!cache_provider_matches(temp.path(), "auto", false));
+        assert!(!cache_provider_matches(temp.path(), "cpu"));
         fs::write(temp.path().join(".provider"), "cpu").unwrap();
-        assert!(cache_provider_matches(temp.path(), "cpu", true));
-        assert!(cache_provider_matches(temp.path(), "auto", false));
-        assert!(!cache_provider_matches(temp.path(), "auto", true));
+        assert!(cache_provider_matches(temp.path(), "cpu"));
+        assert!(!cache_provider_matches(temp.path(), "cuda"));
         fs::write(temp.path().join(".provider"), "cuda").unwrap();
-        assert!(cache_provider_matches(temp.path(), "auto", true));
-        assert!(cache_provider_matches(temp.path(), "cuda", false));
+        assert!(cache_provider_matches(temp.path(), "cuda"));
+        assert!(!cache_provider_matches(temp.path(), "cpu"));
     }
 
     #[test]
@@ -630,6 +675,18 @@ mod tests {
         let first = source_hash(&path).unwrap();
         fs::write(&path, b"second").unwrap();
         assert_ne!(first, source_hash(&path).unwrap());
+    }
+
+    #[test]
+    fn model_cache_hash_changes_when_model_content_changes() {
+        let temp = TempDir::new("model-hash");
+        let model = temp.path().join("model.onnx");
+        fs::write(&model, b"same-size").unwrap();
+        let names = vec![String::from("vocals")];
+        let models = vec![model.clone()];
+        let first = model_content_hash(&names, &models).unwrap();
+        fs::write(&model, b"different").unwrap();
+        assert_ne!(first, model_content_hash(&names, &models).unwrap());
     }
 
     #[test]

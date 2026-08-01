@@ -30,7 +30,8 @@ symphonia = { version = "0.5", features = ["all"] }
 ureq = { version = "3", default-features = false, features = ["json", "rustls"] }
 sha2 = "0.10"
 hex = "0.4"
-tokio = { version = "1", features = ["process", "io-util", "sync", "time"] }
+url = "2.5"
+tokio = { version = "1", features = ["macros", "process", "io-util", "sync", "time"] }
 keyring = { version = "3.6.3", default-features = false, features = ["apple-native", "windows-native"], optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
