@@ -74,6 +74,14 @@ if [[ "${mode}" == "windows" ]]; then
   for required_entry in 'griffin-onnx-worker.*\.exe$' 'onnxruntime_providers_cuda\.dll$' 'onnxruntime_providers_shared\.dll$'; do
     grep -E '^Path = .*' <<<"${installer_listing}" | grep -E "${required_entry}" >/dev/null || fail "conteúdo obrigatório não encontrado no instalador: ${required_entry}"
   done
+  installer_tmp="$(mktemp -d)"
+  trap 'rm -rf "${installer_tmp}"' EXIT
+  "${archive_tool}" x -y "-o${installer_tmp}" "${exe}" >/dev/null || fail "não foi possível extrair o instalador: ${exe}"
+  for required_entry in 'griffin-onnx-worker.*\.exe$' 'onnxruntime_providers_cuda\.dll$' 'onnxruntime_providers_shared\.dll$'; do
+    extracted="$(find "${installer_tmp}" -type f -regextype posix-extended -iregex ".*/${required_entry}" -print -quit)"
+    require_file "${extracted}"
+    file "${extracted}" | grep -E 'PE32\+|x86-64' >/dev/null || fail "binário extraído não é PE x64: ${extracted}"
+  done
   echo "NSIS Windows x64 validado: ${exe}"
   exit 0
 fi

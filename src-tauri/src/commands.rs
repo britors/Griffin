@@ -941,8 +941,21 @@ pub fn library_read(state: State<'_, AppState>, file_path: String) -> Result<Res
 #[tauri::command(rename_all = "camelCase")]
 pub fn library_remove(state: State<'_, AppState>, track_id: String) -> Result<(), String> {
     let mut data = state.data.lock().map_err(lock_error)?;
-    data.tracks.retain(|track| track.id != track_id);
-    save_tracks_locked(&data)
+    let Some(index) = data.tracks.iter().position(|track| track.id == track_id) else {
+        return Ok(());
+    };
+    let removed = data.tracks.remove(index);
+    let remaining = data.tracks.clone();
+    save_tracks_locked(&data)?;
+    let imports_dir = data.imports_dir.clone();
+    let cache_dir = data.cache_dir.clone();
+    drop(data);
+    cleanup_removed_track_files(
+        &removed,
+        &remaining,
+        &imports_dir,
+        &cache_dir,
+    )
 }
 
 #[tauri::command]
@@ -2479,7 +2492,7 @@ async fn remote_upload_audio(
     let content_type = content_type.to_string();
     let path = path.to_path_buf();
     tokio::task::spawn_blocking(move || {
-        let audio = fs::read(path).map_err(|error| error.to_string())?;
+        let audio = fs::File::open(path).map_err(|error| error.to_string())?;
         let (upload_url, agent) = public_http_agent(&upload_url)?;
         agent
             .put(&upload_url)
@@ -2962,6 +2975,51 @@ fn is_path_within(path: &Path, root: &Path) -> bool {
         return false;
     };
     path.starts_with(root)
+}
+
+fn cleanup_removed_track_files(
+    removed: &Track,
+    remaining: &[Track],
+    imports_dir: &Path,
+    cache_dir: &Path,
+) -> Result<(), String> {
+    let referenced = remaining
+        .iter()
+        .flat_map(track_file_paths)
+        .filter_map(|path| fs::canonicalize(path).ok())
+        .collect::<HashSet<_>>();
+    let roots = [imports_dir, cache_dir];
+    let mut first_error = None;
+    for path in track_file_paths(removed) {
+        let Ok(metadata) = fs::symlink_metadata(path) else {
+            continue;
+        };
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            continue;
+        }
+        let Ok(canonical) = fs::canonicalize(path) else {
+            continue;
+        };
+        if referenced.contains(&canonical) || !roots.iter().any(|root| is_path_within(&canonical, root)) {
+            continue;
+        }
+        if let Err(error) = fs::remove_file(path) {
+            first_error.get_or_insert_with(|| {
+                format!("não foi possível remover o áudio gerenciado {path}: {error}")
+            });
+        }
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
+fn track_file_paths(track: &Track) -> impl Iterator<Item = &str> {
+    std::iter::once(track.path.as_str()).chain(
+        track
+            .stems
+            .as_ref()
+            .into_iter()
+            .flat_map(|stems| stems.values().map(String::as_str)),
+    )
 }
 
 fn import_audio_into_managed_storage(data: &StateData, source: &Path) -> Result<PathBuf, String> {
@@ -4183,6 +4241,41 @@ mod tests {
         assert!(!is_supported_audio(Path::new("track.txt")));
         assert_eq!(audio_content_type(Path::new("track.txt")), None);
         assert_eq!(audio_content_type(Path::new("track")), None);
+    }
+
+    #[test]
+    fn removes_only_unreferenced_managed_track_files() {
+        let temp = TempDir::new("library-remove");
+        let imports = temp.path().join("imports");
+        let cache = temp.path().join("cache");
+        fs::create_dir_all(&imports).unwrap();
+        fs::create_dir_all(&cache).unwrap();
+        let orphan = imports.join("orphan.wav");
+        let shared = cache.join("shared.wav");
+        let external = temp.path().join("external.wav");
+        fs::write(&orphan, b"orphan").unwrap();
+        fs::write(&shared, b"shared").unwrap();
+        fs::write(&external, b"external").unwrap();
+        let track = |id: &str, path: &Path| Track {
+            id: id.into(),
+            name: id.into(),
+            path: path.to_string_lossy().into_owned(),
+            imported_at: "0".into(),
+            duration: None,
+            stems: None,
+            analysis: None,
+            lyrics: None,
+        };
+        let mut removed = track("removed", &orphan);
+        removed.stems = Some(HashMap::from([
+            ("shared".into(), shared.to_string_lossy().into_owned()),
+            ("external".into(), external.to_string_lossy().into_owned()),
+        ]));
+        let remaining = vec![track("remaining", &shared)];
+        cleanup_removed_track_files(&removed, &remaining, &imports, &cache).unwrap();
+        assert!(!orphan.exists());
+        assert!(shared.exists());
+        assert!(external.exists());
     }
 
     #[test]

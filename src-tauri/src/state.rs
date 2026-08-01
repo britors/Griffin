@@ -106,15 +106,42 @@ pub fn save_stem_split_api_key(data_dir: &Path, key: &str) -> Result<(), String>
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
-        let temporary = path.with_extension("tmp");
-        fs::write(&temporary, key.trim()).map_err(|error| error.to_string())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))
+        let temporary = path.with_file_name(format!(
+            ".{}.tmp-{}",
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("secret"),
+            Uuid::new_v4()
+        ));
+        let result = (|| {
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary)
                 .map_err(|error| error.to_string())?;
+            file.write_all(key.trim().as_bytes())
+                .map_err(|error| error.to_string())?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                file.set_permissions(fs::Permissions::from_mode(0o600))
+                    .map_err(|error| error.to_string())?;
+            }
+            file.sync_all().map_err(|error| error.to_string())?;
+            drop(file);
+            fs::rename(&temporary, &path).map_err(|error| error.to_string())?;
+            #[cfg(unix)]
+            if let Some(parent) = path.parent() {
+                fs::File::open(parent)
+                    .and_then(|directory| directory.sync_all())
+                    .map_err(|error| error.to_string())?;
+            }
+            Ok::<(), String>(())
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary);
         }
-        fs::rename(temporary, path).map_err(|error| error.to_string())
+        result
     }
 }
 
@@ -434,6 +461,28 @@ mod tests {
         let path = directory.join("library.json");
         fs::write(&path, b"{").expect("corrupt primary");
         assert!(read_json::<Fixture>(&path).is_err());
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    #[test]
+    fn saves_secret_atomically_with_restricted_permissions() {
+        let directory = fixture_dir();
+        super::save_stem_split_api_key(&directory, "secret-value").expect("save secret");
+        let path = directory.join("secrets").join(super::STEMSPLIT_API_KEY);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "secret-value");
+        assert!(!fs::read_dir(path.parent().unwrap()).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .contains(".tmp-")
+        }));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        }
         let _ = fs::remove_dir_all(directory);
     }
 }

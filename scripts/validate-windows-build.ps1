@@ -60,6 +60,40 @@ function AssertInstallerContains([string]$InstallerPath, [string]$Pattern) {
   }
 }
 
+function ExtractAndValidateInstallerBinaries([string]$InstallerPath) {
+  $archiveCommand = @("7z", "7zz", "7za") |
+    ForEach-Object { Get-Command $_ -ErrorAction SilentlyContinue } |
+    Select-Object -First 1
+  if ($null -eq $archiveCommand) {
+    Fail "7-Zip (7z, 7zz ou 7za) é obrigatório para extrair o instalador"
+  }
+  $temporary = Join-Path ([System.IO.Path]::GetTempPath()) ("griffin-installer-" + [guid]::NewGuid().ToString())
+  New-Item -ItemType Directory -Path $temporary -Force | Out-Null
+  try {
+    & $archiveCommand.Source x -y ("-o" + $temporary) $InstallerPath 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+      Fail "não foi possível extrair o instalador: $InstallerPath"
+    }
+    $worker = Get-ChildItem -LiteralPath $temporary -Recurse -Filter "griffin-onnx-worker*.exe" -File | Select-Object -First 1
+    $cuda = Get-ChildItem -LiteralPath $temporary -Recurse -Filter "onnxruntime_providers_cuda.dll" -File | Select-Object -First 1
+    $shared = Get-ChildItem -LiteralPath $temporary -Recurse -Filter "onnxruntime_providers_shared.dll" -File | Select-Object -First 1
+    foreach ($binary in @($worker, $cuda, $shared)) {
+      if ($null -eq $binary) {
+        Fail "binário obrigatório não encontrado após extrair o instalador"
+      }
+      AssertPeX64 $binary.FullName
+    }
+    $smoke = '{"type":"unknown"}' | & $worker.FullName 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0 -or $smoke -notmatch "tipo de operação desconhecido") {
+      Fail "worker extraído do instalador não respondeu ao protocolo esperado"
+    }
+  } finally {
+    if (Test-Path -LiteralPath $temporary) {
+      Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
 $binaryDir = Join-Path $PSScriptRoot "..\src-tauri\binaries"
 $worker = Get-ChildItem -LiteralPath $binaryDir -Filter "griffin-onnx-worker-x86_64-pc-windows-msvc.exe" -File | Select-Object -First 1
 if ($null -eq $worker) {
@@ -93,6 +127,7 @@ if (-not $SkipInstaller) {
   AssertInstallerContains $installer.FullName "griffin-onnx-worker.*\.exe$"
   AssertInstallerContains $installer.FullName "onnxruntime_providers_cuda\.dll$"
   AssertInstallerContains $installer.FullName "onnxruntime_providers_shared\.dll$"
+  ExtractAndValidateInstallerBinaries $installer.FullName
 }
 
 Write-Host "Windows x64 validado: worker, providers CUDA/shared e $(if ($SkipInstaller) { 'binários nativos' } else { 'instalador NSIS' })."
