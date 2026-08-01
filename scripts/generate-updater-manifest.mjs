@@ -37,11 +37,12 @@ export function generateManifest(releaseDirectory = 'release', environment = pro
     if (files.length !== 1) throw new Error(`${label}: esperado exatamente um artefato ${extension}, encontrados ${files.length}`)
     const file = files[0]
     if (!file.includes(version)) throw new Error(`${label}: versão ${version} ausente no nome de ${file}`)
+    const filePath = join(releaseDir, file)
     const signaturePath = join(releaseDir, `${file}.sig`)
     if (!existsSync(signaturePath)) throw new Error(`assinatura ausente para ${file}`)
     return {
       url: `${baseUrl}/${encodeURIComponent(file)}`,
-      signature: validateSignature(file, signaturePath, publicKey, environment),
+      signature: validateSignature(filePath, signaturePath, publicKey, environment),
     }
   }
 
