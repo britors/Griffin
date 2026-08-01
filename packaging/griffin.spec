@@ -13,7 +13,7 @@
 %global debug_package %{nil}
 
 Name:           griffin-music
-Version:        0.1.3
+Version:        1.0.0
 Release:        0
 Provides:       griffin = %{version}
 Obsoletes:      griffin < %{version}
@@ -71,8 +71,17 @@ exec %{_libdir}/griffin-music/griffin-music "\$@"
 WRAPPER
 chmod 0755 %{buildroot}%{_bindir}/griffin-music
 
+install -Dm755 griffin-onnx-worker %{buildroot}%{_bindir}/griffin-onnx-worker
+for provider in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
+  if test -f "$provider"; then
+    install -Dm755 "$provider" %{buildroot}%{_bindir}/$provider
+  fi
+done
+
 install -Dm0644 %{SOURCE1} %{buildroot}%{_datadir}/applications/com.w3ti.griffinmusic.desktop
-install -Dm0644 resources/icon.png %{buildroot}%{_datadir}/icons/hicolor/256x256/apps/com.w3ti.griffinmusic.png
+for size in 32 128 256; do
+  install -Dm0644 resources/${size}x${size}.png %{buildroot}%{_datadir}/icons/hicolor/${size}x${size}/apps/griffin-music.png
+done
 install -Dm0644 %{SOURCE2} %{buildroot}%{_datadir}/licenses/%{name}/LICENSE
 install -Dm0644 %{SOURCE3} %{buildroot}%{_docdir}/%{name}/README.md
 
@@ -84,11 +93,11 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/com.w3ti.griffinmusic
 %dir %{_docdir}/%{name}
 %doc %{_docdir}/%{name}/README.md
 %{_bindir}/griffin-music
+%{_bindir}/griffin-onnx-worker
+%{_bindir}/libonnxruntime_providers_*.so
 %{_libdir}/griffin-music
 %{_datadir}/applications/com.w3ti.griffinmusic.desktop
 %dir %{_datadir}/icons/hicolor
-%dir %{_datadir}/icons/hicolor/256x256
-%dir %{_datadir}/icons/hicolor/256x256/apps
-%{_datadir}/icons/hicolor/256x256/apps/com.w3ti.griffinmusic.png
+%{_datadir}/icons/hicolor/*/apps/griffin-music.png
 
 %changelog

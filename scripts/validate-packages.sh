@@ -29,6 +29,9 @@ for script in scripts/download-models.sh scripts/install.sh scripts/uninstall.sh
   bash -n "${script}"
   [[ -x "${script}" ]] || fail "script sem permissão de execução: ${script}"
 done
+require_file scripts/validate-obs-spec.sh
+bash -n scripts/validate-obs-spec.sh
+[[ -x scripts/validate-obs-spec.sh ]] || fail "script sem permissão de execução: scripts/validate-obs-spec.sh"
 
 require_file PKGBUILD
 bash -n PKGBUILD
@@ -58,6 +61,7 @@ fi
 if [[ "${mode}" == "windows" ]]; then
   exe="$(find "${release_dir}" -maxdepth 1 -type f -iname '*.exe' -print -quit)"
   require_file "${exe}"
+  require_file "${exe}.sig"
   file "${exe}" | grep -E 'PE32\+|MS Windows' >/dev/null || fail "instalador não parece ser um executável Windows x64: ${exe}"
   require_file src-tauri/binaries/griffin-onnx-worker-x86_64-pc-windows-msvc.exe
   require_file src-tauri/binaries/onnxruntime_providers_cuda.dll
@@ -91,6 +95,8 @@ deb="$(find "${release_dir}" -maxdepth 1 -type f -iname '*.deb' -print -quit)"
 rpm="$(find "${release_dir}" -maxdepth 1 -type f -iname '*.rpm' -print -quit)"
 require_file "${deb}"
 require_file "${rpm}"
+require_file "${deb}.sig"
+require_file "${rpm}.sig"
 
 file "${deb}" | grep -F 'Debian binary package' >/dev/null || fail "DEB inválido: ${deb}"
 file "${rpm}" | grep -F 'RPM' >/dev/null || fail "RPM inválido: ${rpm}"
@@ -122,5 +128,6 @@ for listing in "${deb_listing}" "${rpm_listing}"; do
   require_listing_entry "${listing}" 'hicolor/256x256/apps/griffin-music.png'
   require_listing_entry "${listing}" 'libonnxruntime_providers_cuda'
 done
+bash scripts/validate-obs-spec.sh packaging/griffin.spec "${rpm}"
 
 echo "DEB e RPM validados com logo: ${release_dir}"

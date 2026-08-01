@@ -281,8 +281,10 @@ function formatBytes(bytes: number) {
 function formatDurationMs(milliseconds: number) { return milliseconds < 1000 ? `${milliseconds} ms` : `${(milliseconds / 1000).toFixed(1)} s` }
 
 function AboutSection() {
+  const [version, setVersion] = useState<string | null>(null)
+  useEffect(() => { void api.version().then(setVersion) }, [])
   return <PreferenceSection title="Sobre" description="Informações desta instalação do Griffin Music.">
-    <PreferenceRow label="Versão" description="Versão atual do aplicativo."><span className="preference-value">0.1.3</span></PreferenceRow>
+    <PreferenceRow label="Versão" description="Versão atual do aplicativo."><span className="preference-value">{version ? `v${version}` : 'Consultando…'}</span></PreferenceRow>
     <PreferenceRow label="Arquitetura" description="Aplicativo desktop com processamento local."><span className="preference-value">Tauri + Rust + React</span></PreferenceRow>
     <PreferenceRow label="Criado por" description="Autor e mantenedor do Griffin Music."><span className="preference-value">Rodrigo Brito</span></PreferenceRow>
     <PreferenceRow label="Contato" description="Dúvidas, sugestões ou problemas."><a className="preference-value" href="mailto:rodrigo@w3ti.com.br">rodrigo@w3ti.com.br</a></PreferenceRow>
@@ -300,11 +302,13 @@ function UpdateRow() {
     let mounted = true
     const unsubscribe = api.updates.onStatus((next) => { if (mounted) setStatus(next) })
     void api.updates.status().then((next) => { if (mounted) setStatus(next) })
+    void api.updates.check().then((next) => { if (mounted) setStatus(next) })
     return () => { mounted = false; unsubscribe() }
   }, [])
 
-  const check = async () => setStatus(await api.updates.check())
+  const check = async () => setStatus(await api.updates.check(true))
   const download = async () => setStatus(await api.updates.download())
+  const cancel = async () => setStatus(await api.updates.cancel())
   const install = async () => { await api.updates.install() }
   const busy = status?.stage === 'checking' || status?.stage === 'downloading'
 
@@ -314,6 +318,7 @@ function UpdateRow() {
       {status?.stage === 'disabled' && <span className="preference-value">Versão instalada</span>}
       {status?.stage === 'available' && <button className="secondary-button compact-control" onClick={() => void download()}>Baixar{status.version ? ` v${status.version}` : ''}</button>}
       {status?.stage === 'downloaded' && <button className="primary-button compact-control" onClick={() => void install()}>Reiniciar e atualizar</button>}
+      {status?.stage === 'downloading' && <button className="secondary-button compact-control" onClick={() => void cancel()}>Cancelar</button>}
       {busy && <span className="preference-value update-progress">{status?.progress ? `${Math.round(status.progress)}%` : 'Aguarde…'}</span>}
       {(status?.stage === 'not-available' || status?.stage === 'error' || !status) && <button className="secondary-button compact-control" disabled={busy} onClick={() => void check()}>Verificar</button>}
     </div>

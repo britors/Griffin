@@ -25,17 +25,31 @@ copy_files() {
   cp "${files[@]}" "${release_dir}/"
 }
 
+copy_signature() {
+  local search_dir="$1"
+  local pattern="$2"
+  local -a files=()
+  while IFS= read -r -d '' file; do
+    files+=("${file}")
+  done < <(find "${search_dir}" -maxdepth 1 -type f -iname "${pattern}" -print0)
+  ((${#files[@]} == 1)) || fail "assinatura ${pattern} não encontrada de forma única em ${search_dir}"
+  cp "${files[0]}" "${release_dir}/"
+}
+
 case "${platform}" in
   linux)
     [[ -n "${version}" ]] || fail "versão da aplicação não encontrada"
-    rm -f "${release_dir}"/*.deb "${release_dir}"/*.rpm
+    rm -f "${release_dir}"/*.deb "${release_dir}"/*.rpm "${release_dir}"/*.sig
     copy_files "${bundle_dir}/deb" "*_${version}_*.deb"
+    copy_signature "${bundle_dir}/deb" "*_${version}_*.deb.sig"
     copy_files "${bundle_dir}/rpm" "*-${version}-*.rpm"
+    copy_signature "${bundle_dir}/rpm" "*-${version}-*.rpm.sig"
     ;;
   windows)
     [[ -n "${version}" ]] || fail "versão da aplicação não encontrada"
-    rm -f "${release_dir}"/*.exe
+    rm -f "${release_dir}"/*.exe "${release_dir}"/*.sig
     copy_files "${bundle_dir}/nsis" "*${version}*.exe"
+    copy_signature "${bundle_dir}/nsis" "*${version}*.exe.sig"
     ;;
   *)
     fail "plataforma inválida: ${platform} (use linux ou windows)"

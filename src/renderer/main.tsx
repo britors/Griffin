@@ -23,6 +23,7 @@ function App() {
 
   const [view, setView] = useState<View>('library')
   const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>('all')
+  const [appVersion, setAppVersion] = useState<string | null>(null)
   const { selected, recentTrackIds, setProgress, setFavoriteIds, setRecentTrackIds, setResetPlaybackOnTrackChange, setMetronomeEnabled, setMetronomeSubdivision, setMetronomeVolume, setCountInEnabled, setCountInBars } = usePlayer()
   const activeProjectId = usePlayer((state) => state.activeProjectId)
   const takePath = usePlayer((state) => state.takePath)
@@ -53,6 +54,13 @@ function App() {
       setCountInBars(settings.countInBars === 2 ? 2 : 1)
     })
   }, [setFavoriteIds, setRecentTrackIds, setResetPlaybackOnTrackChange, setMetronomeEnabled, setMetronomeSubdivision, setMetronomeVolume, setCountInEnabled, setCountInBars])
+
+  useEffect(() => {
+    void api.version().then(setAppVersion)
+    void api.updates.check()
+    const timer = window.setInterval(() => { void api.updates.check() }, 6 * 60 * 60 * 1000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     if (!selected) return
@@ -88,7 +96,7 @@ function App() {
         <button className={view === 'library' && libraryFilter === 'recent' ? 'active' : ''} onClick={() => showLibrary('recent')}>◌ <span>Recentes</span></button>
         <button className={view === 'preferences' ? 'active' : ''} onClick={showPreferences}>⚙ <span>Preferências</span></button>
       </nav>
-      <div className="sidebar-footer"><div><span className="offline-dot" />Processamento local</div><div className="version">v0.1.3</div></div>
+      <div className="sidebar-footer"><div><span className="offline-dot" />Processamento local</div><div className="version">{appVersion ? `v${appVersion}` : 'v—'}</div></div>
     </aside>
     <div className="content">
       <header className="app-header" data-tauri-drag-region="deep" onMouseDown={(event) => {

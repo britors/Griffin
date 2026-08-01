@@ -327,11 +327,13 @@ export interface GriffinAPI {
   }
   updates: {
     status: () => Promise<AppUpdateStatus>
-    check: () => Promise<AppUpdateStatus>
+    check: (force?: boolean) => Promise<AppUpdateStatus>
     download: () => Promise<AppUpdateStatus>
+    cancel: () => Promise<AppUpdateStatus>
     install: () => Promise<void>
     onStatus: (callback: (status: AppUpdateStatus) => void) => () => void
   }
+  version: () => Promise<string>
   settings: {
     get: () => Promise<Record<string, unknown>>
     set: (key: string, value: unknown) => Promise<void>

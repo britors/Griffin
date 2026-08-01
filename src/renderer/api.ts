@@ -1,6 +1,9 @@
-import { invoke } from '@tauri-apps/api/core'
+import { Channel, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { BundleType, getBundleType } from '@tauri-apps/api/app'
+import { relaunch } from '@tauri-apps/plugin-process'
 import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, CudaRuntimeProgress, CudaRuntimeStatus, GriffinAPI, LyricsLine, ModelDownloadKind, ModelDownloadProgress, PlayerSnapshot, SeparationProgress, SeparationProvider, StemName, Track, TrackAnalysis, YoutubeImportProgress, YtDlpProgress, YtDlpStatus } from '../shared/types'
+import type { AppUpdateStatus } from '../shared/types'
 
 type Unlisten = () => void
 
@@ -19,6 +22,166 @@ async function readBytes(filePath: string) {
   return response instanceof Uint8Array
     ? new Uint8Array(response.buffer, response.byteOffset, response.byteLength)
     : new Uint8Array(response)
+}
+
+interface UpdateMetadata { version: string; body?: string }
+interface UpdateDownloadEvent {
+  event: 'Started' | 'Progress' | 'Finished'
+  data?: { contentLength?: number; chunkLength?: number }
+}
+
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
+const updateListeners = new Set<(status: AppUpdateStatus) => void>()
+let pendingUpdate: UpdateMetadata | null = null
+let downloadOperation = 0
+let lastUpdateCheckAt = 0
+let checkInFlight: Promise<AppUpdateStatus> | null = null
+let downloadInFlight: Promise<AppUpdateStatus> | null = null
+let installInFlight: Promise<void> | null = null
+let updateStatus: AppUpdateStatus = {
+  supported: true,
+  stage: 'not-available',
+  message: 'Clique em Verificar para procurar atualizações.',
+}
+
+function publishUpdateStatus(status: AppUpdateStatus) {
+  updateStatus = status
+  updateListeners.forEach((listener) => listener(status))
+  return status
+}
+
+function updateErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) return error.message
+  return typeof error === 'string' ? error : 'Não foi possível atualizar o aplicativo.'
+}
+
+function updateMetadata(update: UpdateMetadata): AppUpdateStatus {
+  return {
+    supported: true,
+    stage: 'available',
+    version: update.version,
+    message: update.body?.trim() || `A versão ${update.version} está disponível.`,
+  }
+}
+
+async function updaterTarget(): Promise<string | null> {
+  try {
+    const bundleType = await getBundleType()
+    if (bundleType === BundleType.Deb) return 'linux-deb-x86_64'
+    if (bundleType === BundleType.Rpm) return 'linux-rpm-x86_64'
+    if (bundleType === BundleType.Nsis) return 'windows-nsis-x86_64'
+  } catch {
+    return null
+  }
+  return null
+}
+
+async function checkForUpdates(force = false): Promise<AppUpdateStatus> {
+  if (checkInFlight || downloadInFlight || installInFlight) return updateStatus
+  if (!force && lastUpdateCheckAt > 0 && Date.now() - lastUpdateCheckAt < UPDATE_CHECK_INTERVAL_MS) return updateStatus
+  const operation = checkForUpdatesInternal()
+  checkInFlight = operation
+  try {
+    return await operation
+  } finally {
+    if (checkInFlight === operation) checkInFlight = null
+  }
+}
+
+async function checkForUpdatesInternal() {
+  const target = await updaterTarget()
+  if (!target) {
+    pendingUpdate = null
+    return publishUpdateStatus({ supported: false, stage: 'disabled', message: 'Atualizações automáticas só estão disponíveis em uma instalação empacotada suportada.' })
+  }
+  lastUpdateCheckAt = Date.now()
+  publishUpdateStatus({ supported: true, stage: 'checking', message: 'Verificando atualizações…' })
+  try {
+    pendingUpdate = await invoke<UpdateMetadata | null>('updater_check', { target, timeout: 15_000 })
+    if (!pendingUpdate) {
+      return publishUpdateStatus({ supported: true, stage: 'not-available', message: 'Você já está usando a versão mais recente.' })
+    }
+    return publishUpdateStatus(updateMetadata(pendingUpdate))
+  } catch (error) {
+    pendingUpdate = null
+    return publishUpdateStatus({ supported: true, stage: 'error', message: `Falha ao verificar atualizações: ${updateErrorMessage(error)}` })
+  }
+}
+
+async function downloadUpdate() {
+  if (downloadInFlight) return downloadInFlight
+  if (checkInFlight || installInFlight) return updateStatus
+  const operation = downloadUpdateInternal()
+  downloadInFlight = operation
+  try {
+    return await operation
+  } finally {
+    if (downloadInFlight === operation) downloadInFlight = null
+  }
+}
+
+async function downloadUpdateInternal() {
+  if (!pendingUpdate) return publishUpdateStatus({ supported: true, stage: 'error', message: 'Nenhuma atualização disponível para baixar.' })
+  const update = pendingUpdate
+  const operation = ++downloadOperation
+  let downloadedBytes = 0
+  let contentLength: number | undefined
+  const onEvent = new Channel<UpdateDownloadEvent>()
+  onEvent.onmessage = (event) => {
+    if (event.event === 'Started') contentLength = event.data?.contentLength
+    else if (event.event === 'Progress') downloadedBytes += event.data?.chunkLength ?? 0
+    const progress = contentLength && contentLength > 0 ? Math.min(100, downloadedBytes / contentLength * 100) : undefined
+    if (operation === downloadOperation) {
+      publishUpdateStatus({ ...updateMetadata(update), stage: 'downloading', progress, message: progress === undefined ? 'Baixando atualização…' : `Baixando atualização… ${Math.round(progress)}%` })
+    }
+  }
+  publishUpdateStatus({ ...updateMetadata(update), stage: 'downloading', progress: 0, message: `Baixando a versão ${update.version}…` })
+  try {
+    await invoke('updater_download', { onEvent })
+    if (operation !== downloadOperation) return updateStatus
+    return publishUpdateStatus({ ...updateMetadata(update), stage: 'downloaded', progress: 100, message: `Atualização ${update.version} pronta para instalar.` })
+  } catch (error) {
+    if (operation !== downloadOperation) return updateStatus
+    return publishUpdateStatus({ ...updateMetadata(update), stage: 'error', message: `Falha ao baixar atualização: ${updateErrorMessage(error)}` })
+  }
+}
+
+async function cancelUpdate() {
+  if (updateStatus.stage !== 'downloading' || !pendingUpdate || !downloadInFlight) return updateStatus
+  downloadOperation += 1
+  pendingUpdate = null
+  try {
+    await invoke('updater_cancel_download')
+  } catch {
+    // The download may already have completed; the operation token still blocks stale UI updates.
+  }
+  return publishUpdateStatus({ supported: true, stage: 'not-available', message: 'Download cancelado. Verifique novamente para tentar outra vez.' })
+}
+
+async function installUpdate() {
+  if (installInFlight) return installInFlight
+  if (checkInFlight || downloadInFlight) throw new Error('Outra operação de atualização está em andamento.')
+  const operation = installUpdateInternal()
+  installInFlight = operation
+  try {
+    return await operation
+  } finally {
+    if (installInFlight === operation) installInFlight = null
+  }
+}
+
+async function installUpdateInternal() {
+  if (!pendingUpdate || updateStatus.stage !== 'downloaded') {
+    throw new Error('Baixe uma atualização antes de instalar.')
+  }
+  try {
+    publishUpdateStatus({ ...updateMetadata(pendingUpdate), stage: 'downloaded', progress: 100, message: 'Instalando atualização e reiniciando…' })
+    await invoke('updater_install')
+    await relaunch()
+  } catch (error) {
+    publishUpdateStatus({ ...updateMetadata(pendingUpdate), stage: 'error', message: `Falha ao instalar atualização: ${updateErrorMessage(error)}` })
+    throw error
+  }
 }
 
 export const api: GriffinAPI = {
@@ -100,12 +263,14 @@ export const api: GriffinAPI = {
     onProgress: (callback: (progress: CudaRuntimeProgress) => void) => onEvent('cuda-runtime:progress', callback),
   },
   updates: {
-    status: () => invoke('updates_status'),
-    check: () => invoke('updates_check'),
-    download: () => invoke('updates_download'),
-    install: () => invoke('updates_install'),
-    onStatus: (callback) => onEvent('updates:status', callback),
+    status: async () => updateStatus,
+    check: checkForUpdates,
+    download: downloadUpdate,
+    cancel: cancelUpdate,
+    install: installUpdate,
+    onStatus: (callback) => { updateListeners.add(callback); return () => updateListeners.delete(callback) },
   },
+  version: () => invoke<string>('app_version'),
   settings: {
     get: () => invoke('settings_get'),
     set: (key, value) => invoke('settings_set', { key, value }),

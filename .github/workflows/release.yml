@@ -17,6 +17,9 @@ jobs:
           - os: windows-latest
             package_command: npm run package:win
     runs-on: ${{ matrix.os }}
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,7 +29,11 @@ jobs:
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y rpm
       - run: npm ci
+      - run: npm run validate:version
       - run: npm run validate:tauri
+      - run: npm run test:updater-manifest
+      - name: Validate updater signing secret
+        run: node -e "if (!process.env.TAURI_SIGNING_PRIVATE_KEY) { console.error('TAURI_SIGNING_PRIVATE_KEY is required'); process.exit(1) }"
       - run: ${{ matrix.package_command }}
       - name: Validate Linux packages
         if: runner.os == 'Linux'
@@ -49,10 +56,14 @@ jobs:
     needs: package
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y minisign
       - uses: actions/download-artifact@v4
         with:
           path: release
           merge-multiple: true
+      - name: Generate updater manifest
+        run: node scripts/generate-updater-manifest.mjs release
       - uses: softprops/action-gh-release@v2
         with:
           files: release/*

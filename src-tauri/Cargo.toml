@@ -1,6 +1,6 @@
 [package]
 name = "griffin-music"
-version = "0.1.3"
+version = "1.0.0"
 description = "Separação de stems e prática instrumental"
 authors = ["W3TI"]
 edition = "2021"
@@ -8,7 +8,7 @@ default-run = "griffin-music"
 
 [features]
 default = ["gui"]
-gui = ["dep:tauri", "dep:tauri-build", "dep:keyring"]
+gui = ["dep:tauri", "dep:tauri-build", "dep:keyring", "dep:tauri-plugin-process", "dep:tauri-plugin-updater"]
 
 [lib]
 name = "griffin_lib"
@@ -33,6 +33,8 @@ hex = "0.4"
 url = "2.5"
 tokio = { version = "1", features = ["macros", "process", "io-util", "sync", "time"] }
 keyring = { version = "3.6.3", default-features = false, features = ["apple-native", "windows-native"], optional = true }
+tauri-plugin-process = { version = "2.3.1", optional = true }
+tauri-plugin-updater = { version = "2.10.1", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 ort = { version = "2.0.0-rc.13", features = ["cuda"] }

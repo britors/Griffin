@@ -6,6 +6,8 @@ mod commands;
 mod state;
 #[cfg(feature = "gui")]
 mod types;
+#[cfg(feature = "gui")]
+mod updater;
 
 #[cfg(feature = "gui")]
 use commands::*;
@@ -13,11 +15,18 @@ use commands::*;
 use state::AppState;
 #[cfg(feature = "gui")]
 use tauri::Manager;
+#[cfg(feature = "gui")]
+use updater::{
+    app_version, updater_cancel_download, updater_check, updater_download, updater_install,
+    UpdaterState,
+};
 
 #[cfg(feature = "gui")]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             window_minimize,
@@ -75,11 +84,13 @@ pub fn run() {
             remote_provider_save_api_key,
             remote_provider_clear_api_key,
             remote_provider_estimate_cost,
-            updates_status,
-            updates_check,
-            updates_download,
-            updates_install,
+            app_version,
+            updater_check,
+            updater_download,
+            updater_cancel_download,
+            updater_install,
         ])
+        .manage(UpdaterState::default())
         .setup(|app| {
             let state = app.state::<AppState>();
             state.initialize(app.handle())?;

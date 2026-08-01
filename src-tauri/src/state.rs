@@ -272,8 +272,14 @@ fn cleanup_stale_remote_imports(imports_dir: &Path, tracks: &[Track]) {
 }
 
 fn is_managed_remote_import(path: &Path) -> bool {
-    let name = path.file_name().and_then(|value| value.to_str()).unwrap_or_default();
-    let stem = path.file_stem().and_then(|value| value.to_str()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
     name.starts_with("remote-preview-")
         || stem
             .rsplit_once('-')
@@ -283,14 +289,18 @@ fn is_managed_remote_import(path: &Path) -> bool {
 fn backup_path(path: &Path) -> PathBuf {
     path.with_file_name(format!(
         "{}.bak",
-        path.file_name().and_then(|name| name.to_str()).unwrap_or("data")
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("data")
     ))
 }
 
 fn corrupt_path(path: &Path) -> PathBuf {
     path.with_file_name(format!(
         "{}.corrupt-{}",
-        path.file_name().and_then(|name| name.to_str()).unwrap_or("data"),
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("data"),
         Uuid::new_v4()
     ))
 }
@@ -303,12 +313,17 @@ pub fn write_json_atomic<T: serde::Serialize>(path: &Path, value: &T) -> Result<
 
     let temporary = path.with_file_name(format!(
         ".{}.tmp-{}",
-        path.file_name().and_then(|name| name.to_str()).unwrap_or("data"),
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("data"),
         Uuid::new_v4()
     ));
     let backup = backup_path(path);
     let mut temporary_file = fs::File::create(&temporary).map_err(|error| error.to_string())?;
-    if let Err(error) = temporary_file.write_all(&bytes).and_then(|_| temporary_file.sync_all()) {
+    if let Err(error) = temporary_file
+        .write_all(&bytes)
+        .and_then(|_| temporary_file.sync_all())
+    {
         let _ = fs::remove_file(&temporary);
         return Err(error.to_string());
     }
@@ -384,16 +399,24 @@ fn recover_from_backup<T: serde::de::DeserializeOwned>(
 
     if path.exists() {
         fs::rename(path, corrupt_path(path)).map_err(|error| {
-            format!("não foi possível preservar o arquivo corrompido {}: {error}", path.display())
+            format!(
+                "não foi possível preservar o arquivo corrompido {}: {error}",
+                path.display()
+            )
         })?;
     }
     fs::rename(backup, path).map_err(|error| {
-        format!("não foi possível restaurar o backup {}: {error}", backup.display())
+        format!(
+            "não foi possível restaurar o backup {}: {error}",
+            backup.display()
+        )
     })?;
     Ok(Some(value))
 }
 
-fn read_json_map(path: &Path) -> Result<Option<serde_json::Map<String, serde_json::Value>>, String> {
+fn read_json_map(
+    path: &Path,
+) -> Result<Option<serde_json::Map<String, serde_json::Value>>, String> {
     read_json(path)
 }
 
@@ -481,7 +504,10 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
         }
         let _ = fs::remove_dir_all(directory);
     }

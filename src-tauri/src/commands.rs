@@ -29,12 +29,12 @@ use tokio::{
     process::Command,
     sync::Mutex,
 };
-use uuid::Uuid;
-use url::Url;
 use ureq::unversioned::{
     resolver::{ResolvedSocketAddrs, Resolver},
     transport::{DefaultConnector, NextTimeout},
 };
+use url::Url;
+use uuid::Uuid;
 
 const CORE_STEMS: [&str; 4] = ["vocals", "drums", "bass", "other"];
 const ALL_STEMS: [&str; 6] = ["vocals", "drums", "bass", "other", "guitar", "piano"];
@@ -49,12 +49,30 @@ const LOCAL_SEPARATION_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const REMOTE_SEPARATION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const YOUTUBE_OPERATION_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const MODEL_SHA256: &[(&str, &str)] = &[
-    ("htdemucs.onnx", "d05c269d0178d2a72ad484b10b11dd370193fc923201c3b27a99f848745db70a"),
-    ("htdemucs_ft_bass_fp16weights.onnx", "b533037176b14b2df31c92a5d5b3d5660d0811b9b360d3db761964768b079961"),
-    ("htdemucs_ft_drums_fp16weights.onnx", "047764dff888cfb87da917013377d4ec7a134f7419cbe486d9c339aa17975ddd"),
-    ("htdemucs_ft_other_fp16weights.onnx", "b739171a7057b3107bb0711c6222d4a619b41b13a8f04026431d30f32ad2bd71"),
-    ("htdemucs_ft_vocals_fp16weights.onnx", "0cbe651f535415c9d26a7bb614f7d322dd5a080fa0298f2e50f478030a994dce"),
-    ("htdemucs_6s.onnx", "7ce55792e2231c93fbf92de95f5fd5b3a5e6c89f7db690dfd693e8f1dce56869"),
+    (
+        "htdemucs.onnx",
+        "d05c269d0178d2a72ad484b10b11dd370193fc923201c3b27a99f848745db70a",
+    ),
+    (
+        "htdemucs_ft_bass_fp16weights.onnx",
+        "b533037176b14b2df31c92a5d5b3d5660d0811b9b360d3db761964768b079961",
+    ),
+    (
+        "htdemucs_ft_drums_fp16weights.onnx",
+        "047764dff888cfb87da917013377d4ec7a134f7419cbe486d9c339aa17975ddd",
+    ),
+    (
+        "htdemucs_ft_other_fp16weights.onnx",
+        "b739171a7057b3107bb0711c6222d4a619b41b13a8f04026431d30f32ad2bd71",
+    ),
+    (
+        "htdemucs_ft_vocals_fp16weights.onnx",
+        "0cbe651f535415c9d26a7bb614f7d322dd5a080fa0298f2e50f478030a994dce",
+    ),
+    (
+        "htdemucs_6s.onnx",
+        "7ce55792e2231c93fbf92de95f5fd5b3a5e6c89f7db690dfd693e8f1dce56869",
+    ),
 ];
 
 fn model_sha256(file_name: &str) -> Option<&'static str> {
@@ -266,9 +284,19 @@ fn cuda_runtime_library_dir_for_root(root: &Path) -> Option<PathBuf> {
 
 fn cuda_runtime_library_names() -> &'static [&'static str] {
     #[cfg(target_os = "linux")]
-    return &["libcudart.so.13", "libcublas.so.13", "libcurand.so.10", "libcudnn.so.9"];
+    return &[
+        "libcudart.so.13",
+        "libcublas.so.13",
+        "libcurand.so.10",
+        "libcudnn.so.9",
+    ];
     #[cfg(target_os = "windows")]
-    return &["cudart64_13.dll", "cublas64_13.dll", "curand64_10.dll", "cudnn64_9.dll"];
+    return &[
+        "cudart64_13.dll",
+        "cublas64_13.dll",
+        "curand64_10.dll",
+        "cudnn64_9.dll",
+    ];
     #[allow(unreachable_code)]
     &[]
 }
@@ -455,9 +483,8 @@ fn restore_cuda_runtime_backup(data_dir: &Path, backup: &Path) -> Result<(), Str
     let destination = cuda_runtime_root(data_dir);
     let failed = destination.with_extension(format!("failed-{}", Uuid::new_v4()));
     if destination.exists() {
-        fs::rename(&destination, &failed).map_err(|error| {
-            format!("Não foi possível retirar o runtime incompatível: {error}")
-        })?;
+        fs::rename(&destination, &failed)
+            .map_err(|error| format!("Não foi possível retirar o runtime incompatível: {error}"))?;
     }
     if let Err(error) = fs::rename(backup, &destination) {
         if failed.exists() {
@@ -515,21 +542,17 @@ async fn probe_cuda_runtime(app: &AppHandle, data_dir: &Path) -> Result<(), Stri
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    configure_worker_library_paths(
-        &mut command,
-        &worker,
-        cuda_library_directory.as_deref(),
-    );
+    configure_worker_library_paths(&mut command, &worker, cuda_library_directory.as_deref());
     let output = tokio::time::timeout(Duration::from_secs(15), command.output())
         .await
         .map_err(|_| "A validação do runtime NVIDIA excedeu o tempo limite.".to_string())?
-        .map_err(|error| format!("Não foi possível iniciar a validação do runtime NVIDIA: {error}"))?;
+        .map_err(|error| {
+            format!("Não foi possível iniciar a validação do runtime NVIDIA: {error}")
+        })?;
     if output.status.success() {
         return Ok(());
     }
-    let detail = String::from_utf8_lossy(&output.stderr)
-        .trim()
-        .to_string();
+    let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
     let detail = if detail.is_empty() {
         format!("processo terminou com {}", output.status)
     } else {
@@ -592,15 +615,14 @@ pub async fn cuda_runtime_status(
 }
 
 #[tauri::command]
-pub async fn cuda_runtime_install(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let assets = cuda_runtime_assets().ok_or_else(|| {
-        "A aceleração NVIDIA não é suportada neste sistema; use CPU.".to_string()
-    })?;
+pub async fn cuda_runtime_install(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let assets = cuda_runtime_assets()
+        .ok_or_else(|| "A aceleração NVIDIA não é suportada neste sistema; use CPU.".to_string())?;
     {
-        let mut installing = state
-            .cuda_runtime_installing
-            .lock()
-            .map_err(lock_error)?;
+        let mut installing = state.cuda_runtime_installing.lock().map_err(lock_error)?;
         if *installing {
             return Err("A instalação do runtime NVIDIA já está em andamento.".into());
         }
@@ -614,9 +636,7 @@ pub async fn cuda_runtime_install(app: AppHandle, state: State<'_, AppState>) ->
     if cuda_runtime_installed(&data_dir) && probe_cuda_runtime(&app, &data_dir).await.is_ok() {
         return Ok(());
     }
-    *cancelled
-        .lock()
-        .map_err(lock_error)? = false;
+    *cancelled.lock().map_err(lock_error)? = false;
     let progress_app = app.clone();
     let install_data_dir = data_dir.clone();
     let backup = tokio::task::spawn_blocking(move || {
@@ -627,9 +647,8 @@ pub async fn cuda_runtime_install(app: AppHandle, state: State<'_, AppState>) ->
     let backup = backup?;
     if let Err(error) = probe_cuda_runtime(&app, &data_dir).await {
         if let Some(backup) = backup {
-            restore_cuda_runtime_backup(&data_dir, &backup).map_err(|restore_error| {
-                format!("{error}. {restore_error}")
-            })?;
+            restore_cuda_runtime_backup(&data_dir, &backup)
+                .map_err(|restore_error| format!("{error}. {restore_error}"))?;
         } else {
             let _ = remove_dir_if_exists(&cuda_runtime_root(&data_dir));
         }
@@ -682,13 +701,17 @@ fn cuda_runtime_install_blocking(
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.parse::<u64>().ok());
         if expected.is_some_and(|size| size > CUDNN_MAX_DOWNLOAD_BYTES) {
-            return Err("Um pacote do runtime NVIDIA excede o limite de segurança do Griffin.".into());
+            return Err(
+                "Um pacote do runtime NVIDIA excede o limite de segurança do Griffin.".into(),
+            );
         }
         let mut reader = response.into_body().into_reader();
         let mut file = fs::File::create(&temporary).map_err(|error| error.to_string())?;
         let copy_result = copy_with_progress(&mut reader, &mut file, expected, |received| {
             if received > CUDNN_MAX_DOWNLOAD_BYTES {
-                return Err("Um pacote do runtime NVIDIA excede o limite de segurança do Griffin.".into());
+                return Err(
+                    "Um pacote do runtime NVIDIA excede o limite de segurança do Griffin.".into(),
+                );
             }
             if *cancelled.lock().map_err(lock_error)? {
                 return Err("Download do runtime NVIDIA cancelado.".into());
@@ -697,7 +720,14 @@ fn cuda_runtime_install_blocking(
                 .map(|total| (received as f64 / total.max(1) as f64).min(1.0))
                 .unwrap_or(0.0);
             let progress = (index as f64 + fraction) / total_assets as f64 * 0.85;
-            emit_cuda_runtime_progress(&app, progress, &format!("Baixando componente NVIDIA · {}%", (fraction * 100.0) as u32));
+            emit_cuda_runtime_progress(
+                &app,
+                progress,
+                &format!(
+                    "Baixando componente NVIDIA · {}%",
+                    (fraction * 100.0) as u32
+                ),
+            );
             Ok(())
         });
         copy_result?;
@@ -706,7 +736,11 @@ fn cuda_runtime_install_blocking(
         if sha256_file(&temporary)? != asset.sha256 {
             return Err("A verificação de integridade do runtime NVIDIA falhou.".into());
         }
-        emit_cuda_runtime_progress(&app, (index as f64 + 0.9) / total_assets as f64 * 0.85, "Instalando componente NVIDIA…");
+        emit_cuda_runtime_progress(
+            &app,
+            (index as f64 + 0.9) / total_assets as f64 * 0.85,
+            "Instalando componente NVIDIA…",
+        );
         extract_cuda_runtime(&temporary, &staging)?;
         remove_file_if_exists(&temporary)?;
         temporary_guard.keep();
@@ -724,10 +758,7 @@ fn cuda_runtime_install_blocking(
 
 #[tauri::command]
 pub fn cuda_runtime_cancel(state: State<'_, AppState>) -> Result<(), String> {
-    *state
-        .cuda_runtime_cancelled
-        .lock()
-        .map_err(lock_error)? = true;
+    *state.cuda_runtime_cancelled.lock().map_err(lock_error)? = true;
     Ok(())
 }
 
@@ -748,7 +779,10 @@ fn extract_cuda_runtime(archive_path: &Path, staging: &Path) -> Result<(), Strin
     fs::create_dir_all(staging).map_err(|error| error.to_string())?;
     for entry in archive.entries().map_err(|error| error.to_string())? {
         let mut entry = entry.map_err(|error| error.to_string())?;
-        let path = entry.path().map_err(|error| error.to_string())?.into_owned();
+        let path = entry
+            .path()
+            .map_err(|error| error.to_string())?
+            .into_owned();
         let Some(relative) = runtime_archive_path(&path, "lib") else {
             continue;
         };
@@ -950,12 +984,7 @@ pub fn library_remove(state: State<'_, AppState>, track_id: String) -> Result<()
     let imports_dir = data.imports_dir.clone();
     let cache_dir = data.cache_dir.clone();
     drop(data);
-    cleanup_removed_track_files(
-        &removed,
-        &remaining,
-        &imports_dir,
-        &cache_dir,
-    )
+    cleanup_removed_track_files(&removed, &remaining, &imports_dir, &cache_dir)
 }
 
 #[tauri::command]
@@ -1026,10 +1055,9 @@ fn download_remote_preview_blocking(
         .next()
         .unwrap_or("")
         .to_ascii_lowercase();
-    let format = audio_extension(&url, &content_type)
-        .ok_or_else(|| {
-            "A URL não aponta para WAV, MP3, FLAC, M4A ou WebM suportado.".to_string()
-        })?;
+    let format = audio_extension(&url, &content_type).ok_or_else(|| {
+        "A URL não aponta para WAV, MP3, FLAC, M4A ou WebM suportado.".to_string()
+    })?;
     let mut reader = response.into_body().into_reader();
     remove_file_if_exists(path)?;
     let temporary_guard = TemporaryFileGuard(Some(path.to_path_buf()));
@@ -1388,7 +1416,12 @@ pub async fn youtube_cancel(state: State<'_, AppState>, preview_id: String) -> R
         .lock()
         .map_err(lock_error)?
         .insert(preview_id.clone());
-    let process = state.youtube_processes.lock().await.get(&preview_id).cloned();
+    let process = state
+        .youtube_processes
+        .lock()
+        .await
+        .get(&preview_id)
+        .cloned();
     if let Some(process) = process {
         terminate_youtube_process(&process).await?;
         unregister_youtube_process(&state.youtube_processes, &preview_id, &process).await;
@@ -1428,10 +1461,7 @@ pub async fn yt_dlp_status(state: State<'_, AppState>) -> Result<serde_json::Val
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn yt_dlp_download(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn yt_dlp_download(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     const DOWNLOAD_ID: &str = "yt-dlp";
     state
         .yt_dlp_cancelled
@@ -1503,11 +1533,7 @@ fn yt_dlp_download_blocking(
         if received > 100 * 1024 * 1024 {
             return Err("O download do yt-dlp excede o limite de segurança.".into());
         }
-        if cancelled
-            .lock()
-            .map_err(lock_error)?
-            .contains(DOWNLOAD_ID)
-        {
+        if cancelled.lock().map_err(lock_error)?.contains(DOWNLOAD_ID) {
             return Err("Download do yt-dlp cancelado.".into());
         }
         let progress = expected
@@ -1901,9 +1927,10 @@ pub async fn separation_status(state: State<'_, AppState>) -> Result<SeparationS
             profile,
         )
     };
-    let (standard, six) = tokio::task::spawn_blocking(move || model_installation_status(&models_dir))
-        .await
-        .map_err(|error| format!("Falha ao validar os modelos ONNX: {error}"))?;
+    let (standard, six) =
+        tokio::task::spawn_blocking(move || model_installation_status(&models_dir))
+            .await
+            .map_err(|error| format!("Falha ao validar os modelos ONNX: {error}"))?;
     let metrics = state.separation_metrics.lock().map_err(lock_error)?;
     let provider = if configured_provider == "cpu" {
         "cpu"
@@ -1988,7 +2015,9 @@ fn parse_worker_output(line: &str) -> Result<WorkerOutput, String> {
             .and_then(|value| value.as_str())
             .unwrap_or("A separação ONNX falhou.")
             .to_string()),
-        Some(kind) => Err(format!("O worker ONNX retornou uma mensagem desconhecida: {kind}.")),
+        Some(kind) => Err(format!(
+            "O worker ONNX retornou uma mensagem desconhecida: {kind}."
+        )),
         None => Err("O worker ONNX retornou uma mensagem sem tipo.".into()),
     }
 }
@@ -2054,8 +2083,7 @@ pub async fn separation_start(
             .ok_or_else(|| "Faixa não encontrada na biblioteca.".to_string())?
     };
     let _separation_cache_guard = state.separation_cache_gate.read().await;
-    let _separation_guard =
-        acquire_separation(&state.active_separations, track.id.clone())?;
+    let _separation_guard = acquire_separation(&state.active_separations, track.id.clone())?;
     state
         .remote_cancelled
         .lock()
@@ -2278,12 +2306,17 @@ async fn separate_remote(
     if size > 100 * 1024 * 1024 {
         return Err("O arquivo excede o limite de 100 MB do StemSplit.".into());
     }
-    let duration = match track.duration.filter(|value| value.is_finite() && *value >= 0.0) {
+    let duration = match track
+        .duration
+        .filter(|value| value.is_finite() && *value >= 0.0)
+    {
         Some(value) => Some(value),
         None => audio_duration_seconds(Path::new(&track.path))?,
     };
     if duration.is_none() {
-        return Err("Não foi possível confirmar a duração da faixa para processamento remoto.".into());
+        return Err(
+            "Não foi possível confirmar a duração da faixa para processamento remoto.".into(),
+        );
     }
     if duration.is_some_and(|value| value > MAX_REMOTE_DURATION_SECONDS) {
         return Err("A faixa excede o limite de 60 minutos do StemSplit.".into());
@@ -2359,13 +2392,20 @@ async fn separate_remote(
         if remote_cancel_requested(state, &track.id)? {
             return Err("Separação cancelada.".into());
         }
-        let status = remote_get_json_async(&format!("https://stemsplit.io/api/v1/jobs/{job_id}"), &key).await?;
+        let status =
+            remote_get_json_async(&format!("https://stemsplit.io/api/v1/jobs/{job_id}"), &key)
+                .await?;
         let raw_status = status
             .get("status")
             .and_then(|value| value.as_str())
             .unwrap_or("");
-        if !matches!(raw_status, "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "EXPIRED") {
-            return Err(format!("O StemSplit retornou um status desconhecido: {raw_status}."));
+        if !matches!(
+            raw_status,
+            "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "EXPIRED"
+        ) {
+            return Err(format!(
+                "O StemSplit retornou um status desconhecido: {raw_status}."
+            ));
         }
         let raw_progress = status
             .get("progress")
@@ -2407,7 +2447,10 @@ async fn separate_remote(
                 .await?;
                 stems.insert(
                     stem.to_string(),
-                    output_dir.join(format!("{stem}.wav")).to_string_lossy().to_string(),
+                    output_dir
+                        .join(format!("{stem}.wav"))
+                        .to_string_lossy()
+                        .to_string(),
                 );
             }
             remove_dir_if_exists(&output_dir)?;
@@ -2525,22 +2568,14 @@ async fn remote_download_stem(
         let temporary_guard = TemporaryFileGuard(Some(temporary.clone()));
         let mut file = fs::File::create(&temporary).map_err(|error| error.to_string())?;
         let size = copy_with_limit_cancelled(&mut reader, &mut file, 200 * 1024 * 1024, || {
-            if cancelled
-                .lock()
-                .map_err(lock_error)?
-                .contains(&track_id)
-            {
+            if cancelled.lock().map_err(lock_error)?.contains(&track_id) {
                 return Err("Separação cancelada.".into());
             }
             Ok(())
         })?;
         file.sync_all().map_err(|error| error.to_string())?;
         drop(file);
-        if cancelled
-            .lock()
-            .map_err(lock_error)?
-            .contains(&track_id)
-        {
+        if cancelled.lock().map_err(lock_error)?.contains(&track_id) {
             return Err("Separação cancelada.".into());
         }
         remove_file_if_exists(&path)?;
@@ -2714,11 +2749,10 @@ pub fn export_cancel(state: State<'_, AppState>, request_id: String) -> Result<(
 #[tauri::command]
 pub async fn models_status(state: State<'_, AppState>) -> Result<ModelDownloadStatus, String> {
     let models_dir = state.data.lock().map_err(lock_error)?.models_dir.clone();
-    let (standard_installed, extended_installed) = tokio::task::spawn_blocking(move || {
-        model_installation_status(&models_dir)
-    })
-    .await
-    .map_err(|error| format!("Falha ao validar os modelos ONNX: {error}"))?;
+    let (standard_installed, extended_installed) =
+        tokio::task::spawn_blocking(move || model_installation_status(&models_dir))
+            .await
+            .map_err(|error| format!("Falha ao validar os modelos ONNX: {error}"))?;
     let downloading = state.model_downloading.lock().map_err(lock_error)?.clone();
     Ok(ModelDownloadStatus {
         standard_installed,
@@ -2746,20 +2780,15 @@ pub async fn models_download(
     let cancelled = Arc::clone(&state.model_cancelled);
     let downloading = Arc::clone(&state.model_downloading);
     let _downloading_guard = DownloadingFlagGuard(Arc::clone(&downloading));
-    cancelled
-        .lock()
-        .map_err(lock_error)?
-        .remove(&kind);
+    cancelled.lock().map_err(lock_error)?.remove(&kind);
     let _cancelled_guard = CancellationFlagGuard {
         cancelled: Arc::clone(&cancelled),
         id: kind.clone(),
     };
     let models_dir = state.data.lock().map_err(lock_error)?.models_dir.clone();
-    tokio::task::spawn_blocking(move || {
-        models_download_blocking(app, kind, models_dir, cancelled)
-    })
-    .await
-    .map_err(|error| format!("Falha no instalador dos modelos ONNX: {error}"))?
+    tokio::task::spawn_blocking(move || models_download_blocking(app, kind, models_dir, cancelled))
+        .await
+        .map_err(|error| format!("Falha no instalador dos modelos ONNX: {error}"))?
 }
 
 fn models_download_blocking(
@@ -2778,9 +2807,7 @@ fn models_download_blocking(
     for stem in CORE_STEMS {
         let file_name = format!("htdemucs_ft_{stem}_fp16weights.onnx");
         files.push((
-            models_dir
-                .join("htdemucs-ft")
-                .join(&file_name),
+            models_dir.join("htdemucs-ft").join(&file_name),
             format!(
                 "{base}/htdemucs-ft-{stem}-onnx/resolve/main/htdemucs_ft_{stem}_fp16weights.onnx"
             ),
@@ -2796,11 +2823,7 @@ fn models_download_blocking(
     }
     let total = files.len();
     for (index, (path, url, expected_hash)) in files.into_iter().enumerate() {
-        if cancelled
-            .lock()
-            .map_err(lock_error)?
-            .contains(&kind)
-        {
+        if cancelled.lock().map_err(lock_error)?.contains(&kind) {
             return Err("Download cancelado.".into());
         }
         if path.is_file() {
@@ -2835,11 +2858,7 @@ fn models_download_blocking(
             if received > MAX_MODEL_DOWNLOAD_BYTES {
                 return Err("O modelo excede o limite de segurança do Griffin.".into());
             }
-            if cancelled
-                .lock()
-                .map_err(lock_error)?
-                .contains(&kind)
-            {
+            if cancelled.lock().map_err(lock_error)?.contains(&kind) {
                 return Err("Download cancelado.".into());
             }
             let fraction = expected
@@ -2855,13 +2874,12 @@ fn models_download_blocking(
         file.sync_all().map_err(|e| e.to_string())?;
         drop(file);
         if sha256_file(&temporary).map_err(|e| e.to_string())? != expected_hash {
-            return Err(format!("A verificação de integridade do modelo {} falhou.", path.display()));
+            return Err(format!(
+                "A verificação de integridade do modelo {} falhou.",
+                path.display()
+            ));
         }
-        if cancelled
-            .lock()
-            .map_err(lock_error)?
-            .contains(&kind)
-        {
+        if cancelled.lock().map_err(lock_error)?.contains(&kind) {
             return Err("Download cancelado.".into());
         }
         fs::rename(&temporary, &path).map_err(|e| e.to_string())?;
@@ -3000,7 +3018,9 @@ fn cleanup_removed_track_files(
         let Ok(canonical) = fs::canonicalize(path) else {
             continue;
         };
-        if referenced.contains(&canonical) || !roots.iter().any(|root| is_path_within(&canonical, root)) {
+        if referenced.contains(&canonical)
+            || !roots.iter().any(|root| is_path_within(&canonical, root))
+        {
             continue;
         }
         if let Err(error) = fs::remove_file(path) {
@@ -3219,7 +3239,9 @@ fn format_time(seconds: f64) -> String {
 }
 
 #[tauri::command]
-pub async fn remote_provider_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+pub async fn remote_provider_status(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
     let key = {
         let data = state.data.lock().map_err(lock_error)?;
         load_stem_split_api_key(&data.data_dir, &data.settings)
@@ -3227,9 +3249,7 @@ pub async fn remote_provider_status(state: State<'_, AppState>) -> Result<serde_
     remote_provider_status_for_key(key).await
 }
 
-async fn remote_provider_status_for_key(
-    key: Option<String>,
-) -> Result<serde_json::Value, String> {
+async fn remote_provider_status_for_key(key: Option<String>) -> Result<serde_json::Value, String> {
     let Some(key) = key else {
         return Ok(
             serde_json::json!({ "configured": false, "verified": false, "message": "Nenhuma chave de API configurada." }),
@@ -3241,8 +3261,8 @@ async fn remote_provider_status_for_key(
 }
 
 fn remote_provider_status_blocking(key: &str) -> serde_json::Value {
-    let response = public_http_agent("https://stemsplit.io/api/v1/balance")
-        .and_then(|(url, agent)| {
+    let response =
+        public_http_agent("https://stemsplit.io/api/v1/balance").and_then(|(url, agent)| {
             agent
                 .get(&url)
                 .header("Authorization", format!("Bearer {key}"))
@@ -3333,26 +3353,6 @@ pub async fn remote_provider_estimate_cost(
     Ok(serde_json::json!({ "durationSeconds": duration, "estimatedUsd": duration / 60.0 * 0.1 }))
 }
 
-fn default_update_status() -> serde_json::Value {
-    serde_json::json!({ "supported": false, "stage": "disabled", "message": "Atualizações automáticas não estão disponíveis nesta versão." })
-}
-#[tauri::command]
-pub fn updates_status() -> Result<serde_json::Value, String> {
-    Ok(default_update_status())
-}
-#[tauri::command]
-pub fn updates_check() -> Result<serde_json::Value, String> {
-    Ok(default_update_status())
-}
-#[tauri::command]
-pub fn updates_download() -> Result<serde_json::Value, String> {
-    Ok(default_update_status())
-}
-#[tauri::command]
-pub fn updates_install() -> Result<(), String> {
-    Err("Atualizações automáticas não estão disponíveis nesta versão.".into())
-}
-
 fn mutate_project(
     state: &State<'_, AppState>,
     project_id: &str,
@@ -3434,11 +3434,7 @@ fn cleanup_remote_preview_state(state: &AppState) -> Result<(), String> {
             previews.remove(&oldest);
         }
     }
-    let active_separations = state
-        .active_separations
-        .lock()
-        .map_err(lock_error)?
-        .clone();
+    let active_separations = state.active_separations.lock().map_err(lock_error)?.clone();
     state
         .remote_cancelled
         .lock()
@@ -3495,15 +3491,13 @@ fn is_supported_audio(path: &Path) -> bool {
 fn audio_content_type(path: &Path) -> Option<&'static str> {
     path.extension()
         .and_then(|extension| extension.to_str())
-        .and_then(|extension| {
-            match extension.to_ascii_lowercase().as_str() {
-                "wav" => Some("audio/wav"),
-                "mp3" => Some("audio/mpeg"),
-                "flac" => Some("audio/flac"),
-                "m4a" => Some("audio/mp4"),
-                "webm" => Some("audio/webm"),
-                _ => None,
-            }
+        .and_then(|extension| match extension.to_ascii_lowercase().as_str() {
+            "wav" => Some("audio/wav"),
+            "mp3" => Some("audio/mpeg"),
+            "flac" => Some("audio/flac"),
+            "m4a" => Some("audio/mp4"),
+            "webm" => Some("audio/webm"),
+            _ => None,
         })
 }
 
@@ -3520,11 +3514,7 @@ fn copy_with_limit<R: Read, W: std::io::Write>(
 ) -> Result<u64, String> {
     copy_with_limit_cancelled(reader, writer, limit, || Ok(()))
 }
-fn copy_with_limit_cancelled<
-    R: Read,
-    W: std::io::Write,
-    F: FnMut() -> Result<(), String>,
->(
+fn copy_with_limit_cancelled<R: Read, W: std::io::Write, F: FnMut() -> Result<(), String>>(
     reader: &mut R,
     writer: &mut W,
     limit: u64,
@@ -3691,7 +3681,11 @@ fn remove_youtube_playlist_params(url: &str) -> String {
     let kept = query
         .split('&')
         .filter(|parameter| {
-            let name = parameter.split('=').next().unwrap_or("").to_ascii_lowercase();
+            let name = parameter
+                .split('=')
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase();
             !matches!(name.as_str(), "list" | "index" | "start_radio" | "shuffle")
         })
         .collect::<Vec<_>>();
@@ -3750,9 +3744,7 @@ fn normalize_yt_dlp_error(error: std::io::Error) -> String {
     }
 }
 fn yt_dlp_process_error(action: &str, stderr: &[u8], stdout: &[u8]) -> String {
-    let detail = String::from_utf8_lossy(stderr)
-        .trim()
-        .to_string();
+    let detail = String::from_utf8_lossy(stderr).trim().to_string();
     let detail = if detail.is_empty() {
         String::from_utf8_lossy(stdout).trim().to_string()
     } else {
@@ -3795,7 +3787,11 @@ fn emit_youtube_progress(app: &AppHandle, id: &str, progress: f64, stage: &str, 
     );
 }
 fn youtube_download_percent(line: &str) -> Option<f64> {
-    let value = line.strip_prefix("download:")?.trim().trim_end_matches('%').trim();
+    let value = line
+        .strip_prefix("download:")?
+        .trim()
+        .trim_end_matches('%')
+        .trim();
     let percent = value.parse::<f64>().ok()?;
     percent.is_finite().then_some(percent.clamp(0.0, 100.0))
 }
@@ -4095,11 +4091,8 @@ fn clear_cache_directory(cache_dir: &Path) -> Result<(), String> {
             .unwrap_or("cache"),
         Uuid::new_v4()
     ));
-    fs::rename(cache_dir, &temporary).map_err(|error| {
-        format!(
-            "Não foi possível preparar o cache para limpeza: {error}"
-        )
-    })?;
+    fs::rename(cache_dir, &temporary)
+        .map_err(|error| format!("Não foi possível preparar o cache para limpeza: {error}"))?;
     if let Err(error) = fs::create_dir_all(cache_dir) {
         let restore = fs::rename(&temporary, cache_dir);
         return Err(match restore {
@@ -4109,17 +4102,18 @@ fn clear_cache_directory(cache_dir: &Path) -> Result<(), String> {
             ),
         });
     }
-    fs::remove_dir_all(&temporary).map_err(|error| {
-        format!("Não foi possível remover o cache antigo: {error}")
-    })
+    fs::remove_dir_all(&temporary)
+        .map_err(|error| format!("Não foi possível remover o cache antigo: {error}"))
 }
 
 fn ensure_cache_clear_allowed(active: &std::sync::Mutex<HashSet<String>>) -> Result<(), String> {
     if active.lock().map_err(lock_error)?.is_empty() {
         Ok(())
     } else {
-        Err("Não é possível limpar o cache enquanto há separações ativas. Aguarde-as terminar."
-            .into())
+        Err(
+            "Não é possível limpar o cache enquanto há separações ativas. Aguarde-as terminar."
+                .into(),
+        )
     }
 }
 
@@ -4203,7 +4197,11 @@ fn worker_path(app: &AppHandle) -> PathBuf {
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
-    use std::{fs, io::Cursor, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        fs,
+        io::Cursor,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     struct TempDir(PathBuf);
 
@@ -4213,16 +4211,23 @@ mod tests {
                 .duration_since(UNIX_EPOCH)
                 .expect("clock before epoch")
                 .as_nanos();
-            let path = std::env::temp_dir().join(format!("griffin-commands-{label}-{}-{suffix}", std::process::id()));
+            let path = std::env::temp_dir().join(format!(
+                "griffin-commands-{label}-{}-{suffix}",
+                std::process::id()
+            ));
             fs::create_dir_all(&path).expect("create temporary directory");
             Self(path)
         }
 
-        fn path(&self) -> &Path { &self.0 }
+        fn path(&self) -> &Path {
+            &self.0
+        }
     }
 
     impl Drop for TempDir {
-        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
     }
 
     #[test]
@@ -4280,17 +4285,50 @@ mod tests {
 
     #[test]
     fn maps_remote_audio_formats_and_rejects_unknown_formats() {
-        assert_eq!(audio_extension("https://example.test/song.wav", ""), Some("wav"));
-        assert_eq!(audio_extension("https://example.test/song", "audio/x-wav"), Some("wav"));
-        assert_eq!(audio_extension("https://example.test/song.mp3", ""), Some("mp3"));
-        assert_eq!(audio_extension("https://example.test/song", "audio/mpeg"), Some("mp3"));
-        assert_eq!(audio_extension("https://example.test/song.flac", ""), Some("flac"));
-        assert_eq!(audio_extension("https://example.test/song", "audio/x-flac"), Some("flac"));
-        assert_eq!(audio_extension("https://example.test/song.m4a", ""), Some("m4a"));
-        assert_eq!(audio_extension("https://example.test/song", "audio/mp4"), Some("m4a"));
-        assert_eq!(audio_extension("https://example.test/song.webm", ""), Some("webm"));
-        assert_eq!(audio_extension("https://example.test/song", "audio/webm"), Some("webm"));
-        assert_eq!(audio_extension("https://example.test/song.txt", "text/plain"), None);
+        assert_eq!(
+            audio_extension("https://example.test/song.wav", ""),
+            Some("wav")
+        );
+        assert_eq!(
+            audio_extension("https://example.test/song", "audio/x-wav"),
+            Some("wav")
+        );
+        assert_eq!(
+            audio_extension("https://example.test/song.mp3", ""),
+            Some("mp3")
+        );
+        assert_eq!(
+            audio_extension("https://example.test/song", "audio/mpeg"),
+            Some("mp3")
+        );
+        assert_eq!(
+            audio_extension("https://example.test/song.flac", ""),
+            Some("flac")
+        );
+        assert_eq!(
+            audio_extension("https://example.test/song", "audio/x-flac"),
+            Some("flac")
+        );
+        assert_eq!(
+            audio_extension("https://example.test/song.m4a", ""),
+            Some("m4a")
+        );
+        assert_eq!(
+            audio_extension("https://example.test/song", "audio/mp4"),
+            Some("m4a")
+        );
+        assert_eq!(
+            audio_extension("https://example.test/song.webm", ""),
+            Some("webm")
+        );
+        assert_eq!(
+            audio_extension("https://example.test/song", "audio/webm"),
+            Some("webm")
+        );
+        assert_eq!(
+            audio_extension("https://example.test/song.txt", "text/plain"),
+            None
+        );
     }
 
     #[test]
@@ -4334,7 +4372,8 @@ mod tests {
 
     #[test]
     fn restricts_youtube_urls_and_removes_playlist_parameters() {
-        let normalized = remove_youtube_playlist_params("https://www.youtube.com/watch?v=abc&list=playlist");
+        let normalized =
+            remove_youtube_playlist_params("https://www.youtube.com/watch?v=abc&list=playlist");
         assert_eq!(normalized, "https://www.youtube.com/watch?v=abc");
         assert!(youtube_host_allowed("youtube.com"));
         assert!(youtube_host_allowed("m.youtube.com"));
@@ -4391,7 +4430,9 @@ mod tests {
         {
             let _guard = TemporaryFileGuard(Some(disk_file.clone()));
             let mut reader = Cursor::new(b"audio".to_vec());
-            assert!(copy_with_progress(&mut reader, &mut DiskFullWriter, None, |_| Ok(())).is_err());
+            assert!(
+                copy_with_progress(&mut reader, &mut DiskFullWriter, None, |_| Ok(())).is_err()
+            );
         }
         assert!(!disk_file.exists());
 
@@ -4401,10 +4442,12 @@ mod tests {
             let _guard = TemporaryFileGuard(Some(cancelled_file.clone()));
             let mut reader = Cursor::new(b"audio".to_vec());
             let mut output = Vec::new();
-            assert!(copy_with_limit_cancelled(&mut reader, &mut output, 1024, || {
-                Err("Download cancelado.".into())
-            })
-            .is_err());
+            assert!(
+                copy_with_limit_cancelled(&mut reader, &mut output, 1024, || {
+                    Err("Download cancelado.".into())
+                })
+                .is_err()
+            );
         }
         assert!(!cancelled_file.exists());
 
@@ -4497,18 +4540,18 @@ mod tests {
         assert!(parse_worker_output(r#"{"type":"progress","progress":"invalid"}"#).is_err());
         assert!(parse_worker_output(r#"{"type":"unknown"}"#).is_err());
         assert_eq!(
-            parse_worker_output(r#"{"type":"error","message":"worker failed"}"#)
-                .unwrap_err(),
+            parse_worker_output(r#"{"type":"error","message":"worker failed"}"#).unwrap_err(),
             "worker failed"
         );
 
-        match parse_worker_output(
-            r#"{"type":"done","stems":{"vocals":"/tmp/vocals.wav"}}"#,
-        )
-        .unwrap()
+        match parse_worker_output(r#"{"type":"done","stems":{"vocals":"/tmp/vocals.wav"}}"#)
+            .unwrap()
         {
             WorkerOutput::Done(stems) => {
-                assert_eq!(stems.get("vocals").map(String::as_str), Some("/tmp/vocals.wav"));
+                assert_eq!(
+                    stems.get("vocals").map(String::as_str),
+                    Some("/tmp/vocals.wav")
+                );
             }
             WorkerOutput::Progress(_) => panic!("expected done output"),
         }
@@ -4580,12 +4623,8 @@ mod tests {
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         let processes = tokio::sync::Mutex::new(HashMap::new());
-        let process = register_youtube_process(
-            &processes,
-            "preview-1",
-            command.spawn().unwrap(),
-        )
-        .await;
+        let process =
+            register_youtube_process(&processes, "preview-1", command.spawn().unwrap()).await;
 
         assert!(processes.lock().await.contains_key("preview-1"));
         terminate_youtube_process(&process).await.unwrap();
@@ -5080,10 +5119,7 @@ fn model_installation_status(models: &Path) -> (bool, bool) {
             let file_name = format!("htdemucs_ft_{stem}_fp16weights.onnx");
             model_file_is_valid(&models.join("htdemucs-ft").join(&file_name), &file_name)
         });
-    let extended = model_file_is_valid(
-        &models.join("htdemucs_6s.onnx"),
-        "htdemucs_6s.onnx",
-    );
+    let extended = model_file_is_valid(&models.join("htdemucs_6s.onnx"), "htdemucs_6s.onnx");
     (standard, extended)
 }
 
