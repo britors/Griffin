@@ -16,7 +16,12 @@ function validateSignature(file, signaturePath, publicKey, environment) {
     const signatureDirectory = mkdtempSync(join(tmpdir(), 'griffin-minisign-'))
     const decodedSignaturePath = join(signatureDirectory, 'signature.minisig')
     try {
-      writeFileSync(decodedSignaturePath, Buffer.from(signature, 'base64'))
+      const decodedSignature = Buffer.from(signature, 'base64').toString('utf8')
+      const minisignSignature = decodedSignature.replace(
+        /^untrusted comment: signature from tauri secret key$/m,
+        'untrusted comment: signature from minisign secret key',
+      )
+      writeFileSync(decodedSignaturePath, minisignSignature)
       execFileSync('minisign', ['-Vm', file, '-x', decodedSignaturePath, '-P', publicKey], { stdio: 'ignore' })
     } catch (error) {
       throw new Error(`assinatura criptográfica inválida ou minisign ausente para ${file}: ${error.message}`)
