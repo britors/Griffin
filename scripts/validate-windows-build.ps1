@@ -83,7 +83,7 @@ function ExtractAndValidateInstallerBinaries([string]$InstallerPath) {
       }
       AssertPeX64 $binary.FullName
     }
-    $smoke = '{"type":"unknown"}' | & $worker.FullName 2>&1 | Out-String
+    $smoke = '{"type":"unknown","track":{"id":"smoke","path":"smoke.wav"},"modelsDir":"smoke-models","cacheDir":"smoke-cache"}' | & $worker.FullName 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0 -or $smoke -notmatch "tipo de operação desconhecido") {
       Fail "worker extraído do instalador não respondeu ao protocolo esperado"
     }
@@ -107,7 +107,7 @@ foreach ($provider in @("onnxruntime_providers_cuda.dll", "onnxruntime_providers
 }
 
 # Smoke test the worker protocol without requiring a CUDA driver or model files.
-$smoke = '{"type":"unknown"}' | & $worker.FullName 2>&1 | Out-String
+$smoke = '{"type":"unknown","track":{"id":"smoke","path":"smoke.wav"},"modelsDir":"smoke-models","cacheDir":"smoke-cache"}' | & $worker.FullName 2>&1 | Out-String
 if ($LASTEXITCODE -ne 0 -or $smoke -notmatch "tipo de operação desconhecido") {
   Fail "worker Windows não respondeu ao protocolo de fallback/erro esperado"
 }
