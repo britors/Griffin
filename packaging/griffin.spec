@@ -33,8 +33,8 @@ ExclusiveArch:  x86_64
 BuildRequires:  desktop-file-utils
 BuildRequires:  zstd
 Requires:       alsa
-Requires:       webkit2gtk4.1
-Requires:       libsoup-3.0
+Requires:       libwebkit2gtk-4_1-0
+Requires:       libsoup-3_0-0
 Requires:       libgtk-3-0
 Requires:       libdrm2
 Requires:       hicolor-icon-theme
