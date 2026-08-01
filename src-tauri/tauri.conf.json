@@ -28,6 +28,7 @@
   "bundle": {
     "active": true,
     "externalBin": ["binaries/griffin-onnx-worker"],
+    "resources": ["binaries/"],
     "targets": "all",
     "icon": [
       "../resources/32x32.png",

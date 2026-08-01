@@ -1,6 +1,6 @@
 # Griffin Music
 
-Aplicativo desktop standalone da W3TI para separação local de stems e prática instrumental. O áudio permanece no computador: não há servidor próprio nem upload de faixas.
+Aplicativo desktop standalone da W3TI para separação local de stems e prática instrumental. O processamento é local por padrão: não há servidor próprio, e o áudio só é enviado ao StemSplit quando você escolhe e confirma a separação remota.
 
 [![Baixar Griffin Music](https://img.shields.io/badge/Baixar-Griffin%20Music-d4a531?style=for-the-badge&logo=github&logoColor=white)](https://github.com/britors/Griffin/releases/latest)
 
@@ -15,7 +15,7 @@ O MVP e a Fase 2 de prática musical já estão integrados na `main`:
 - metrônomo com subdivisão e contagem de entrada;
 - prática progressiva e atalhos de teclado;
 - exportação de mixagens e stems individuais em WAV PCM, com sample rate e bit depth configuráveis;
-- build Linux AppImage/DEB/RPM e Windows NSIS configurado no GitHub Actions.
+- build Linux DEB/RPM e Windows NSIS configurado no GitHub Actions.
 
 A release pública `v0.1.2` será publicada a partir da nova tag e ficará disponível pelo botão de download acima.
 
@@ -47,12 +47,25 @@ Para instalar também o modelo opcional `htdemucs-6s` — que adiciona guitarra 
 
 Alternativamente, `scripts/download-models.sh` continua disponível para baixar os modelos manualmente (por exemplo, em CI de testes ou provisionamento em lote), aceitando `GRIFFIN_MODEL_DIR` e `GRIFFIN_EXTENDED=1`.
 
+### Aceleração NVIDIA/CUDA
+
+O worker ONNX inclui o provider CUDA para Linux e Windows e tenta usar a GPU quando "Automático" ou "Preferir GPU" está selecionado em Preferências → Processamento. Em sistemas compatíveis, o botão "Instalar suporte NVIDIA" baixa e instala por usuário o runtime CUDA/cuDNN oficial, sem exigir instalação manual ou privilégios administrativos. O download é validado por checksum e fica dentro de `userData/runtimes/cuda`; o Griffin adiciona esse diretório ao processo do worker somente quando ele existe.
+
+`nvidia-smi` confirmar o driver não garante que as bibliotecas de inferência estejam disponíveis. Em sistemas sem suporte NVIDIA, ou quando a instalação não foi concluída, o Griffin informa CPU como provider efetivo e faz fallback sem interromper a separação.
+
+Para confirmar o uso real, observe o provider exibido no progresso da separação (`cuda` ou `cpu`) e o campo Provider ONNX após o processamento. A opção "Somente CPU" desativa a tentativa de CUDA.
+
+### Separação remota opcional
+
+O Griffin também pode usar o StemSplit como alternativa remota. O áudio só deixa o computador depois de uma confirmação explícita para cada operação remota; a chave fica armazenada localmente e a separação local continua disponível sem internet. O comparativo e a decisão sobre outros provedores estão em [`docs/REMOTE_PROVIDERS.md`](docs/REMOTE_PROVIDERS.md).
+
 ## Validação e build
 
 ```bash
 npm run typecheck
 npm run build
 npx vitest run src/main/application/__tests__
+cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 Linux:
@@ -75,7 +88,7 @@ Depois de gerar os pacotes Linux, valide os formatos e o logo:
 npm run validate:packages
 ```
 
-Essa verificação também valida sintaticamente `install.sh`, `uninstall.sh`, `download-models.sh` e `PKGBUILD`. O workflow de release executa a mesma checagem para AppImage/DEB/RPM no Linux e para o instalador NSIS x64 no Windows.
+Essa verificação também valida sintaticamente `install.sh`, `uninstall.sh`, `download-models.sh` e `PKGBUILD`. O workflow de release executa a mesma checagem para DEB/RPM no Linux e para o instalador NSIS x64 no Windows.
 
 ### Exportação de áudio
 

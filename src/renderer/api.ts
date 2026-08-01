@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, GriffinAPI, LyricsLine, ModelDownloadKind, ModelDownloadProgress, PlayerSnapshot, SeparationProgress, SeparationProvider, StemName, Track, TrackAnalysis, YoutubeImportProgress, YtDlpProgress, YtDlpStatus } from '../shared/types'
+import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, CudaRuntimeProgress, CudaRuntimeStatus, GriffinAPI, LyricsLine, ModelDownloadKind, ModelDownloadProgress, PlayerSnapshot, SeparationProgress, SeparationProvider, StemName, Track, TrackAnalysis, YoutubeImportProgress, YtDlpProgress, YtDlpStatus } from '../shared/types'
 
 type Unlisten = () => void
 
@@ -92,6 +92,12 @@ export const api: GriffinAPI = {
     download: (kind: ModelDownloadKind) => invoke('models_download', { kind }),
     cancel: (kind: ModelDownloadKind) => invoke('models_cancel', { kind }),
     onProgress: (callback: (progress: ModelDownloadProgress) => void) => onEvent('models:progress', callback),
+  },
+  cudaRuntime: {
+    status: () => invoke<CudaRuntimeStatus>('cuda_runtime_status'),
+    install: () => invoke('cuda_runtime_install'),
+    cancel: () => invoke('cuda_runtime_cancel'),
+    onProgress: (callback: (progress: CudaRuntimeProgress) => void) => onEvent('cuda-runtime:progress', callback),
   },
   updates: {
     status: () => invoke('updates_status'),

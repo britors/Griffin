@@ -1,8 +1,8 @@
 # Release 0.1.2
 
-O workflow de release é disparado por tags `v*` e publica AppImage, `.deb`, `.rpm` e instalador NSIS x64. Os modelos ONNX não são mais empacotados no instalador: o próprio aplicativo os baixa sob demanda em runtime (`userData/models`), na primeira execução ou via Preferências.
+O workflow de release é disparado por tags `v*` e publica `.deb`, `.rpm` e instalador NSIS x64. Os modelos ONNX não são mais empacotados no instalador: o próprio aplicativo os baixa sob demanda em runtime (`userData/models`), na primeira execução ou via Preferências.
 
-O empacotamento é feito pelo Tauri: o instalador Windows usa NSIS e as distribuições Linux geram AppImage, `.deb` e `.rpm`. Após o build, os artefatos são coletados em `release/` para validação e publicação. Atualizações automáticas embutidas ainda estão desativadas; no Linux, o RPM/OBS continua sendo atualizado pelo gerenciador de pacotes (`zypper`).
+O empacotamento é feito pelo Tauri: o instalador Windows usa NSIS e as distribuições Linux geram `.deb` e `.rpm`. Após o build, os artefatos são coletados em `release/` para validação e publicação. Atualizações automáticas embutidas ainda estão desativadas; no Linux, o RPM/OBS continua sendo atualizado pelo gerenciador de pacotes (`zypper`).
 
 Validação local:
 

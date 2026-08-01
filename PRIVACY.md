@@ -28,7 +28,7 @@ Se você colar uma URL de áudio pública ou um link do YouTube na tela de impor
 O Griffin oferece, como alternativa **opcional** ao motor local, o envio da faixa para a API do [StemSplit.io](https://stemsplit.io) para separação em nuvem. Essa função:
 
 - **Fica desativada por padrão** e só aparece na interface depois que você mesmo cria uma conta no StemSplit, gera uma chave de API e a cola em Preferências.
-- **Pede consentimento explícito** antes de cada envio na sessão, mostrando que o áudio vai sair da máquina, o custo estimado e o resumo da política de retenção do StemSplit.
+- **Pede consentimento explícito antes de cada operação remota**, mostrando que o áudio vai sair da máquina, o custo estimado e o resumo da política de retenção do StemSplit.
 - Envia **apenas a faixa de áudio selecionada** no momento da separação — nada mais do seu computador, biblioteca ou preferências.
 - Usa uma chave de API que você mesmo cria e controla, armazenada no cofre nativo do Windows/macOS ou em arquivo local restrito ao usuário no Linux — nunca commitada no repositório, nunca enviada para o Griffin/W3TI.
 

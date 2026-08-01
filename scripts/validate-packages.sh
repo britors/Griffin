@@ -24,7 +24,7 @@ for command_name in bash file grep; do
   command -v "${command_name}" >/dev/null || fail "comando obrigatório não encontrado: ${command_name}"
 done
 
-for script in scripts/download-models.sh scripts/install.sh scripts/uninstall.sh; do
+for script in scripts/download-models.sh scripts/install.sh scripts/uninstall.sh scripts/package-rpm.sh; do
   require_file "${script}"
   bash -n "${script}"
   [[ -x "${script}" ]] || fail "script sem permissão de execução: ${script}"
@@ -59,34 +59,47 @@ if [[ "${mode}" == "windows" ]]; then
   exe="$(find "${release_dir}" -maxdepth 1 -type f -iname '*.exe' -print -quit)"
   require_file "${exe}"
   file "${exe}" | grep -E 'PE32\+|MS Windows' >/dev/null || fail "instalador não parece ser um executável Windows x64: ${exe}"
+  require_file src-tauri/binaries/onnxruntime_providers_cuda.dll
+  require_file src-tauri/binaries/onnxruntime_providers_shared.dll
   echo "NSIS Windows x64 validado: ${exe}"
   exit 0
 fi
 
 [[ "${mode}" == "linux" ]] || fail "modo inválido: ${mode} (use linux ou windows)"
-appimage="$(find "${release_dir}" -maxdepth 1 -type f -iname '*.AppImage' -print -quit)"
 deb="$(find "${release_dir}" -maxdepth 1 -type f -iname '*.deb' -print -quit)"
 rpm="$(find "${release_dir}" -maxdepth 1 -type f -iname '*.rpm' -print -quit)"
-require_file "${appimage}"
 require_file "${deb}"
 require_file "${rpm}"
 
-file "${appimage}" | grep -F 'ELF 64-bit' >/dev/null || fail "AppImage não é ELF 64-bit: ${appimage}"
 file "${deb}" | grep -F 'Debian binary package' >/dev/null || fail "DEB inválido: ${deb}"
 file "${rpm}" | grep -F 'RPM' >/dev/null || fail "RPM inválido: ${rpm}"
 
 command -v dpkg-deb >/dev/null || fail "dpkg-deb é obrigatório para validar o DEB"
 command -v rpm >/dev/null || fail "rpm é obrigatório para validar o RPM"
+
+selected_deb=""
+while IFS= read -r candidate; do
+  if dpkg-deb --contents "${candidate}" | grep -F 'libonnxruntime_providers_cuda' >/dev/null; then
+    selected_deb="${candidate}"
+    break
+  fi
+done < <(find "${release_dir}" -maxdepth 1 -type f -iname '*.deb' -print)
+selected_rpm=""
+while IFS= read -r candidate; do
+  if rpm -qlp "${candidate}" | grep -F 'libonnxruntime_providers_cuda' >/dev/null; then
+    selected_rpm="${candidate}"
+    break
+  fi
+done < <(find "${release_dir}" -maxdepth 1 -type f -iname '*.rpm' -print)
+require_file "${selected_deb}"
+require_file "${selected_rpm}"
+deb="${selected_deb}"
+rpm="${selected_rpm}"
 deb_listing="$(dpkg-deb --contents "${deb}")"
 rpm_listing="$(rpm -qlp "${rpm}")"
 for listing in "${deb_listing}" "${rpm_listing}"; do
-  require_listing_entry "${listing}" 'resources/icon.png'
+  require_listing_entry "${listing}" 'hicolor/256x256/apps/griffin-music.png'
+  require_listing_entry "${listing}" 'libonnxruntime_providers_cuda'
 done
 
-temp_dir="$(mktemp -d)"
-trap 'rm -rf "${temp_dir}"' EXIT
-(cd "${temp_dir}" && "${OLDPWD}/${appimage}" --appimage-extract >/dev/null)
-require_file "${temp_dir}/squashfs-root/resources/icon.png"
-"${appimage}" --appimage-version >/dev/null
-
-echo "AppImage, DEB e RPM validados com logo: ${release_dir}"
+echo "DEB e RPM validados com logo: ${release_dir}"

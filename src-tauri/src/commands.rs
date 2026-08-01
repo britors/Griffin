@@ -7,13 +7,14 @@ use crate::{
 };
 use sha2::{Digest, Sha256};
 use std::{
+    collections::HashSet,
     fs,
     io::{BufRead, BufReader as StdBufReader, Read},
     path::{Path, PathBuf},
     process::Command as StdCommand,
     process::Stdio,
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use symphonia::{
     core::{
@@ -32,6 +33,403 @@ use uuid::Uuid;
 
 const CORE_STEMS: [&str; 4] = ["vocals", "drums", "bass", "other"];
 const ALL_STEMS: [&str; 6] = ["vocals", "drums", "bass", "other", "guitar", "piano"];
+const MAX_REMOTE_DURATION_SECONDS: f64 = 60.0 * 60.0;
+const MAX_MODEL_DOWNLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const MODEL_SHA256: &[(&str, &str)] = &[
+    ("htdemucs.onnx", "d05c269d0178d2a72ad484b10b11dd370193fc923201c3b27a99f848745db70a"),
+    ("htdemucs_ft_bass_fp16weights.onnx", "b533037176b14b2df31c92a5d5b3d5660d0811b9b360d3db761964768b079961"),
+    ("htdemucs_ft_drums_fp16weights.onnx", "047764dff888cfb87da917013377d4ec7a134f7419cbe486d9c339aa17975ddd"),
+    ("htdemucs_ft_other_fp16weights.onnx", "b739171a7057b3107bb0711c6222d4a619b41b13a8f04026431d30f32ad2bd71"),
+    ("htdemucs_ft_vocals_fp16weights.onnx", "0cbe651f535415c9d26a7bb614f7d322dd5a080fa0298f2e50f478030a994dce"),
+    ("htdemucs_6s.onnx", "7ce55792e2231c93fbf92de95f5fd5b3a5e6c89f7db690dfd693e8f1dce56869"),
+];
+
+fn model_sha256(file_name: &str) -> Option<&'static str> {
+    MODEL_SHA256
+        .iter()
+        .find_map(|(name, hash)| (*name == file_name).then_some(*hash))
+}
+const CUDNN_VERSION: &str = "9.25.0.15";
+const CUDNN_MAX_DOWNLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+struct CudaRuntimeAsset {
+    url: &'static str,
+    sha256: &'static str,
+    archive_name: &'static str,
+}
+
+struct RemoteSeparationGuard<'a> {
+    active: &'a std::sync::Mutex<HashSet<String>>,
+    track_id: String,
+}
+
+struct InstallingFlagGuard(Arc<std::sync::Mutex<bool>>);
+
+impl Drop for InstallingFlagGuard {
+    fn drop(&mut self) {
+        if let Ok(mut installing) = self.0.lock() {
+            *installing = false;
+        }
+    }
+}
+
+struct DownloadingFlagGuard(Arc<std::sync::Mutex<Option<String>>>);
+
+impl Drop for DownloadingFlagGuard {
+    fn drop(&mut self) {
+        if let Ok(mut downloading) = self.0.lock() {
+            *downloading = None;
+        }
+    }
+}
+
+impl Drop for RemoteSeparationGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut active) = self.active.lock() {
+            active.remove(&self.track_id);
+        }
+    }
+}
+
+fn cuda_runtime_assets() -> Option<Vec<CudaRuntimeAsset>> {
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    {
+        return Some(vec![
+            CudaRuntimeAsset {
+                url: "https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/linux-x86_64/cuda_cudart-linux-x86_64-13.3.29-archive.tar.xz",
+                sha256: "1e59c4888267d27ba1a9bd0f3669a6439db1334a96e754cd9013c7c73e18dc9d",
+                archive_name: "cuda_cudart-linux-x86_64-13.3.29-archive.tar.xz",
+            },
+            CudaRuntimeAsset {
+                url: "https://developer.download.nvidia.com/compute/cuda/redist/libcublas/linux-x86_64/libcublas-linux-x86_64-13.6.0.2-archive.tar.xz",
+                sha256: "1794edb653adf48f5fa02d86bb738ed75888dd355aa39dadb6202d84d554c0dc",
+                archive_name: "libcublas-linux-x86_64-13.6.0.2-archive.tar.xz",
+            },
+            CudaRuntimeAsset {
+                url: "https://developer.download.nvidia.com/compute/cuda/redist/libcurand/linux-x86_64/libcurand-linux-x86_64-10.4.3.29-archive.tar.xz",
+                sha256: "0218e62ab413e435dcd0274ec8e63b62214e6aba8519201061d1597e73caadbb",
+                archive_name: "libcurand-linux-x86_64-10.4.3.29-archive.tar.xz",
+            },
+            CudaRuntimeAsset {
+                url: "https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/linux-x86_64/cudnn-linux-x86_64-9.25.0.15_cuda13-archive.tar.xz",
+                sha256: "bdf8c65f92dd552141d011fd7e7a1bfbafdc6239667b15c44d604597fa927745",
+                archive_name: "cudnn-linux-x86_64-9.25.0.15_cuda13-archive.tar.xz",
+            },
+        ]);
+    }
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    {
+        return Some(vec![
+            CudaRuntimeAsset {
+                url: "https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/windows-x86_64/cuda_cudart-windows-x86_64-13.3.29-archive.zip",
+                sha256: "1feb7dd266813ffe8dbc24e115183a5ac35a4795c8d34aca0df85ab616b64d9c",
+                archive_name: "cuda_cudart-windows-x86_64-13.3.29-archive.zip",
+            },
+            CudaRuntimeAsset {
+                url: "https://developer.download.nvidia.com/compute/cuda/redist/libcublas/windows-x86_64/libcublas-windows-x86_64-13.6.0.2-archive.zip",
+                sha256: "62e9fa305c8f0a28e0cdcf9d6fc1fed347bcfab8847239b9ae1fdc1d86408a",
+                archive_name: "libcublas-windows-x86_64-13.6.0.2-archive.zip",
+            },
+            CudaRuntimeAsset {
+                url: "https://developer.download.nvidia.com/compute/cuda/redist/libcurand/windows-x86_64/libcurand-windows-x86_64-10.4.3.29-archive.zip",
+                sha256: "d3c518485188990666cf9ad848dab40cd0f686a6760344a52fc9eed24acc5b49",
+                archive_name: "libcurand-windows-x86_64-10.4.3.29-archive.zip",
+            },
+            CudaRuntimeAsset {
+                url: "https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/windows-x86_64/cudnn-windows-x86_64-9.25.0.15_cuda13-archive.zip",
+                sha256: "1ee69c966cfd43d883d7e00e10b6e3052112a7b2abd2a9b0ef293eea1eae5f1e",
+                archive_name: "cudnn-windows-x86_64-9.25.0.15_cuda13-archive.zip",
+            },
+        ]);
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+fn cuda_runtime_root(data_dir: &Path) -> PathBuf {
+    data_dir.join("runtimes").join("cuda").join("cudnn")
+}
+
+fn cuda_runtime_download_bytes() -> Option<u64> {
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    return Some(1_787_316_144);
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    return Some(1_720_055_937);
+    #[allow(unreachable_code)]
+    None
+}
+
+fn cuda_runtime_library_dir(data_dir: &Path) -> Option<PathBuf> {
+    let root = cuda_runtime_root(data_dir);
+    #[cfg(target_os = "linux")]
+    let directory = root.join("lib");
+    #[cfg(target_os = "windows")]
+    let directory = root.join("bin");
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    let directory = root;
+    directory.is_dir().then_some(directory)
+}
+
+fn cuda_runtime_installed(data_dir: &Path) -> bool {
+    let Some(directory) = cuda_runtime_library_dir(data_dir) else {
+        return false;
+    };
+    #[cfg(target_os = "linux")]
+    {
+        return ["libcudart.so.13", "libcublas.so.13", "libcurand.so.10", "libcudnn.so.9"]
+            .iter()
+            .all(|name| directory.join(name).is_file());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let names = fs::read_dir(directory)
+            .ok()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().to_ascii_lowercase())
+            .collect::<Vec<_>>();
+        return ["cudart64_13.dll", "cublas64_13.dll", "curand64_10.dll", "cudnn64_9.dll"]
+            .iter()
+            .all(|name| names.iter().any(|candidate| candidate == name));
+    }
+    #[allow(unreachable_code)]
+    false
+}
+
+#[tauri::command]
+pub fn cuda_runtime_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let data_dir = state.data.lock().map_err(lock_error)?.data_dir.clone();
+    let supported = cuda_runtime_assets().is_some();
+    let installed = cuda_runtime_installed(&data_dir);
+    let downloading = *state.cuda_runtime_installing.lock().map_err(lock_error)?;
+    Ok(serde_json::json!({
+        "supported": supported,
+        "installed": installed,
+        "downloading": downloading,
+        "downloadBytes": cuda_runtime_download_bytes(),
+        "version": if supported { Some(CUDNN_VERSION) } else { None::<&str> },
+        "message": if installed {
+            format!("cuDNN {CUDNN_VERSION} instalado para este sistema.")
+        } else if supported {
+            "A aceleração NVIDIA ainda não está instalada. O Griffin pode baixar o runtime necessário.".to_string()
+        } else {
+            "A aceleração NVIDIA não está disponível para este sistema; o Griffin usará CPU.".to_string()
+        }
+    }))
+}
+
+#[tauri::command]
+pub async fn cuda_runtime_install(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let assets = cuda_runtime_assets().ok_or_else(|| {
+        "A aceleração NVIDIA não é suportada neste sistema; use CPU.".to_string()
+    })?;
+    let (data_dir, already_installed) = {
+        let data = state.data.lock().map_err(lock_error)?;
+        (data.data_dir.clone(), cuda_runtime_installed(&data.data_dir))
+    };
+    if already_installed {
+        return Ok(());
+    }
+    {
+        let mut installing = state
+            .cuda_runtime_installing
+            .lock()
+            .map_err(lock_error)?;
+        if *installing {
+            return Err("A instalação do runtime NVIDIA já está em andamento.".into());
+        }
+        *installing = true;
+    }
+    let cancelled = Arc::clone(&state.cuda_runtime_cancelled);
+    let installing = Arc::clone(&state.cuda_runtime_installing);
+    let _installing_guard = InstallingFlagGuard(Arc::clone(&installing));
+    *cancelled
+        .lock()
+        .map_err(lock_error)? = false;
+    tokio::task::spawn_blocking(move || {
+        cuda_runtime_install_blocking(app, assets, data_dir, cancelled)
+    })
+    .await
+    .map_err(|error| format!("Falha no instalador do runtime NVIDIA: {error}"))?
+}
+
+fn cuda_runtime_install_blocking(
+    app: AppHandle,
+    assets: Vec<CudaRuntimeAsset>,
+    data_dir: PathBuf,
+    cancelled: Arc<std::sync::Mutex<bool>>,
+) -> Result<(), String> {
+    let runtime_parent = data_dir.join("runtimes").join("cuda");
+    fs::create_dir_all(&runtime_parent).map_err(|error| error.to_string())?;
+    let staging = cuda_runtime_root(&data_dir).with_extension("installing");
+    let _ = fs::remove_dir_all(&staging);
+    let total_assets = assets.len();
+    for (index, asset) in assets.iter().enumerate() {
+        if *cancelled.lock().map_err(lock_error)? {
+            return Err("Download do runtime NVIDIA cancelado.".into());
+        }
+        let archive_path = runtime_parent.join(asset.archive_name);
+        let temporary = archive_path.with_extension("download");
+        let _ = fs::remove_file(&temporary);
+        emit_cuda_runtime_progress(
+            &app,
+            index as f64 / total_assets as f64 * 0.85,
+            &format!("Baixando componente NVIDIA {}/{}…", index + 1, total_assets),
+        );
+        let response = ureq::get(asset.url)
+            .call()
+            .map_err(|error| format!("Falha ao baixar o runtime NVIDIA: {error}"))?;
+        let expected = response
+            .headers()
+            .get("content-length")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok());
+        if expected.is_some_and(|size| size > CUDNN_MAX_DOWNLOAD_BYTES) {
+            return Err("Um pacote do runtime NVIDIA excede o limite de segurança do Griffin.".into());
+        }
+        let mut reader = response.into_body().into_reader();
+        let mut file = fs::File::create(&temporary).map_err(|error| error.to_string())?;
+        let copy_result = copy_with_progress(&mut reader, &mut file, expected, |received| {
+            if received > CUDNN_MAX_DOWNLOAD_BYTES {
+                return Err("Um pacote do runtime NVIDIA excede o limite de segurança do Griffin.".into());
+            }
+            if *cancelled.lock().map_err(lock_error)? {
+                return Err("Download do runtime NVIDIA cancelado.".into());
+            }
+            let fraction = expected
+                .map(|total| (received as f64 / total.max(1) as f64).min(1.0))
+                .unwrap_or(0.0);
+            let progress = (index as f64 + fraction) / total_assets as f64 * 0.85;
+            emit_cuda_runtime_progress(&app, progress, &format!("Baixando componente NVIDIA · {}%", (fraction * 100.0) as u32));
+            Ok(())
+        });
+        if let Err(error) = copy_result {
+            let _ = fs::remove_file(&temporary);
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+        file.sync_all().map_err(|error| error.to_string())?;
+        if sha256_file(&temporary)? != asset.sha256 {
+            let _ = fs::remove_file(&temporary);
+            let _ = fs::remove_dir_all(&staging);
+            return Err("A verificação de integridade do runtime NVIDIA falhou.".into());
+        }
+        emit_cuda_runtime_progress(&app, (index as f64 + 0.9) / total_assets as f64 * 0.85, "Instalando componente NVIDIA…");
+        extract_cuda_runtime(&temporary, &staging)?;
+        let _ = fs::remove_file(&temporary);
+    }
+    if *cancelled.lock().map_err(lock_error)? {
+        let _ = fs::remove_dir_all(&staging);
+        return Err("Download do runtime NVIDIA cancelado.".into());
+    }
+    if !cuda_runtime_installed(&staging) {
+        let _ = fs::remove_dir_all(&staging);
+        return Err("O pacote cuDNN não contém uma biblioteca compatível com este sistema.".into());
+    }
+    let destination = cuda_runtime_root(&data_dir);
+    if destination.exists() {
+        fs::remove_dir_all(&destination).map_err(|error| error.to_string())?;
+    }
+    fs::rename(&staging, &destination).map_err(|error| error.to_string())?;
+    emit_cuda_runtime_progress(&app, 1.0, "Aceleração NVIDIA instalada.");
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cuda_runtime_cancel(state: State<'_, AppState>) -> Result<(), String> {
+    *state
+        .cuda_runtime_cancelled
+        .lock()
+        .map_err(lock_error)? = true;
+    Ok(())
+}
+
+fn emit_cuda_runtime_progress(app: &AppHandle, progress: f64, stage: &str) {
+    let _ = app.emit(
+        "cuda-runtime:progress",
+        serde_json::json!({ "progress": progress.clamp(0.0, 1.0), "stage": stage }),
+    );
+}
+
+#[cfg(target_os = "linux")]
+fn extract_cuda_runtime(archive_path: &Path, staging: &Path) -> Result<(), String> {
+    use tar::Archive;
+    use xz2::read::XzDecoder;
+    let file = fs::File::open(archive_path).map_err(|error| error.to_string())?;
+    let decoder = XzDecoder::new(file);
+    let mut archive = Archive::new(decoder);
+    fs::create_dir_all(staging).map_err(|error| error.to_string())?;
+    for entry in archive.entries().map_err(|error| error.to_string())? {
+        let mut entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path().map_err(|error| error.to_string())?.into_owned();
+        let Some(relative) = runtime_archive_path(&path, "lib") else {
+            continue;
+        };
+        entry
+            .unpack(staging.join(relative))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn extract_cuda_runtime(archive_path: &Path, staging: &Path) -> Result<(), String> {
+    use std::io::Write;
+    use zip::ZipArchive;
+    let file = fs::File::open(archive_path).map_err(|error| error.to_string())?;
+    let mut archive = ZipArchive::new(file).map_err(|error| error.to_string())?;
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(|error| error.to_string())?;
+        if entry.is_dir() {
+            continue;
+        }
+        let Some(path) = entry.enclosed_name().map(Path::to_path_buf) else {
+            return Err("O pacote cuDNN contém um caminho inválido.".into());
+        };
+        let Some(relative) = runtime_archive_path(&path, "bin") else {
+            continue;
+        };
+        let destination = staging.join(relative);
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        let mut output = fs::File::create(destination).map_err(|error| error.to_string())?;
+        std::io::copy(&mut entry, &mut output).map_err(|error| error.to_string())?;
+        output.flush().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+fn extract_cuda_runtime(_archive_path: &Path, _staging: &Path) -> Result<(), String> {
+    Err("A aceleração NVIDIA não é suportada neste sistema.".into())
+}
+
+fn runtime_archive_path(path: &Path, marker: &str) -> Option<PathBuf> {
+    let components = path.components().collect::<Vec<_>>();
+    let marker_index = components.iter().position(|component| {
+        component
+            .as_os_str()
+            .to_str()
+            .is_some_and(|value| value == marker)
+    })?;
+    if components[marker_index..].iter().any(|component| {
+        matches!(
+            component,
+            std::path::Component::ParentDir
+                | std::path::Component::RootDir
+                | std::path::Component::Prefix(_)
+        )
+    }) {
+        return None;
+    }
+    let relative = components[marker_index..]
+        .iter()
+        .map(|component| component.as_os_str())
+        .collect::<PathBuf>();
+    (!relative.file_name()?.to_str()?.is_empty()).then_some(relative)
+}
 
 #[tauri::command]
 pub fn window_minimize(window: Window) -> Result<(), String> {
@@ -835,20 +1233,72 @@ pub fn separation_status(state: State<'_, AppState>) -> Result<SeparationStatus,
     let data = state.data.lock().map_err(lock_error)?;
     let standard = standard_models_installed(&data.models_dir);
     let six = data.models_dir.join("htdemucs_6s.onnx").exists();
+    let configured_provider = data
+        .settings
+        .get("executionProvider")
+        .and_then(|value| value.as_str())
+        .unwrap_or("auto");
+    let runtime_available = cuda_runtime_available(&data.data_dir);
+    let metrics = state.separation_metrics.lock().map_err(lock_error)?;
+    let provider = if configured_provider == "cpu" {
+        "cpu"
+    } else if let Some(last_provider) = metrics.last_provider.as_deref() {
+        if last_provider == "cuda" && !runtime_available {
+            "cpu"
+        } else {
+            last_provider
+        }
+    } else if runtime_available {
+        "cuda"
+    } else {
+        "cpu"
+    };
+    let selected_model_profile = data
+        .settings
+        .get("modelProfile")
+        .and_then(|value| value.as_str())
+        .filter(|profile| matches!(*profile, "four-stem" | "six-stem"))
+        .unwrap_or("four-stem");
+    let effective_model_profile = if selected_model_profile == "six-stem" && six {
+        "six-stem"
+    } else {
+        "four-stem"
+    };
+    let available = if effective_model_profile == "six-stem" {
+        six
+    } else {
+        standard
+    };
     Ok(SeparationStatus {
-        available: standard || six,
-        message: if standard || six {
+        available,
+        message: if available {
             "Modelo ONNX nativo pronto.".into()
+        } else if six && !standard {
+            "O modelo estendido está instalado, mas o modelo padrão de quatro stems ainda é necessário.".into()
         } else {
             "Modelo ONNX não encontrado. Baixe-o em Preferências.".into()
         },
-        provider: Some("cpu".into()),
-        profile: Some("quality".into()),
+        provider: Some(provider.into()),
+        profile: Some(
+            data.settings
+                .get("processingProfile")
+                .and_then(|value| value.as_str())
+                .filter(|profile| matches!(*profile, "quality" | "balanced" | "speed"))
+                .unwrap_or("quality")
+                .into(),
+        ),
         memory_bytes: Some(current_rss()),
-        last_duration_ms: None,
-        model_profile: Some(if six { "six-stem" } else { "four-stem" }.into()),
+        last_duration_ms: metrics.last_duration_ms,
+        model_profile: Some(effective_model_profile.into()),
         six_stem_available: Some(six),
     })
+}
+
+fn cuda_runtime_available(data_dir: &Path) -> bool {
+    // The actual provider is loaded by the external worker with a runtime
+    // specific library path. Checking EP registration in this process can
+    // report a false positive because it does not see userData/runtimes/cuda.
+    cuda_runtime_installed(data_dir)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -859,7 +1309,31 @@ pub async fn separation_start(
     target: Option<String>,
     provider: Option<String>,
 ) -> Result<Track, String> {
+    if target
+        .as_deref()
+        .is_some_and(|value| !ALL_STEMS.contains(&value))
+    {
+        return Err("Stem de destino inválido.".into());
+    }
+    let track = {
+        let data = state.data.lock().map_err(lock_error)?;
+        data.tracks
+            .iter()
+            .find(|item| item.id == track.id)
+            .cloned()
+            .ok_or_else(|| "Faixa não encontrada na biblioteca.".to_string())?
+    };
     if provider.as_deref() == Some("remote") {
+        {
+            let mut active = state.remote_active.lock().map_err(lock_error)?;
+            if !active.insert(track.id.clone()) {
+                return Err("Outra separação remota já está em andamento para esta faixa.".into());
+            }
+        }
+        let _remote_guard = RemoteSeparationGuard {
+            active: &state.remote_active,
+            track_id: track.id.clone(),
+        };
         state
             .remote_cancelled
             .lock()
@@ -879,27 +1353,112 @@ pub async fn separation_start(
         save_tracks_locked(&data)?;
         return Ok(result);
     }
-    let (models_dir, cache_dir) = {
+    let (
+        models_dir,
+        cache_dir,
+        execution_provider,
+        processing_threads,
+        processing_profile,
+        model_profile,
+        cuda_runtime_available,
+    ) = {
         let data = state.data.lock().map_err(lock_error)?;
-        (data.models_dir.clone(), data.cache_dir.clone())
+        let execution_provider = data
+            .settings
+            .get("executionProvider")
+            .and_then(|value| value.as_str())
+            .filter(|value| matches!(*value, "auto" | "cpu" | "cuda"))
+            .unwrap_or("auto")
+            .to_string();
+        let processing_threads = data
+            .settings
+            .get("processingThreads")
+            .and_then(|value| value.as_u64())
+            .map(|threads| threads.clamp(0, 8) as usize)
+            .unwrap_or(0);
+        let processing_profile = data
+            .settings
+            .get("processingProfile")
+            .and_then(|value| value.as_str())
+            .filter(|profile| matches!(*profile, "quality" | "balanced" | "speed"))
+            .unwrap_or("quality")
+            .to_string();
+        let model_profile = data
+            .settings
+            .get("modelProfile")
+            .and_then(|value| value.as_str())
+            .filter(|value| matches!(*value, "four-stem" | "six-stem"))
+            .unwrap_or("four-stem")
+            .to_string();
+        let cuda_runtime_available = cuda_runtime_installed(&data.data_dir);
+        (
+            data.models_dir.clone(),
+            data.cache_dir.clone(),
+            execution_provider,
+            processing_threads,
+            processing_profile,
+            model_profile,
+            cuda_runtime_available,
+        )
     };
     if !state.workers.lock().await.is_empty() {
         return Err("Outra separação já está em andamento. Aguarde ela terminar para preservar a memória RAM.".into());
     }
     let track_id = track.id.clone();
-    let request = serde_json::json!({ "type": "separate", "track": track.clone(), "target": target, "modelsDir": models_dir, "cacheDir": cache_dir });
-    let mut child = Command::new(worker_path(&app))
+    let started_at = Instant::now();
+    let request = serde_json::json!({ "type": "separate", "track": track.clone(), "target": target, "modelsDir": models_dir, "cacheDir": cache_dir, "executionProvider": execution_provider, "processingThreads": processing_threads, "processingProfile": processing_profile, "modelProfile": model_profile, "cudaRuntimeAvailable": cuda_runtime_available });
+    let worker = worker_path(&app);
+    let cuda_library_directory = state
+        .data
+        .lock()
+        .map_err(lock_error)
+        .ok()
+        .and_then(|data| cuda_runtime_library_dir(&data.data_dir));
+    let mut worker_command = Command::new(&worker);
+    // The CUDA provider is shipped beside the external worker. ONNX Runtime
+    // loads it by filename, so make that directory visible to the dynamic
+    // loader in bundled installations as well as in local development.
+    #[cfg(target_os = "linux")]
+    if let Some(directory) = worker.parent() {
+        let mut library_paths = vec![directory.to_path_buf()];
+        if let Some(cuda_directory) = cuda_library_directory.as_ref() {
+            library_paths.insert(0, cuda_directory.clone());
+        }
+        if let Some(existing) = std::env::var_os("LD_LIBRARY_PATH") {
+            library_paths.extend(std::env::split_paths(&existing));
+        }
+        if let Ok(joined) = std::env::join_paths(library_paths) {
+            worker_command.env("LD_LIBRARY_PATH", joined);
+        }
+    }
+    #[cfg(target_os = "windows")]
+    if let Some(directory) = worker.parent() {
+        let mut library_paths = vec![directory.to_path_buf()];
+        if let Some(cuda_directory) = cuda_library_directory.as_ref() {
+            library_paths.insert(0, cuda_directory.clone());
+        }
+        if let Some(existing) = std::env::var_os("PATH") {
+            library_paths.extend(std::env::split_paths(&existing));
+        }
+        if let Ok(joined) = std::env::join_paths(library_paths) {
+            worker_command.env("PATH", joined);
+        }
+    }
+    let mut child = worker_command
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()
         .map_err(|e| format!("Não foi possível iniciar o processo ONNX nativo: {e}"))?;
     if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(format!("{}\n", request).as_bytes())
-            .await
-            .map_err(|e| e.to_string())?;
-        stdin.shutdown().await.map_err(|e| e.to_string())?;
+        if let Err(error) = stdin.write_all(format!("{}\n", request).as_bytes()).await {
+            let _ = child.kill().await;
+            return Err(error.to_string());
+        }
+        if let Err(error) = stdin.shutdown().await {
+            let _ = child.kill().await;
+            return Err(error.to_string());
+        }
     }
     let child = Arc::new(Mutex::new(child));
     let mut workers = state.workers.lock().await;
@@ -909,17 +1468,21 @@ pub async fn separation_start(
     }
     workers.insert(track_id.clone(), child.clone());
     drop(workers);
-    let stdout = child
-        .lock()
-        .await
-        .stdout
-        .take()
-        .ok_or_else(|| "O worker ONNX não abriu a saída.".to_string())?;
+    let stdout = match child.lock().await.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            let _ = child.lock().await.kill().await;
+            state.workers.lock().await.remove(&track_id);
+            return Err("O worker ONNX não abriu a saída.".into());
+        }
+    };
     let mut lines = BufReader::new(stdout).lines();
     let mut stems: Option<Stems> = None;
+    let mut active_provider: Option<String> = None;
     while let Some(line) = match lines.next_line().await {
         Ok(line) => line,
         Err(error) => {
+            let _ = child.lock().await.kill().await;
             state.workers.lock().await.remove(&track_id);
             return Err(error.to_string());
         }
@@ -927,6 +1490,7 @@ pub async fn separation_start(
         let message: serde_json::Value = match serde_json::from_str(&line) {
             Ok(message) => message,
             Err(error) => {
+                let _ = child.lock().await.kill().await;
                 state.workers.lock().await.remove(&track_id);
                 return Err(format!("Resposta inválida do worker ONNX: {error}"));
             }
@@ -934,6 +1498,9 @@ pub async fn separation_start(
         match message.get("type").and_then(|value| value.as_str()) {
             Some("progress") => {
                 if let Some(progress) = message.get("progress") {
+                    if let Some(provider) = progress.get("provider").and_then(|value| value.as_str()) {
+                        active_provider = Some(provider.to_string());
+                    }
                     let _ = app.emit("separation:progress", progress);
                 }
             }
@@ -948,6 +1515,7 @@ pub async fn separation_start(
                 break;
             }
             Some("error") => {
+                let _ = child.lock().await.kill().await;
                 state.workers.lock().await.remove(&track_id);
                 return Err(message
                     .get("message")
@@ -959,6 +1527,16 @@ pub async fn separation_start(
         }
     }
     state.workers.lock().await.remove(&track_id);
+    state
+        .separation_metrics
+        .lock()
+        .map_err(lock_error)?
+        .last_duration_ms = Some(started_at.elapsed().as_millis().min(u64::MAX as u128) as u64);
+    state
+        .separation_metrics
+        .lock()
+        .map_err(lock_error)?
+        .last_provider = active_provider;
     let mut data = state.data.lock().map_err(lock_error)?;
     let stored = data
         .tracks
@@ -1012,6 +1590,16 @@ async fn separate_remote(
     if size > 100 * 1024 * 1024 {
         return Err("O arquivo excede o limite de 100 MB do StemSplit.".into());
     }
+    let duration = match track.duration.filter(|value| value.is_finite() && *value >= 0.0) {
+        Some(value) => Some(value),
+        None => audio_duration_seconds(Path::new(&track.path))?,
+    };
+    if duration.is_none() {
+        return Err("Não foi possível confirmar a duração da faixa para processamento remoto.".into());
+    }
+    if duration.is_some_and(|value| value > MAX_REMOTE_DURATION_SECONDS) {
+        return Err("A faixa excede o limite de 60 minutos do StemSplit.".into());
+    }
     let file_name = Path::new(&track.path)
         .file_name()
         .and_then(|value| value.to_str())
@@ -1026,11 +1614,12 @@ async fn separate_remote(
         "flac" => "audio/flac",
         _ => "audio/wav",
     };
-    let upload = remote_post_json(
+    let upload = remote_post_json_async(
         "https://stemsplit.io/api/v1/upload",
         &key,
         serde_json::json!({ "filename": file_name, "contentType": content_type }),
-    )?;
+    )
+    .await?;
     let upload_url = upload
         .get("uploadUrl")
         .and_then(|value| value.as_str())
@@ -1039,16 +1628,13 @@ async fn separate_remote(
         .get("uploadKey")
         .and_then(|value| value.as_str())
         .ok_or_else(|| "O StemSplit não retornou a chave de upload.".to_string())?;
-    let audio = fs::read(&track.path).map_err(|e| e.to_string())?;
-    ureq::put(upload_url)
-        .header("Content-Type", content_type)
-        .send(audio)
-        .map_err(|error| format!("Falha ao enviar áudio para o StemSplit: {error}"))?;
-    let job = remote_post_json(
+    remote_upload_audio(upload_url, content_type, Path::new(&track.path)).await?;
+    let job = remote_post_json_async(
         "https://stemsplit.io/api/v1/jobs",
         &key,
         serde_json::json!({ "uploadKey": upload_key, "fileName": file_name, "outputType": output_type, "quality": quality, "outputFormat": "WAV" }),
-    )?;
+    )
+    .await?;
     let job_id = job
         .get("id")
         .and_then(|value| value.as_str())
@@ -1060,9 +1646,13 @@ async fn separate_remote(
         }
         None => vec!["vocals", "drums", "bass", "other"],
     };
-    let output_dir = cache_dir.join(format!("{}-{}", track.id, target.unwrap_or("all")));
+    let output_dir = cache_dir.join(format!("{}-{}", cache_component(&track.id), target.unwrap_or("all")));
     fs::create_dir_all(&output_dir).map_err(|e| e.to_string())?;
+    let poll_started = Instant::now();
     loop {
+        if poll_started.elapsed() > Duration::from_secs(10 * 60) {
+            return Err("O StemSplit demorou mais de 10 minutos para concluir.".into());
+        }
         if state
             .remote_cancelled
             .lock()
@@ -1071,11 +1661,14 @@ async fn separate_remote(
         {
             return Err("Separação cancelada.".into());
         }
-        let status = remote_get_json(&format!("https://stemsplit.io/api/v1/jobs/{job_id}"), &key)?;
+        let status = remote_get_json_async(&format!("https://stemsplit.io/api/v1/jobs/{job_id}"), &key).await?;
         let raw_status = status
             .get("status")
             .and_then(|value| value.as_str())
             .unwrap_or("");
+        if !matches!(raw_status, "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "EXPIRED") {
+            return Err(format!("O StemSplit retornou um status desconhecido: {raw_status}."));
+        }
         let raw_progress = status
             .get("progress")
             .and_then(|value| value.as_f64())
@@ -1106,13 +1699,8 @@ async fn separate_remote(
                     .and_then(|value| value.get("url"))
                     .and_then(|value| value.as_str())
                     .ok_or_else(|| format!("O StemSplit não retornou o stem {stem}."))?;
-                let response = ureq::get(url)
-                    .call()
-                    .map_err(|error| format!("Falha ao baixar o stem {stem}: {error}"))?;
                 let path = output_dir.join(format!("{stem}.wav"));
-                let mut reader = response.into_body().into_reader();
-                let mut file = fs::File::create(&path).map_err(|e| e.to_string())?;
-                copy_with_limit(&mut reader, &mut file, 200 * 1024 * 1024)?;
+                remote_download_stem(url, &path).await?;
                 stems.insert(stem.to_string(), path.to_string_lossy().to_string());
             }
             let _ = app.emit(
@@ -1125,7 +1713,19 @@ async fn separate_remote(
     }
 }
 
-fn remote_post_json(
+async fn remote_post_json_async(
+    url: &str,
+    key: &str,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let url = url.to_string();
+    let key = key.to_string();
+    tokio::task::spawn_blocking(move || remote_post_json_blocking(&url, &key, body))
+        .await
+        .map_err(|error| format!("Falha na requisição do StemSplit: {error}"))?
+}
+
+fn remote_post_json_blocking(
     url: &str,
     key: &str,
     body: serde_json::Value,
@@ -1141,7 +1741,15 @@ fn remote_post_json(
     serde_json::from_str(&text).map_err(|error| error.to_string())
 }
 
-fn remote_get_json(url: &str, key: &str) -> Result<serde_json::Value, String> {
+async fn remote_get_json_async(url: &str, key: &str) -> Result<serde_json::Value, String> {
+    let url = url.to_string();
+    let key = key.to_string();
+    tokio::task::spawn_blocking(move || remote_get_json_blocking(&url, &key))
+        .await
+        .map_err(|error| format!("Falha na requisição do StemSplit: {error}"))?
+}
+
+fn remote_get_json_blocking(url: &str, key: &str) -> Result<serde_json::Value, String> {
     let response = ureq::get(url)
         .header("Authorization", format!("Bearer {key}"))
         .call()
@@ -1151,6 +1759,42 @@ fn remote_get_json(url: &str, key: &str) -> Result<serde_json::Value, String> {
         .read_to_string()
         .map_err(|error| error.to_string())?;
     serde_json::from_str(&text).map_err(|error| error.to_string())
+}
+
+async fn remote_upload_audio(
+    upload_url: &str,
+    content_type: &str,
+    path: &Path,
+) -> Result<(), String> {
+    let upload_url = upload_url.to_string();
+    let content_type = content_type.to_string();
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let audio = fs::read(path).map_err(|error| error.to_string())?;
+        ureq::put(upload_url)
+            .header("Content-Type", content_type)
+            .send(audio)
+            .map_err(|error| format!("Falha ao enviar áudio para o StemSplit: {error}"))?;
+        Ok(())
+    })
+    .await
+    .map_err(|error| format!("Falha no upload para o StemSplit: {error}"))?
+}
+
+async fn remote_download_stem(url: &str, path: &Path) -> Result<(), String> {
+    let url = url.to_string();
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let response = ureq::get(url)
+            .call()
+            .map_err(|error| format!("Falha ao baixar stem remoto: {error}"))?;
+        let mut reader = response.into_body().into_reader();
+        let mut file = fs::File::create(path).map_err(|error| error.to_string())?;
+        copy_with_limit(&mut reader, &mut file, 200 * 1024 * 1024)
+    })
+    .await
+    .map_err(|error| format!("Falha no download do stem remoto: {error}"))?
+    .map(|_| ())
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -1313,52 +1957,98 @@ pub fn export_cancel(state: State<'_, AppState>, request_id: String) -> Result<(
 
 #[tauri::command]
 pub fn models_status(state: State<'_, AppState>) -> Result<ModelDownloadStatus, String> {
-    let data = state.data.lock().map_err(lock_error)?;
+    let (standard_installed, extended_installed) = {
+        let data = state.data.lock().map_err(lock_error)?;
+        (
+            standard_models_installed(&data.models_dir),
+            data.models_dir.join("htdemucs_6s.onnx").is_file(),
+        )
+    };
+    let downloading = state.model_downloading.lock().map_err(lock_error)?.clone();
     Ok(ModelDownloadStatus {
-        standard_installed: standard_models_installed(&data.models_dir),
-        extended_installed: data.models_dir.join("htdemucs_6s.onnx").is_file(),
-        downloading: None,
+        standard_installed,
+        extended_installed,
+        downloading,
     })
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn models_download(
+pub async fn models_download(
     app: AppHandle,
     state: State<'_, AppState>,
     kind: String,
 ) -> Result<(), String> {
-    state
-        .model_cancelled
+    if !matches!(kind.as_str(), "standard" | "extended") {
+        return Err("Tipo de modelo inválido.".into());
+    }
+    {
+        let mut downloading = state.model_downloading.lock().map_err(lock_error)?;
+        if downloading.is_some() {
+            return Err("Outro download de modelo já está em andamento.".into());
+        }
+        *downloading = Some(kind.clone());
+    }
+    let cancelled = Arc::clone(&state.model_cancelled);
+    let downloading = Arc::clone(&state.model_downloading);
+    let _downloading_guard = DownloadingFlagGuard(Arc::clone(&downloading));
+    cancelled
         .lock()
         .map_err(lock_error)?
         .remove(&kind);
     let models_dir = state.data.lock().map_err(lock_error)?.models_dir.clone();
+    tokio::task::spawn_blocking(move || {
+        models_download_blocking(app, kind, models_dir, cancelled)
+    })
+    .await
+    .map_err(|error| format!("Falha no instalador dos modelos ONNX: {error}"))?
+}
+
+fn models_download_blocking(
+    app: AppHandle,
+    kind: String,
+    models_dir: PathBuf,
+    cancelled: Arc<std::sync::Mutex<HashSet<String>>>,
+) -> Result<(), String> {
     fs::create_dir_all(models_dir.join("htdemucs-ft")).map_err(|e| e.to_string())?;
     let base = "https://huggingface.co/StemSplitio";
-    let mut files = vec![(
+    let mut files: Vec<(PathBuf, String, &'static str)> = vec![(
         models_dir.join("htdemucs.onnx"),
         format!("{base}/htdemucs-onnx/resolve/main/htdemucs_fp16weights.onnx"),
+        model_sha256("htdemucs.onnx").unwrap(),
     )];
     for stem in CORE_STEMS {
+        let file_name = format!("htdemucs_ft_{stem}_fp16weights.onnx");
         files.push((
             models_dir
                 .join("htdemucs-ft")
-                .join(format!("htdemucs_ft_{stem}_fp16weights.onnx")),
+                .join(&file_name),
             format!(
                 "{base}/htdemucs-ft-{stem}-onnx/resolve/main/htdemucs_ft_{stem}_fp16weights.onnx"
             ),
+            model_sha256(&file_name).unwrap(),
         ));
     }
     if kind == "extended" {
         files = vec![(
             models_dir.join("htdemucs_6s.onnx"),
             format!("{base}/htdemucs-6s-onnx/resolve/main/htdemucs_6s_fp16weights.onnx"),
+            model_sha256("htdemucs_6s.onnx").unwrap(),
         )];
     }
     let total = files.len();
-    for (index, (path, url)) in files.into_iter().enumerate() {
+    for (index, (path, url, expected_hash)) in files.into_iter().enumerate() {
+        if cancelled
+            .lock()
+            .map_err(lock_error)?
+            .contains(&kind)
+        {
+            return Err("Download cancelado.".into());
+        }
         if path.is_file() {
-            continue;
+            if sha256_file(&path).ok().as_deref() == Some(expected_hash) {
+                continue;
+            }
+            fs::remove_file(&path).map_err(|e| e.to_string())?;
         }
         let _ = app.emit(
             "models:progress",
@@ -1372,12 +2062,17 @@ pub fn models_download(
             .get("content-length")
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.parse::<u64>().ok());
+        if expected.is_some_and(|size| size > MAX_MODEL_DOWNLOAD_BYTES) {
+            return Err("O modelo excede o limite de segurança do Griffin.".into());
+        }
         let mut reader = response.into_body().into_reader();
         let temporary = path.with_extension("download");
         let mut file = fs::File::create(&temporary).map_err(|e| e.to_string())?;
         let copy_result = copy_with_progress(&mut reader, &mut file, expected, |received| {
-            if state
-                .model_cancelled
+            if received > MAX_MODEL_DOWNLOAD_BYTES {
+                return Err("O modelo excede o limite de segurança do Griffin.".into());
+            }
+            if cancelled
                 .lock()
                 .map_err(lock_error)?
                 .contains(&kind)
@@ -1396,6 +2091,18 @@ pub fn models_download(
         if let Err(error) = copy_result {
             let _ = fs::remove_file(&temporary);
             return Err(error);
+        }
+        if sha256_file(&temporary).map_err(|e| e.to_string())? != expected_hash {
+            let _ = fs::remove_file(&temporary);
+            return Err(format!("A verificação de integridade do modelo {} falhou.", path.display()));
+        }
+        if cancelled
+            .lock()
+            .map_err(lock_error)?
+            .contains(&kind)
+        {
+            let _ = fs::remove_file(&temporary);
+            return Err("Download cancelado.".into());
         }
         fs::rename(temporary, path).map_err(|e| e.to_string())?;
     }
@@ -1472,7 +2179,7 @@ pub fn chords_export(
         )
     };
     let path = rfd::FileDialog::new()
-        .add_filter(&format.to_uppercase(), &[extension])
+        .add_filter(format.to_uppercase(), &[extension])
         .set_file_name(format!("{base} - acordes.{extension}"))
         .save_file()
         .ok_or_else(|| "Exportação cancelada.".to_string())?;
@@ -1662,16 +2369,28 @@ fn format_time(seconds: f64) -> String {
 }
 
 #[tauri::command]
-pub fn remote_provider_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+pub async fn remote_provider_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let key = {
         let data = state.data.lock().map_err(lock_error)?;
         load_stem_split_api_key(&data.data_dir, &data.settings)
     };
+    remote_provider_status_for_key(key).await
+}
+
+async fn remote_provider_status_for_key(
+    key: Option<String>,
+) -> Result<serde_json::Value, String> {
     let Some(key) = key else {
         return Ok(
             serde_json::json!({ "configured": false, "verified": false, "message": "Nenhuma chave de API configurada." }),
         );
     };
+    tokio::task::spawn_blocking(move || remote_provider_status_blocking(&key))
+        .await
+        .map_err(|error| format!("Falha ao verificar o StemSplit: {error}"))
+}
+
+fn remote_provider_status_blocking(key: &str) -> serde_json::Value {
     let response = ureq::get("https://stemsplit.io/api/v1/balance")
         .header("Authorization", format!("Bearer {key}"))
         .header("Accept", "application/json")
@@ -1684,19 +2403,17 @@ pub fn remote_provider_status(state: State<'_, AppState>) -> Result<serde_json::
                 .get("balanceFormatted")
                 .and_then(|value| value.as_str())
                 .unwrap_or("saldo disponível");
-            Ok(
-                serde_json::json!({ "configured": true, "verified": true, "balanceFormatted": balance, "message": format!("Conectado ao StemSplit — saldo: {balance}.") }),
-            )
+            serde_json::json!({ "configured": true, "verified": true, "balanceFormatted": balance, "message": format!("Conectado ao StemSplit — saldo: {balance}.") })
         }
-        Err(error) => Ok(serde_json::json!({
+        Err(error) => serde_json::json!({
             "configured": true,
             "verified": false,
             "message": if error.to_string().contains("401") { "Chave de API inválida ou revogada." } else { "Não foi possível verificar a chave agora. Tente novamente." }
-        })),
+        }),
     }
 }
 #[tauri::command]
-pub fn remote_provider_save_api_key(
+pub async fn remote_provider_save_api_key(
     state: State<'_, AppState>,
     key: String,
 ) -> Result<serde_json::Value, String> {
@@ -1705,36 +2422,47 @@ pub fn remote_provider_save_api_key(
     }
     let data_dir = state.data.lock().map_err(lock_error)?.data_dir.clone();
     save_stem_split_api_key(&data_dir, key.trim())?;
-    let mut data = state.data.lock().map_err(lock_error)?;
-    data.settings.remove("stemSplitApiKey");
-    save_settings_locked(&data)?;
-    drop(data);
-    remote_provider_status(state)
+    {
+        let mut data = state.data.lock().map_err(lock_error)?;
+        data.settings.remove("stemSplitApiKey");
+        save_settings_locked(&data)?;
+    }
+    remote_provider_status_for_key(Some(key.trim().to_string())).await
 }
 #[tauri::command]
-pub fn remote_provider_clear_api_key(
+pub async fn remote_provider_clear_api_key(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let mut data = state.data.lock().map_err(lock_error)?;
-    let data_dir = data.data_dir.clone();
-    remove_stem_split_api_key(&data_dir)?;
-    data.settings.remove("stemSplitApiKey");
-    save_settings_locked(&data)?;
-    drop(data);
-    remote_provider_status(state)
+    {
+        let mut data = state.data.lock().map_err(lock_error)?;
+        let data_dir = data.data_dir.clone();
+        remove_stem_split_api_key(&data_dir)?;
+        data.settings.remove("stemSplitApiKey");
+        save_settings_locked(&data)?;
+    }
+    remote_provider_status_for_key(None).await
 }
 #[tauri::command(rename_all = "camelCase")]
-pub fn remote_provider_estimate_cost(
+pub async fn remote_provider_estimate_cost(
     state: State<'_, AppState>,
     track_id: String,
 ) -> Result<serde_json::Value, String> {
-    let data = state.data.lock().map_err(lock_error)?;
-    let duration = data
-        .tracks
-        .iter()
-        .find(|track| track.id == track_id)
-        .and_then(|track| track.duration)
-        .unwrap_or(0.0);
+    let (duration, path) = {
+        let data = state.data.lock().map_err(lock_error)?;
+        let track = data
+            .tracks
+            .iter()
+            .find(|track| track.id == track_id)
+            .ok_or_else(|| "Faixa não encontrada.".to_string())?;
+        (track.duration, PathBuf::from(&track.path))
+    };
+    let duration = match duration.filter(|value| value.is_finite() && *value >= 0.0) {
+        Some(value) => value,
+        None => tokio::task::spawn_blocking(move || audio_duration_seconds(&path))
+            .await
+            .map_err(|error| format!("Falha ao estimar a duração da faixa: {error}"))??
+            .ok_or_else(|| "Não foi possível determinar a duração da faixa.".to_string())?,
+    };
     Ok(serde_json::json!({ "durationSeconds": duration, "estimatedUsd": duration / 60.0 * 0.1 }))
 }
 
@@ -2114,6 +2842,38 @@ fn wav_duration(path: &Path) -> Option<f64> {
         reader.duration() as f64 / reader.spec().sample_rate as f64 / reader.spec().channels as f64
     })
 }
+
+fn audio_duration_seconds(path: &Path) -> Result<Option<f64>, String> {
+    let file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let mut hint = Hint::new();
+    if let Some(extension) = path.extension().and_then(|value| value.to_str()) {
+        hint.with_extension(extension);
+    }
+    let source = MediaSourceStream::new(Box::new(file), Default::default());
+    let probe = get_probe()
+        .format(
+            &hint,
+            source,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+        .map_err(|error| error.to_string())?;
+    let track = probe
+        .format
+        .default_track()
+        .ok_or_else(|| "Nenhuma faixa de áudio encontrada.".to_string())?;
+    Ok(track
+        .codec_params
+        .n_frames
+        .zip(track.codec_params.sample_rate)
+        .map(|(frames, rate)| frames as f64 / rate as f64))
+}
+
+fn cache_component(value: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(value.as_bytes());
+    hex::encode(hasher.finalize())[..24].to_string()
+}
 fn directory_size(path: &Path) -> u64 {
     fs::read_dir(path)
         .ok()
@@ -2188,6 +2948,131 @@ fn worker_path(app: &AppHandle) -> PathBuf {
         .flatten()
         .find(|path| path.is_file())
         .unwrap_or_else(|| PathBuf::from(base_name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{fs, io::Cursor, time::{SystemTime, UNIX_EPOCH}};
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(label: &str) -> Self {
+            let suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock before epoch")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("griffin-commands-{label}-{}-{suffix}", std::process::id()));
+            fs::create_dir_all(&path).expect("create temporary directory");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path { &self.0 }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+    }
+
+    #[test]
+    fn accepts_supported_audio_extensions_case_insensitively() {
+        for extension in ["wav", "MP3", "flac", "webm", "m4a"] {
+            assert!(is_supported_audio(Path::new(&format!("track.{extension}"))));
+        }
+        assert!(!is_supported_audio(Path::new("track.txt")));
+    }
+
+    #[test]
+    fn maps_remote_audio_formats_and_rejects_unknown_formats() {
+        assert_eq!(audio_extension("https://example.test/song.wav", ""), Some("wav"));
+        assert_eq!(audio_extension("https://example.test/song", "audio/x-wav"), Some("wav"));
+        assert_eq!(audio_extension("https://example.test/song.mp3", ""), Some("mp3"));
+        assert_eq!(audio_extension("https://example.test/song", "audio/mpeg"), Some("mp3"));
+        assert_eq!(audio_extension("https://example.test/song.flac", ""), Some("flac"));
+        assert_eq!(audio_extension("https://example.test/song", "audio/x-flac"), Some("flac"));
+        assert_eq!(audio_extension("https://example.test/song.txt", "text/plain"), None);
+    }
+
+    #[test]
+    fn rejects_private_and_credentialed_urls() {
+        assert!(validate_public_url("http://127.0.0.1/audio.wav").is_err());
+        assert!(validate_public_url("http://192.168.1.20/audio.wav").is_err());
+        assert!(validate_public_url("http://localhost/audio.wav").is_err());
+        assert!(validate_public_url("https://user:pass@example.test/audio.wav").is_err());
+        assert_eq!(validate_public_url("https://example.test/audio.wav").unwrap(), "https://example.test/audio.wav");
+    }
+
+    #[test]
+    fn restricts_youtube_urls_and_removes_playlist_parameters() {
+        let normalized = validate_youtube_url("https://www.youtube.com/watch?v=abc&list=playlist").unwrap();
+        assert_eq!(normalized, "https://www.youtube.com/watch?v=abc");
+        assert!(validate_youtube_url("https://example.test/watch?v=abc").is_err());
+        assert!(validate_youtube_url("https://youtube.com/watch?v=abc&index=2").is_ok());
+    }
+
+    #[test]
+    fn enforces_copy_limits_and_reports_progress_overruns() {
+        let mut reader = Cursor::new(b"12345".to_vec());
+        let mut output = Vec::new();
+        assert!(copy_with_limit(&mut reader, &mut output, 4).is_err());
+
+        let mut reader = Cursor::new(b"12345".to_vec());
+        let mut output = Vec::new();
+        let mut reports = Vec::new();
+        let result = copy_with_progress(&mut reader, &mut output, Some(4), |received| {
+            reports.push(received);
+            Ok(())
+        });
+        assert!(result.is_err());
+        assert_eq!(reports, vec![5]);
+    }
+
+    #[test]
+    fn normalizes_download_progress_and_process_errors() {
+        assert_eq!(youtube_download_percent("download: 42.5%"), Some(42.5));
+        assert_eq!(youtube_download_percent("other output"), None);
+        assert_eq!(youtube_download_percent("download: 200%"), Some(100.0));
+        let error = yt_dlp_process_error("Falha", b"linha 1\nlinha 2", b"");
+        assert_eq!(error, "Falha Detalhes: linha 1 linha 2");
+    }
+
+    #[test]
+    fn guards_release_active_state_when_dropped() {
+        let active = std::sync::Mutex::new(HashSet::from([String::from("track-1")]));
+        {
+            let _guard = RemoteSeparationGuard { active: &active, track_id: "track-1".into() };
+        }
+        assert!(active.lock().unwrap().is_empty());
+
+        let installing = Arc::new(std::sync::Mutex::new(true));
+        {
+            let _guard = InstallingFlagGuard(installing.clone());
+        }
+        assert!(!*installing.lock().unwrap());
+
+        let downloading = Arc::new(std::sync::Mutex::new(Some(String::from("models"))));
+        {
+            let _guard = DownloadingFlagGuard(downloading.clone());
+        }
+        assert!(downloading.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn detects_standard_model_layouts() {
+        let temp = TempDir::new("models");
+        assert!(!standard_models_installed(temp.path()));
+        fs::write(temp.path().join("htdemucs.onnx"), b"model").unwrap();
+        assert!(standard_models_installed(temp.path()));
+    }
+
+    #[test]
+    fn cache_component_is_stable_and_bounded() {
+        let first = cache_component("track-1");
+        assert_eq!(first, cache_component("track-1"));
+        assert_eq!(first.len(), 24);
+        assert_ne!(first, cache_component("track-2"));
+    }
 }
 
 const ANALYSIS_RATE: u32 = 11_025;

@@ -1,4 +1,6 @@
 use hound::{SampleFormat, WavSpec, WavWriter};
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use ort::ep;
 use ort::{session::Session, value::Tensor};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -23,7 +25,7 @@ const MIN_AVAILABLE_MEMORY_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const CORE_ORDER: [&str; 4] = ["drums", "bass", "other", "vocals"];
 const EXTENDED_ORDER: [&str; 6] = ["drums", "bass", "other", "vocals", "guitar", "piano"];
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct Request {
     #[serde(rename = "type")]
     kind: String,
@@ -33,8 +35,18 @@ struct Request {
     models_dir: PathBuf,
     #[serde(rename = "cacheDir")]
     cache_dir: PathBuf,
+    #[serde(rename = "executionProvider", default)]
+    execution_provider: Option<String>,
+    #[serde(rename = "processingThreads", default)]
+    processing_threads: Option<usize>,
+    #[serde(rename = "processingProfile", default)]
+    processing_profile: Option<String>,
+    #[serde(rename = "modelProfile", default)]
+    model_profile: Option<String>,
+    #[serde(rename = "cudaRuntimeAvailable", default)]
+    cuda_runtime_available: bool,
 }
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct Track {
     id: String,
     path: String,
@@ -45,15 +57,15 @@ fn main() {
     let Some(input) = input else {
         return;
     };
-    let request: Request = match serde_json::from_str(&input) {
+    let request = match parse_request(&input) {
         Ok(value) => value,
         Err(error) => {
-            emit_error(&format!("request inválido: {error}"));
+            emit_error(&error);
             return;
         }
     };
-    if request.kind != "separate" {
-        emit_error("tipo de operação desconhecido");
+    if let Err(error) = validate_request(&request) {
+        emit_error(&error);
         return;
     }
     if let Err(error) = separate(request) {
@@ -61,33 +73,94 @@ fn main() {
     }
 }
 
-fn separate(request: Request) -> Result<(), String> {
-    ort::init().with_name("griffin-onnx-worker").commit();
-    let names: Vec<String> = match request.target.as_deref() {
-        Some(target) if ALL_STEMS.contains(&target) => vec![target.to_string()],
-        Some(_) => return Err("Stem de destino inválido.".into()),
-        None => {
-            if request.models_dir.join("htdemucs_6s.onnx").exists() {
-                EXTENDED_ORDER
-                    .iter()
-                    .map(|stem| (*stem).to_string())
-                    .collect()
-            } else {
-                CORE_ORDER.iter().map(|stem| (*stem).to_string()).collect()
-            }
+fn parse_request(input: &str) -> Result<Request, String> {
+    serde_json::from_str(input).map_err(|error| format!("request inválido: {error}"))
+}
+
+fn validate_request(request: &Request) -> Result<(), String> {
+    if request.kind == "separate" {
+        Ok(())
+    } else {
+        Err("tipo de operação desconhecido".into())
+    }
+}
+
+fn selected_stems(
+    target: Option<&str>,
+    model_profile: &str,
+    models_dir: &Path,
+) -> Result<Vec<String>, String> {
+    match target {
+        Some(target) if ALL_STEMS.contains(&target) => Ok(vec![target.to_string()]),
+        Some(_) => Err("Stem de destino inválido.".into()),
+        None if model_profile == "six-stem" && models_dir.join("htdemucs_6s.onnx").exists() => {
+            Ok(EXTENDED_ORDER.iter().map(|stem| (*stem).to_string()).collect())
         }
-    };
+        None => Ok(CORE_ORDER.iter().map(|stem| (*stem).to_string()).collect()),
+    }
+}
+
+fn separate(request: Request) -> Result<(), String> {
+    let _ = ort::init().with_name("griffin-onnx-worker").commit();
+    let requested_provider = request
+        .execution_provider
+        .as_deref()
+        .filter(|provider| matches!(*provider, "auto" | "cpu" | "cuda"))
+        .unwrap_or("auto");
+    let processing_threads = request
+        .processing_threads
+        .filter(|threads| *threads > 0)
+        .unwrap_or(1)
+        .clamp(1, 8);
+    let processing_profile = request
+        .processing_profile
+        .as_deref()
+        .filter(|profile| matches!(*profile, "quality" | "balanced" | "speed"))
+        .unwrap_or("quality");
+    let model_profile = request
+        .model_profile
+        .as_deref()
+        .filter(|profile| matches!(*profile, "four-stem" | "six-stem"))
+        .unwrap_or("four-stem");
+    let names = selected_stems(request.target.as_deref(), model_profile, &request.models_dir)?;
     let source_hash = source_hash(Path::new(&request.track.path))?;
     let target_key = request
         .target
         .as_deref()
         .map(|target| format!("-target-{target}"))
         .unwrap_or_default();
+    let models = names
+        .iter()
+        .map(|stem| choose_model(&request.models_dir, stem, processing_profile, model_profile))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut model_hasher = Sha256::new();
+    for model in &models {
+        let metadata = std::fs::metadata(model).map_err(|error| error.to_string())?;
+        model_hasher.update(model.to_string_lossy().as_bytes());
+        model_hasher.update(metadata.len().to_le_bytes());
+        if let Ok(modified) = metadata.modified() {
+            if let Ok(since_epoch) = modified.duration_since(std::time::UNIX_EPOCH) {
+                model_hasher.update(since_epoch.as_secs().to_le_bytes());
+                model_hasher.update(since_epoch.subsec_nanos().to_le_bytes());
+            }
+        }
+    }
+    let model_key = hex::encode(model_hasher.finalize());
+    let provider_key = requested_provider;
+    let runtime_key = if matches!(requested_provider, "auto" | "cuda") {
+        request.cuda_runtime_available
+    } else {
+        false
+    };
     let key = format!(
-        "{}-{}-{}{}",
-        request.track.id,
+        "{}-{}-{}-{}-{}-{}-{}{}",
+        cache_component(&request.track.id),
         &source_hash[..16],
         if names.len() == 6 { "six" } else { "four" },
+        processing_profile,
+        provider_key,
+        &model_key[..16],
+        runtime_key,
         target_key
     );
     let output_dir = request.cache_dir.join(key);
@@ -96,7 +169,9 @@ fn separate(request: Request) -> Result<(), String> {
         .iter()
         .map(|stem| output_dir.join(format!("{stem}.wav")))
         .collect();
-    if output_paths.iter().all(|path| path.is_file()) {
+    if output_paths.iter().all(|path| path.is_file())
+        && cache_provider_matches(&output_dir, requested_provider, request.cuda_runtime_available)
+    {
         emit_done(&names, &output_paths);
         return Ok(());
     }
@@ -106,8 +181,9 @@ fn separate(request: Request) -> Result<(), String> {
         return Err("O arquivo de áudio está vazio.".into());
     }
     ensure_audio_memory_budget(left.len())?;
+    let mut active_provider = "cpu";
     for (index, stem) in names.iter().enumerate() {
-        let model = choose_model(&request.models_dir, stem)?;
+        let model = &models[index];
         let model_order = if model
             .file_name()
             .and_then(|name| name.to_str())
@@ -121,14 +197,23 @@ fn separate(request: Request) -> Result<(), String> {
             .iter()
             .position(|name| name == stem)
             .ok_or_else(|| format!("O modelo não contém o stem {stem}."))?;
-        let mut session = Session::builder()
-            .map_err(|e| e.to_string())?
-            .with_intra_threads(1)
-            .map_err(|e| e.to_string())?
-            .with_inter_threads(1)
-            .map_err(|e| e.to_string())?
-            .commit_from_file(model)
-            .map_err(|e| e.to_string())?;
+        let (mut session, provider) = match requested_provider {
+            "cuda" | "auto" => match create_session(model, processing_threads, true) {
+                Ok(session) => (session, "cuda"),
+                Err(cuda_error) if requested_provider == "auto" || requested_provider == "cuda" => {
+                    eprintln!("CUDA indisponível; usando CPU: {cuda_error}");
+                    (
+                        create_session(model, processing_threads, false).map_err(|cpu_error| {
+                            format!("CUDA e CPU falharam: {cuda_error}; {cpu_error}")
+                        })?,
+                        "cpu",
+                    )
+                }
+                Err(error) => return Err(error),
+            },
+            _ => (create_session(model, processing_threads, false)?, "cpu"),
+        };
+        active_provider = provider;
         let mut stem_left = vec![0.0f32; left.len()];
         let mut stem_right = vec![0.0f32; right.len()];
         let mut weights = vec![0.0f32; left.len()];
@@ -164,7 +249,7 @@ fn separate(request: Request) -> Result<(), String> {
             let progress = (index as f64 + end as f64 / left.len() as f64) / names.len() as f64;
             println!(
                 "{}",
-                serde_json::json!({ "type": "progress", "progress": { "trackId": request.track.id, "progress": (0.02 + progress * 0.96).min(0.98), "stage": format!("Separando {stem}") } })
+                serde_json::json!({ "type": "progress", "progress": { "trackId": request.track.id, "progress": (0.02 + progress * 0.96).min(0.98), "stage": format!("Separando {stem} · {active_provider}"), "provider": active_provider } })
             );
             start += HOP_SIZE;
         }
@@ -178,10 +263,52 @@ fn separate(request: Request) -> Result<(), String> {
             stem_right[sample] /= weight;
         }
         let path = &output_paths[index];
-        write_wav(&path, &stem_left, &stem_right)?;
+        write_wav(path, &stem_left, &stem_right)?;
     }
+    let _ = std::fs::write(output_dir.join(".provider"), active_provider);
     emit_done(&names, &output_paths);
     Ok(())
+}
+
+fn cache_provider_matches(output_dir: &Path, requested_provider: &str, cuda_runtime_available: bool) -> bool {
+    if requested_provider == "cpu" {
+        return true;
+    }
+    let Ok(provider) = std::fs::read_to_string(output_dir.join(".provider")) else {
+        return false;
+    };
+    let provider = provider.trim();
+    provider == "cuda" || (provider == "cpu" && !cuda_runtime_available)
+}
+
+fn create_session(model: &Path, threads: usize, use_cuda: bool) -> Result<Session, String> {
+    let builder = Session::builder()
+        .map_err(|error| error.to_string())?
+        .with_intra_threads(threads)
+        .map_err(|error| error.to_string())?
+        .with_inter_threads(1)
+        .map_err(|error| error.to_string())?;
+    let mut builder = if use_cuda {
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        {
+            builder
+                .with_execution_providers([ep::CUDA::default()
+                    .with_conv_algorithm_search(ep::cuda::ConvAlgorithmSearch::Heuristic)
+                    .with_conv_max_workspace(false)
+                    .build()
+                    .error_on_failure()])
+                .map_err(|error| error.to_string())?
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        {
+            return Err("CUDA não está disponível neste sistema; use CPU.".into());
+        }
+    } else {
+        builder
+    };
+    builder
+        .commit_from_file(model)
+        .map_err(|error| error.to_string())
 }
 
 const ALL_STEMS: [&str; 6] = ["drums", "bass", "other", "vocals", "guitar", "piano"];
@@ -234,24 +361,77 @@ fn available_memory_bytes() -> Option<u64> {
     }
     #[cfg(not(target_os = "linux"))]
     {
+        #[cfg(target_os = "windows")]
+        {
+            #[repr(C)]
+            struct MemoryStatusEx {
+                dw_length: u32,
+                dw_memory_load: u32,
+                ull_total_phys: u64,
+                ull_avail_phys: u64,
+                ull_total_page_file: u64,
+                ull_avail_page_file: u64,
+                ull_total_virtual: u64,
+                ull_avail_virtual: u64,
+                ull_avail_extended_virtual: u64,
+            }
+
+            #[link(name = "kernel32")]
+            unsafe extern "system" {
+                fn GlobalMemoryStatusEx(status: *mut MemoryStatusEx) -> i32;
+            }
+
+            let mut status = MemoryStatusEx {
+                dw_length: std::mem::size_of::<MemoryStatusEx>() as u32,
+                dw_memory_load: 0,
+                ull_total_phys: 0,
+                ull_avail_phys: 0,
+                ull_total_page_file: 0,
+                ull_avail_page_file: 0,
+                ull_total_virtual: 0,
+                ull_avail_virtual: 0,
+                ull_avail_extended_virtual: 0,
+            };
+            // SAFETY: Windows fills the documented structure when the size is set.
+            if unsafe { GlobalMemoryStatusEx(&mut status) } != 0 {
+                return Some(status.ull_avail_phys);
+            }
+        }
         None
     }
 }
 
-fn choose_model(models: &Path, stem: &str) -> Result<PathBuf, String> {
+fn choose_model(
+    models: &Path,
+    stem: &str,
+    profile: &str,
+    model_profile: &str,
+) -> Result<PathBuf, String> {
     let six = models.join("htdemucs_6s.onnx");
+    if model_profile == "six-stem" && six.exists() {
+        return Ok(six);
+    }
     if (stem == "guitar" || stem == "piano") && six.exists() {
         return Ok(six);
     }
     let specialist = models
         .join("htdemucs-ft")
         .join(format!("htdemucs_ft_{stem}_fp16weights.onnx"));
-    if specialist.exists() {
-        return Ok(specialist);
-    }
     let single = models.join("htdemucs.onnx");
-    if single.exists() {
-        return Ok(single);
+    if profile == "quality" {
+        if specialist.exists() {
+            return Ok(specialist);
+        }
+        if single.exists() {
+            return Ok(single);
+        }
+    } else {
+        if single.exists() {
+            return Ok(single);
+        }
+        if specialist.exists() {
+            return Ok(specialist);
+        }
     }
     Err(format!("Modelo ONNX não encontrado para {stem}."))
 }
@@ -268,6 +448,12 @@ fn source_hash(path: &Path) -> Result<String, String> {
         hasher.update(&buffer[..read]);
     }
     Ok(hex::encode(hasher.finalize()))
+}
+
+fn cache_component(value: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(value.as_bytes());
+    hex::encode(hasher.finalize())[..24].to_string()
 }
 
 fn decode_stereo(path: &Path) -> Result<(Vec<f32>, Vec<f32>), String> {
@@ -350,4 +536,118 @@ fn emit_error(message: &str) {
         "{}",
         serde_json::json!({ "type": "error", "message": message })
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(label: &str) -> Self {
+            let suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock before epoch")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("griffin-worker-{label}-{}-{suffix}", std::process::id()));
+            fs::create_dir_all(&path).expect("create temporary directory");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path { &self.0 }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+    }
+
+    fn request_json(kind: &str) -> String {
+        serde_json::json!({
+            "type": kind,
+            "track": { "id": "track-1", "path": "/tmp/song.wav" },
+            "modelsDir": "/tmp/models",
+            "cacheDir": "/tmp/cache"
+        }).to_string()
+    }
+
+    #[test]
+    fn parses_and_validates_worker_protocol() {
+        let request = parse_request(&request_json("separate")).expect("valid request");
+        assert_eq!(request.kind, "separate");
+        assert!(validate_request(&request).is_ok());
+
+        let invalid = parse_request("not json").expect_err("invalid JSON must fail");
+        assert!(invalid.starts_with("request inválido:"));
+
+        let unknown = parse_request(&request_json("inspect")).expect("valid JSON");
+        assert_eq!(validate_request(&unknown).unwrap_err(), "tipo de operação desconhecido");
+    }
+
+    #[test]
+    fn selects_core_and_extended_stems_deterministically() {
+        let temp = TempDir::new("models");
+        assert_eq!(selected_stems(None, "six-stem", temp.path()).unwrap().len(), 4);
+        fs::write(temp.path().join("htdemucs_6s.onnx"), b"model").unwrap();
+        assert_eq!(selected_stems(None, "six-stem", temp.path()).unwrap().len(), 6);
+        assert_eq!(selected_stems(Some("vocals"), "four-stem", temp.path()).unwrap(), vec!["vocals"]);
+        assert_eq!(selected_stems(Some("guitar"), "four-stem", temp.path()).unwrap(), vec!["guitar"]);
+        assert!(selected_stems(Some("invalid"), "four-stem", temp.path()).is_err());
+    }
+
+    #[test]
+    fn chooses_models_by_profile_and_available_files() {
+        let temp = TempDir::new("choose-model");
+        fs::create_dir_all(temp.path().join("htdemucs-ft")).unwrap();
+        fs::write(temp.path().join("htdemucs.onnx"), b"base").unwrap();
+        fs::write(temp.path().join("htdemucs-ft/htdemucs_ft_vocals_fp16weights.onnx"), b"specialist").unwrap();
+        assert!(choose_model(temp.path(), "vocals", "quality", "four-stem").unwrap().ends_with("htdemucs_ft_vocals_fp16weights.onnx"));
+        assert!(choose_model(temp.path(), "vocals", "speed", "four-stem").unwrap().ends_with("htdemucs.onnx"));
+        assert!(choose_model(temp.path(), "drums", "quality", "four-stem").unwrap().ends_with("htdemucs.onnx"));
+        assert!(choose_model(temp.path(), "vocals", "quality", "four-stem").is_ok());
+        assert!(choose_model(temp.path(), "piano", "quality", "four-stem").is_ok());
+    }
+
+    #[test]
+    fn cache_provider_rules_prevent_incorrect_cuda_reuse() {
+        let temp = TempDir::new("cache");
+        assert!(!cache_provider_matches(temp.path(), "auto", false));
+        fs::write(temp.path().join(".provider"), "cpu").unwrap();
+        assert!(cache_provider_matches(temp.path(), "cpu", true));
+        assert!(cache_provider_matches(temp.path(), "auto", false));
+        assert!(!cache_provider_matches(temp.path(), "auto", true));
+        fs::write(temp.path().join(".provider"), "cuda").unwrap();
+        assert!(cache_provider_matches(temp.path(), "auto", true));
+        assert!(cache_provider_matches(temp.path(), "cuda", false));
+    }
+
+    #[test]
+    fn source_hash_changes_when_audio_content_changes() {
+        let temp = TempDir::new("hash");
+        let path = temp.path().join("audio.wav");
+        fs::write(&path, b"first").unwrap();
+        let first = source_hash(&path).unwrap();
+        fs::write(&path, b"second").unwrap();
+        assert_ne!(first, source_hash(&path).unwrap());
+    }
+
+    #[test]
+    fn writes_a_valid_stereo_wav() {
+        let temp = TempDir::new("wav");
+        let path = temp.path().join("output.wav");
+        write_wav(&path, &[0.0, 0.5, -0.5], &[0.0, -0.5, 0.5]).unwrap();
+        let reader = hound::WavReader::open(path).unwrap();
+        assert_eq!(reader.spec().channels, 2);
+        assert_eq!(reader.spec().sample_rate, SAMPLE_RATE);
+        assert_eq!(reader.duration(), 3);
+    }
+
+    #[test]
+    fn resamples_audio_to_the_target_rate() {
+        let output = resample(&[0.0, 1.0, 0.0, -1.0], 22_050);
+        assert_eq!(output.len(), 8);
+        assert_eq!(output[0], 0.0);
+        assert_eq!(output[2], 1.0);
+    }
 }

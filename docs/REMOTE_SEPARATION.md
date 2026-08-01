@@ -8,7 +8,7 @@ O Griffin separa stems localmente por padrão, sem rede. Este documento registra
 |---|---|---|---|
 | AudioShake | Enterprise, sob consulta comercial | `api.audioshake.ai`, sem self-serve | Voltado a labels/distribuidoras; não serve para um app desktop indie |
 | LALAL.AI | Assinatura mensal/anual | API só no plano Pro (~US$15–20/mês, cobrado mesmo sem uso) | Cobrança fixa não combina com uso opcional/esporádico |
-| **StemSplit** (escolhido) | Pay-as-you-go, sem assinatura | REST + SDK oficial (`@stemsplit/sdk`), self-serve, 5 min grátis por conta | Cobra só pelo uso — encaixa no modelo opcional |
+| **StemSplit** (escolhido) | Pay-as-you-go, sem assinatura | REST, self-serve, 5 min grátis por conta | Cobra só pelo uso — encaixa no modelo opcional |
 
 ## Decisão
 
@@ -30,7 +30,9 @@ O Griffin separa stems localmente por padrão, sem rede. Este documento registra
 
 ## Como funciona no Griffin
 
+O único runtime de separação remota é o comando Tauri em Rust. Ele usa a API REST do StemSplit diretamente; não há um adaptador TypeScript ou SDK paralelo.
+
 - Requer uma chave de API própria do usuário (Preferências → Processamento → "Separação na nuvem"). No Windows e macOS ela fica no cofre nativo do sistema; no Linux, em arquivo separado com permissão restrita ao usuário. Ela não é retornada por `settings_get` nem gravada em `settings.json`.
 - Só aparece como opção no player quando a chave está configurada **e** verificada (saldo consultado com sucesso).
-- Sempre exige consentimento explícito antes do primeiro envio da sessão, com estimativa de custo e resumo da retenção.
+- Sempre exige consentimento explícito antes de cada operação remota, com estimativa de custo e resumo da retenção.
 - Se a separação remota falhar, o app oferece "Tentar localmente" como fallback — a separação local continua funcionando normalmente sem qualquer configuração de nuvem.

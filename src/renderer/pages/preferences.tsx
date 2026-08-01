@@ -6,7 +6,9 @@ import { usePlayer, type MetronomeSubdivision } from '../store'
 import type { AppUpdateStatus, ExecutionProviderPreference, LocalResourcesSummary, SeparationProfile, SeparationStatus, SeparationModelProfile, YtDlpProgress, YtDlpStatus } from '../../shared/types'
 import { useRemoteProvider } from '../hooks/use-remote-provider'
 import { useModelDownload } from '../hooks/use-model-download'
+import { useCudaRuntime } from '../hooks/use-cuda-runtime'
 import { confirmDialog } from '../components/dialog-store'
+import { LOCAL_PRIVACY_DESCRIPTION, LOCAL_PRIVACY_LABEL } from '../privacy-copy'
 
 type Section = 'appearance' | 'playback' | 'obs' | 'processing' | 'about'
 type Settings = Record<string, unknown>
@@ -26,6 +28,7 @@ export function PreferencesPage() {
   const [resources, setResources] = useState<LocalResourcesSummary | null>(null)
   const { setResetPlaybackOnTrackChange, setMetronomeEnabled, setMetronomeSubdivision, setMetronomeVolume, setCountInEnabled, setCountInBars } = usePlayer()
   const modelDownload = useModelDownload()
+  const cudaRuntime = useCudaRuntime()
 
   useEffect(() => {
     void api.settings.get().then((loaded) => {
@@ -63,7 +66,7 @@ export function PreferencesPage() {
         {activeSection === 'appearance' && <AppearanceSection settings={settings} onChange={updateSetting} />}
         {activeSection === 'playback' && <PlaybackSection settings={settings} onChange={updateSetting} />}
         {activeSection === 'obs' && <ObsSection />}
-        {activeSection === 'processing' && <><ProcessingSection settings={settings} status={modelStatus} resources={resources} onChange={updateSetting} onCacheCleared={setResources} modelDownload={modelDownload} /><YtDlpSection /><RemoteProviderSection /></>}
+        {activeSection === 'processing' && <><ProcessingSection settings={settings} status={modelStatus} resources={resources} onChange={updateSetting} onCacheCleared={setResources} modelDownload={modelDownload} cudaRuntime={cudaRuntime} /><YtDlpSection /><RemoteProviderSection /></>}
         {activeSection === 'about' && <AboutSection />}
       </div>
     </div>
@@ -98,7 +101,7 @@ function PlaybackSection({ settings, onChange }: { settings: Settings; onChange:
     <PreferenceRow label="Reiniciar posição ao trocar de faixa" description="Começa a nova faixa do início quando ela é selecionada.">
       <label className="preference-toggle"><input type="checkbox" checked={resetOnTrackChange} onChange={(event) => void onChange('resetPlaybackOnTrackChange', event.target.checked)} /><span /></label>
     </PreferenceRow>
-    <PreferenceRow label="Processamento de áudio" description="Pitch e tempo são aplicados localmente, sem enviar áudio para a nuvem.">
+    <PreferenceRow label="Processamento de áudio" description="Pitch e tempo são aplicados localmente; a separação remota é uma opção separada e explícita.">
       <span className="preference-value">100% local</span>
     </PreferenceRow>
     <PreferenceRow label="Metrônomo" description="Acompanha o transporte, o tempo e o loop da faixa.">
@@ -144,7 +147,7 @@ function ObsSection() {
   </PreferenceSection>
 }
 
-function ProcessingSection({ settings, status, resources, onChange, onCacheCleared, modelDownload }: { settings: Settings; status: SeparationStatus | null; resources: LocalResourcesSummary | null; onChange: (key: string, value: unknown) => Promise<void>; onCacheCleared: (summary: LocalResourcesSummary) => void; modelDownload: ReturnType<typeof useModelDownload> }) {
+function ProcessingSection({ settings, status, resources, onChange, onCacheCleared, modelDownload, cudaRuntime }: { settings: Settings; status: SeparationStatus | null; resources: LocalResourcesSummary | null; onChange: (key: string, value: unknown) => Promise<void>; onCacheCleared: (summary: LocalResourcesSummary) => void; modelDownload: ReturnType<typeof useModelDownload>; cudaRuntime: ReturnType<typeof useCudaRuntime> }) {
   const processingThreads = typeof settings.processingThreads === 'number' ? settings.processingThreads : 0
   const profile: SeparationProfile = settings.processingProfile === 'speed' || settings.processingProfile === 'balanced' ? settings.processingProfile : 'quality'
   const provider: ExecutionProviderPreference = settings.executionProvider === 'cpu' || settings.executionProvider === 'cuda' ? settings.executionProvider : 'auto'
@@ -164,14 +167,23 @@ function ProcessingSection({ settings, status, resources, onChange, onCacheClear
       </div>
     </PreferenceRow>
     <PreferenceRow label="Status do modelo" description="O modelo é carregado por um processo nativo separado para limitar o uso de memória da interface."><span className={`status-pill ${status?.available ? 'ready' : ''}`}>{status?.available ? 'Disponível' : status?.message ?? 'Verificando…'}</span></PreferenceRow>
-    <PreferenceRow label="Provider ONNX" description="GPU é testada automaticamente; se não estiver disponível, o processamento retorna para CPU."><span className="preference-value">{status?.provider === 'cuda' ? 'CUDA / GPU' : 'CPU'}{status?.memoryBytes ? ` · ${formatBytes(status.memoryBytes)}` : ''}{status?.lastDurationMs ? ` · último ${formatDurationMs(status.lastDurationMs)}` : ''}</span></PreferenceRow>
-    <PreferenceRow label="Perfil de separação" description="Qualidade usa htdemucs_ft; Rápido prioriza velocidade com o modelo single-file quando disponível."><select className="preference-control" value={profile} onChange={(event) => void onChange('processingProfile', event.target.value)}><option value="quality">Qualidade máxima</option><option value="balanced">Balanceado</option><option value="speed">Velocidade</option></select></PreferenceRow>
-    <PreferenceRow label="Aceleração" description="Escolha Automático para detectar CUDA e manter fallback CPU; a mudança vale para a próxima separação."><select className="preference-control" value={provider} onChange={(event) => void onChange('executionProvider', event.target.value)}><option value="auto">Automático</option><option value="cpu">Somente CPU</option><option value="cuda">Preferir GPU</option></select></PreferenceRow>
+    <PreferenceRow label="Provider ONNX" description="O worker tenta CUDA quando solicitado e retorna para CPU se o runtime ou driver não estiver disponível."><span className="preference-value">{status?.provider === 'cuda' ? 'CUDA / GPU' : 'CPU'}{status?.memoryBytes ? ` · ${formatBytes(status.memoryBytes)}` : ''}{status?.lastDurationMs ? ` · último ${formatDurationMs(status.lastDurationMs)}` : ''}</span></PreferenceRow>
+    <PreferenceRow label="Perfil de separação" description="Qualidade prioriza htdemucs_ft; Balanceado e Rápido priorizam o modelo single-file quando disponível."><select className="preference-control" value={profile} onChange={(event) => void onChange('processingProfile', event.target.value)}><option value="quality">Qualidade máxima</option><option value="balanced">Balanceado</option><option value="speed">Velocidade</option></select></PreferenceRow>
+    <PreferenceRow label="Aceleração" description="Automático e Preferir GPU tentam CUDA e usam CPU como fallback; a mudança vale para a próxima separação."><select className="preference-control" value={provider} onChange={(event) => void onChange('executionProvider', event.target.value)}><option value="auto">Automático</option><option value="cpu">Somente CPU</option><option value="cuda">Preferir GPU</option></select></PreferenceRow>
+    <PreferenceRow label="Runtime NVIDIA" description={`${cudaRuntime.status?.message ?? 'Verificando suporte NVIDIA…'}${cudaRuntime.status?.downloadBytes ? ` Download aproximado: ${formatBytes(cudaRuntime.status.downloadBytes)}.` : ''}`}>
+      <div className="preference-inline-controls">
+        {cudaRuntime.status?.installed && !cudaRuntime.progress && <span className="status-pill ready">Instalado{cudaRuntime.status.version ? ` · cuDNN ${cudaRuntime.status.version}` : ''}</span>}
+        {cudaRuntime.progress && <span className="preference-value">{cudaRuntime.progress.stage} · {Math.round(cudaRuntime.progress.progress * 100)}%</span>}
+        {cudaRuntime.status?.supported && !cudaRuntime.status.installed && !cudaRuntime.progress && <button className="primary-button compact-control" disabled={cudaRuntime.installing || cudaRuntime.status.downloading} onClick={() => void cudaRuntime.install()}>Instalar suporte NVIDIA</button>}
+        {cudaRuntime.progress && <button className="text-button" onClick={() => void cudaRuntime.cancel()}>Cancelar</button>}
+      </div>
+    </PreferenceRow>
+    {cudaRuntime.error && <PreferenceRow label="Erro no runtime NVIDIA" description={cudaRuntime.error}><span className="status-pill" /></PreferenceRow>}
     <PreferenceRow label="Cache de stems" description={`Evita recalcular uma faixa já processada. ${resources ? `${formatBytes(resources.cacheBytes)} armazenados.` : 'Calculando tamanho…'}`}><div className="preference-inline-controls"><span className="preference-value">Ativo</span><button className="secondary-button compact-control" onClick={() => void clearCache()}>Limpar cache</button></div></PreferenceRow>
     <PreferenceRow label="Local do cache" description="Os stems separados ficam neste diretório local."><span className="preference-path">{resources?.cachePath ?? 'Calculando…'}</span></PreferenceRow>
     <PreferenceRow label="Uso do modelo" description="O modelo ONNX também permanece somente neste computador."><span className="preference-value">{resources ? formatBytes(resources.modelBytes) : 'Calculando…'}</span></PreferenceRow>
-    <PreferenceRow label="Threads de processamento" description="Limita o paralelismo do ONNX; Automático usa a configuração padrão do runtime."><select className="preference-control" value={processingThreads} onChange={(event) => void onChange('processingThreads', Number(event.target.value))}><option value="0">Automático</option><option value="1">1 thread</option><option value="2">2 threads</option><option value="4">4 threads</option><option value="8">8 threads</option></select></PreferenceRow>
-    <PreferenceRow label="Privacidade" description="O áudio, os stems e as métricas ficam locais; nenhuma faixa é enviada para a nuvem."><span className="status-pill ready">Somente local</span></PreferenceRow>
+    <PreferenceRow label="Threads de processamento" description="Limita o paralelismo do ONNX; Automático usa um limite conservador para preservar a máquina."><select className="preference-control" value={processingThreads} onChange={(event) => void onChange('processingThreads', Number(event.target.value))}><option value="0">Automático</option><option value="1">1 thread</option><option value="2">2 threads</option><option value="4">4 threads</option><option value="8">8 threads</option></select></PreferenceRow>
+    <PreferenceRow label="Privacidade" description={LOCAL_PRIVACY_DESCRIPTION}><span className="status-pill ready">{LOCAL_PRIVACY_LABEL}</span></PreferenceRow>
   </PreferenceSection>
 }
 
@@ -246,7 +258,7 @@ function RemoteProviderSection() {
     <PreferenceRow label="Status" description={status?.message ?? 'Verificando…'}>
       <span className={`status-pill ${status?.verified ? 'ready' : ''}`}>{statusLabel}</span>
     </PreferenceRow>
-    <PreferenceRow label="Preço e retenção" description='Pay-as-you-go, ~$0,10/minuto de áudio, sem assinatura fixa. O arquivo original enviado é apagado em até 48h; os stems ficam disponíveis para download por 7-14 dias e depois somem automaticamente. Seu áudio não é usado para treinar modelos.'>
+    <PreferenceRow label="Preço e retenção" description='Pay-as-you-go, a partir de ~$0,10/minuto de áudio, sem assinatura fixa. O arquivo original é apagado em até 48h; os stems ficam disponíveis para download por até 14 dias. Seu áudio não é usado para treinar modelos.'>
       <a className="secondary-button compact-control" href="https://stemsplit.io/en/legal/privacy-policy" target="_blank" rel="noreferrer">Ver política completa</a>
     </PreferenceRow>
     {error && <PreferenceRow label="Erro" description={error}><span className="status-pill" /></PreferenceRow>}
@@ -269,7 +281,7 @@ function AboutSection() {
     <PreferenceRow label="Criado por" description="Autor e mantenedor do Griffin Music."><span className="preference-value">Rodrigo Brito</span></PreferenceRow>
     <PreferenceRow label="Contato" description="Dúvidas, sugestões ou problemas."><a className="preference-value" href="mailto:rodrigo@w3ti.com.br">rodrigo@w3ti.com.br</a></PreferenceRow>
     <PreferenceRow label="Licença" description="Código aberto sob os termos da GPLv3."><a className="preference-value" href="https://github.com/britors/Griffin/blob/main/LICENSE" target="_blank" rel="noreferrer">GPLv3</a></PreferenceRow>
-    <PreferenceRow label="Privacidade" description="O áudio e os stems não são enviados para servidores externos."><span className="status-pill ready">Somente local</span></PreferenceRow>
+    <PreferenceRow label="Privacidade" description={`${LOCAL_PRIVACY_DESCRIPTION} A separação StemSplit envia somente a faixa escolhida.`}><span className="status-pill ready">{LOCAL_PRIVACY_LABEL}</span></PreferenceRow>
     <UpdateRow />
     <PreferenceRow label="Apoie o projeto" description="Contribua com qualquer valor via Pix para ajudar a manter o Griffin Music."><PixDonation /></PreferenceRow>
   </PreferenceSection>

@@ -13,9 +13,7 @@ import { useRemoteProvider } from '../hooks/use-remote-provider'
 import { confirmDialog } from '../components/dialog-store'
 import { useModelDownload } from '../hooks/use-model-download'
 import { errorMessage } from '../error-message'
-
-// Resets on app restart — a lightweight per-session consent flag, not persisted to disk.
-let remoteConsentedThisSession = false
+import { remoteConsentMessage } from '../privacy-copy'
 
 export function PlayerPage() {
   const { selected, progress, setTracks, select, replaceSelected, setProgress, setPlaying } = usePlayer()
@@ -32,7 +30,7 @@ export function PlayerPage() {
   const modelDownload = useModelDownload()
 
   useEffect(() => { void api.separation.status().then(setModelStatus) }, [])
-  useEffect(() => { if (modelDownload.status?.standardInstalled) void api.separation.status().then(setModelStatus) }, [modelDownload.status?.standardInstalled])
+  useEffect(() => { if (modelDownload.status?.standardInstalled || modelDownload.status?.extendedInstalled) void api.separation.status().then(setModelStatus) }, [modelDownload.status?.standardInstalled, modelDownload.status?.extendedInstalled])
   useEffect(() => {
     if (!selected || selected.analysis || analysisRequested.current === selected.id) return
     analysisRequested.current = selected.id
@@ -51,13 +49,10 @@ export function PlayerPage() {
     if (!selected || progress) return
     if (useProvider === 'remote') {
       if (!remoteAvailable) return
-      if (!remoteConsentedThisSession) {
-        const estimate = await remoteProvider.estimateCost(selected.id).catch(() => null)
-        const costLine = estimate ? `Custo estimado: ~$${estimate.estimatedUsd.toFixed(2)} (${Math.round(estimate.durationSeconds)}s de áudio, ~$0,10/min).` : 'Não foi possível estimar o custo agora.'
-        const consented = await confirmDialog(`Esta faixa será enviada para o StemSplit.io (nuvem) — o áudio deixa este computador.\n\n${costLine}\n\nO arquivo original é apagado em até 48h; os stems ficam disponíveis por 7-14 dias. Cancelar não garante que a cobrança seja evitada, já que o processamento pode já ter começado no servidor.`, { confirmLabel: 'Enviar para a nuvem' })
-        if (!consented) return
-        remoteConsentedThisSession = true
-      }
+      const estimate = await remoteProvider.estimateCost(selected.id).catch(() => null)
+      const costLine = estimate ? `Estimativa mínima: ~$${estimate.estimatedUsd.toFixed(2)} (${Math.round(estimate.durationSeconds)}s de áudio, a partir de ~$0,10/min). O pacote escolhido pode ter outro valor por minuto.` : 'Não foi possível estimar o custo agora.'
+      const consented = await confirmDialog(remoteConsentMessage(costLine), { confirmLabel: 'Enviar para a nuvem' })
+      if (!consented) return
     } else if (!modelStatus?.available) return
     setError(null)
     setLastRemoteError(false)

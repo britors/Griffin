@@ -181,6 +181,20 @@ export interface ModelDownloadStatus {
   downloading: ModelDownloadKind | null
 }
 
+export interface CudaRuntimeStatus {
+  supported: boolean
+  installed: boolean
+  downloading: boolean
+  downloadBytes?: number
+  version?: string
+  message: string
+}
+
+export interface CudaRuntimeProgress {
+  progress: number
+  stage: string
+}
+
 export type AppUpdateStage = 'disabled' | 'system' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'not-available' | 'error'
 
 export interface AppUpdateStatus {
@@ -303,6 +317,12 @@ export interface GriffinAPI {
     download: (kind: ModelDownloadKind) => Promise<void>
     cancel: (kind: ModelDownloadKind) => Promise<void>
     onProgress: (callback: (progress: ModelDownloadProgress) => void) => () => void
+  }
+  cudaRuntime: {
+    status: () => Promise<CudaRuntimeStatus>
+    install: () => Promise<void>
+    cancel: () => Promise<void>
+    onProgress: (callback: (progress: CudaRuntimeProgress) => void) => () => void
   }
   updates: {
     status: () => Promise<AppUpdateStatus>

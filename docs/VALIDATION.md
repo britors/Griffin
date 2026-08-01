@@ -34,7 +34,8 @@ Para uma validação reproduzível automatizada, execute:
 npm run validate:tauri
 npm run typecheck
 npm test
+cargo test --manifest-path src-tauri/Cargo.toml
 npm run build
 ```
 
-O worker ONNX nativo recebe uma entrada WAV, executa a separação em processo separado e reutiliza o cache quando a mesma fonte é processada novamente. Os modelos são armazenados na pasta de dados do Griffin; o modelo estendido `htdemucs_6s.onnx` habilita guitarra e piano.
+O worker ONNX nativo recebe uma entrada WAV, executa a separação em processo separado e reutiliza o cache quando a mesma fonte é processada novamente. `cargo test` também valida o protocolo stdin/stdout do worker sem carregar CUDA, além das regras de seleção de modelo, cache, formato WAV, validação de URLs, limites de download e limpeza de estado dos comandos. Os modelos são armazenados na pasta de dados do Griffin; o modelo estendido `htdemucs_6s.onnx` habilita guitarra e piano.

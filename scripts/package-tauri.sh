@@ -5,7 +5,8 @@ platform="${1:-linux}"
 
 case "${platform}" in
   linux)
-    npx tauri build --bundles appimage,deb,rpm
+    npx tauri build --config src-tauri/tauri.linux.conf.json --bundles deb
+    bash scripts/package-rpm.sh
     bash scripts/collect-tauri-artifacts.sh linux
     ;;
   windows)

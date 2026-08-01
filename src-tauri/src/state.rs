@@ -12,13 +12,24 @@ use tokio::{process::Child, sync::Mutex};
 
 pub struct AppState {
     pub data: std::sync::Mutex<StateData>,
+    pub separation_metrics: std::sync::Mutex<SeparationMetrics>,
     pub workers: tokio::sync::Mutex<HashMap<String, Arc<Mutex<Child>>>>,
     pub remote_assets: std::sync::Mutex<HashMap<String, RemoteAsset>>,
     pub youtube_previews: std::sync::Mutex<HashMap<String, YoutubePreview>>,
     pub remote_cancelled: std::sync::Mutex<HashSet<String>>,
-    pub model_cancelled: std::sync::Mutex<HashSet<String>>,
+    pub remote_active: std::sync::Mutex<HashSet<String>>,
+    pub model_cancelled: Arc<std::sync::Mutex<HashSet<String>>>,
+    pub model_downloading: Arc<std::sync::Mutex<Option<String>>>,
     pub export_cancelled: std::sync::Mutex<HashSet<String>>,
     pub yt_dlp_cancelled: std::sync::Mutex<HashSet<String>>,
+    pub cuda_runtime_cancelled: Arc<std::sync::Mutex<bool>>,
+    pub cuda_runtime_installing: Arc<std::sync::Mutex<bool>>,
+}
+
+#[derive(Default)]
+pub struct SeparationMetrics {
+    pub last_duration_ms: Option<u64>,
+    pub last_provider: Option<String>,
 }
 
 #[derive(Clone)]
@@ -134,13 +145,18 @@ impl Default for AppState {
                 projects: Vec::new(),
                 settings: serde_json::Map::new(),
             }),
+            separation_metrics: std::sync::Mutex::new(SeparationMetrics::default()),
             workers: tokio::sync::Mutex::new(HashMap::new()),
             remote_assets: std::sync::Mutex::new(HashMap::new()),
             youtube_previews: std::sync::Mutex::new(HashMap::new()),
             remote_cancelled: std::sync::Mutex::new(HashSet::new()),
-            model_cancelled: std::sync::Mutex::new(HashSet::new()),
+            remote_active: std::sync::Mutex::new(HashSet::new()),
+            model_cancelled: Arc::new(std::sync::Mutex::new(HashSet::new())),
+            model_downloading: Arc::new(std::sync::Mutex::new(None)),
             export_cancelled: std::sync::Mutex::new(HashSet::new()),
             yt_dlp_cancelled: std::sync::Mutex::new(HashSet::new()),
+            cuda_runtime_cancelled: Arc::new(std::sync::Mutex::new(false)),
+            cuda_runtime_installing: Arc::new(std::sync::Mutex::new(false)),
         }
     }
 }

@@ -26,7 +26,6 @@ copy_files() {
 
 case "${platform}" in
   linux)
-    copy_files "${bundle_dir}/appimage" '*.AppImage'
     copy_files "${bundle_dir}/deb" '*.deb'
     copy_files "${bundle_dir}/rpm" '*.rpm'
     ;;
