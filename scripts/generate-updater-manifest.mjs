@@ -1,8 +1,7 @@
-import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createHash, createPublicKey, verify as verifyEd25519 } from 'node:crypto'
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { tmpdir } from 'node:os'
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const tauriConfig = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'))
@@ -13,20 +12,42 @@ function validateSignature(file, signaturePath, publicKey, environment) {
   if (!signature || !/^[A-Za-z0-9+/]+={0,2}$/.test(signature)) throw new Error(`assinatura inválida para ${file}`)
   if (Buffer.from(signature, 'base64').length < 64) throw new Error(`assinatura curta ou inválida para ${file}`)
   if (environment.GRIFFIN_SIGNATURE_VERIFIER !== 'format-only') {
-    const signatureDirectory = mkdtempSync(join(tmpdir(), 'griffin-minisign-'))
-    const decodedSignaturePath = join(signatureDirectory, 'signature.minisig')
-    try {
-      const decodedSignature = Buffer.from(signature, 'base64').toString('utf8')
-      const minisignSignature = decodedSignature.replace(
-        /^untrusted comment: signature from tauri secret key$/m,
-        'untrusted comment: signature from minisign secret key',
-      )
-      writeFileSync(decodedSignaturePath, minisignSignature)
-      execFileSync('minisign', ['-Vm', file, '-x', decodedSignaturePath, '-P', publicKey], { stdio: 'ignore' })
-    } catch (error) {
-      throw new Error(`assinatura criptográfica inválida ou minisign ausente para ${file}: ${error.message}`)
-    } finally {
-      rmSync(signatureDirectory, { recursive: true, force: true })
+    const publicKeyLines = Buffer.from(publicKey, 'base64').toString('utf8').split(/\r?\n/)
+    const publicKeyBytes = Buffer.from(publicKeyLines[1] ?? '', 'base64')
+    const signatureLines = Buffer.from(signature, 'base64').toString('utf8').split(/\r?\n/)
+    const signatureBytes = Buffer.from(signatureLines[1] ?? '', 'base64')
+    const trustedComment = signatureLines[2] ?? ''
+    const globalSignature = Buffer.from(signatureLines[3] ?? '', 'base64')
+
+    if (publicKeyBytes.length !== 42 || signatureBytes.length !== 74 ||
+      !trustedComment.startsWith('trusted comment: ') || globalSignature.length !== 64) {
+      throw new Error(`assinatura Tauri malformada para ${file}`)
+    }
+    if (!publicKeyBytes.subarray(2, 10).equals(signatureBytes.subarray(2, 10))) {
+      throw new Error(`assinatura Tauri usa uma chave diferente para ${file}`)
+    }
+
+    const publicKeyObject = createPublicKey({
+      key: Buffer.concat([
+        Buffer.from('302a300506032b6570032100', 'hex'),
+        publicKeyBytes.subarray(10, 42),
+      ]),
+      format: 'der',
+      type: 'spki',
+    })
+    const algorithm = signatureBytes.subarray(0, 2).toString('ascii')
+    const fileBytes = readFileSync(file)
+    const signedBytes = algorithm === 'ED'
+      ? createHash('blake2b512').update(fileBytes).digest()
+      : algorithm === 'Ed' ? fileBytes : null
+    if (!signedBytes || !verifyEd25519(null, signedBytes, publicKeyObject, signatureBytes.subarray(10, 74))) {
+      throw new Error(`assinatura Tauri inválida para ${file}`)
+    }
+
+    const trustedCommentBytes = Buffer.from(trustedComment.slice('trusted comment: '.length))
+    const globalMessage = Buffer.concat([signatureBytes.subarray(10, 74), trustedCommentBytes])
+    if (!verifyEd25519(null, globalMessage, publicKeyObject, globalSignature)) {
+      throw new Error(`assinatura global Tauri inválida para ${file}`)
     }
   }
   return signature
