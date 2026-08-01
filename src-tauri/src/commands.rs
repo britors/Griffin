@@ -804,7 +804,7 @@ fn extract_cuda_runtime(archive_path: &Path, staging: &Path) -> Result<(), Strin
         if entry.is_dir() {
             continue;
         }
-        let Some(path) = entry.enclosed_name().map(Path::to_path_buf) else {
+        let Some(path) = entry.enclosed_name() else {
             return Err("O pacote cuDNN contém um caminho inválido.".into());
         };
         let Some(relative) = runtime_archive_path(&path, "bin") else {
