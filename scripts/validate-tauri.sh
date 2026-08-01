@@ -6,8 +6,6 @@ fail() {
   exit 1
 }
 
-command -v rg >/dev/null || fail "rg é obrigatório para validar a fronteira Tauri"
-
 for required_file in \
   package.json \
   src-tauri/Cargo.toml \
@@ -22,17 +20,25 @@ for required_file in \
 done
 
 for forbidden in electron electron-vite electron-builder electron-updater onnxruntime-node; do
-  if rg -n -i --glob 'package.json' --glob 'src/**' --glob 'scripts/**' --glob 'packaging/**' \
-    --glob 'src-tauri/**' --glob 'vite.config.ts' --glob 'tsconfig.json' \
-    --glob '!scripts/validate-tauri.sh' "${forbidden}" . >/dev/null; then
+  if command -v rg >/dev/null; then
+    forbidden_found=0
+    rg -n -i --glob 'package.json' --glob 'src/**' --glob 'scripts/**' --glob 'packaging/**' \
+      --glob 'src-tauri/**' --glob 'vite.config.ts' --glob 'tsconfig.json' \
+      --glob '!scripts/validate-tauri.sh' "${forbidden}" . >/dev/null || forbidden_found=$?
+  else
+    forbidden_found=0
+    grep -R -n -i -I --exclude-dir=node_modules --exclude-dir=target --exclude='validate-tauri.sh' \
+      "${forbidden}" package.json src scripts packaging src-tauri vite.config.ts tsconfig.json >/dev/null 2>&1 || forbidden_found=$?
+  fi
+  if [[ "${forbidden_found}" -eq 0 ]]; then
     fail "referência ativa proibida encontrada: ${forbidden}"
   fi
 done
 
-rg -n 'tauri dev|tauri build' package.json >/dev/null || fail "scripts Tauri ausentes no package.json"
-rg -n 'griffin-onnx-worker' src-tauri/tauri.conf.json src-tauri/src/lib.rs >/dev/null \
+grep -E -n 'tauri dev|tauri build' package.json >/dev/null || fail "scripts Tauri ausentes no package.json"
+grep -E -n 'griffin-onnx-worker' src-tauri/tauri.conf.json src-tauri/src/lib.rs >/dev/null \
   || fail "worker ONNX não está integrado ao app Tauri"
-rg -n 'Command::new|griffin-onnx-worker' src-tauri/src/commands.rs >/dev/null \
+grep -E -n 'Command::new|griffin-onnx-worker' src-tauri/src/commands.rs >/dev/null \
   || fail "separação não inicia o worker nativo separado"
 
 echo "Fronteira Tauri validada: nenhum runtime Electron e worker ONNX separado."

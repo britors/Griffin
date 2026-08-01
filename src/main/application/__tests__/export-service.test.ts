@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { basename } from 'node:path'
 import { AudioTrack } from '../../../shared/domain/audio-track'
 import type { AudioExportOptions, StemName } from '../../../shared/types'
 import type { AudioExportDestination, AudioExportProcessor, TrackRepository } from '../ports'
@@ -113,7 +114,7 @@ describe('AudioExportApplicationService', () => {
 
     expect(processor.receivedHistory).toHaveLength(6)
     expect(result.paths).toHaveLength(6)
-    expect(result.paths.map((path) => path.split('/').pop())).toEqual([
+    expect(result.paths.map((path) => basename(path))).toEqual([
       'Song - Vocal.wav',
       'Song - Bateria.wav',
       'Song - Baixo.wav',
@@ -139,6 +140,6 @@ describe('AudioExportApplicationService', () => {
     const result = await service.export(track.id, { ...options, mode: 'individual', stems: ['vocals', 'bass'] })
 
     expect(processor.receivedHistory).toEqual([{ vocals: '/stems/vocals.wav' }, { bass: '/stems/bass.wav' }])
-    expect(result.paths).toEqual(['/exports/Song - Vocal.wav', '/exports/Song - Baixo.wav'])
+    expect(result.paths.map((path) => path.replaceAll('\\', '/'))).toEqual(['/exports/Song - Vocal.wav', '/exports/Song - Baixo.wav'])
   })
 })
