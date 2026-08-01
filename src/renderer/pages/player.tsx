@@ -15,6 +15,14 @@ import { useModelDownload } from '../hooks/use-model-download'
 import { errorMessage } from '../error-message'
 import { remoteConsentMessage } from '../privacy-copy'
 
+function isTransientLocalSeparationError(message: string) {
+  return [
+    'O worker ONNX terminou sem resultado.',
+    'O worker ONNX não abriu a saída.',
+    'Não foi possível iniciar o processo ONNX nativo:',
+  ].some((marker) => message.includes(marker))
+}
+
 export function PlayerPage() {
   const { selected, progress, setTracks, select, replaceSelected, setProgress, setPlaying } = usePlayer()
   const [error, setError] = useState<string | null>(null)
@@ -46,7 +54,7 @@ export function PlayerPage() {
   const canSeparate = provider === 'remote' ? remoteAvailable : Boolean(modelStatus?.available)
   const hasSeparatedStems = Boolean(selected?.stems && Object.values(selected.stems).some(Boolean))
 
-  const separate = async (useProvider: SeparationProvider = provider) => {
+  const separate = async (useProvider: SeparationProvider = provider, retryTransient = true) => {
     if (!selected || progress) return
     if (useProvider === 'remote') {
       if (!remoteAvailable) return
@@ -66,7 +74,13 @@ export function PlayerPage() {
       setTracks(await api.library.list())
       select(separated)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Não foi possível extrair o stem.')
+      const message = errorMessage(reason, 'Não foi possível extrair o stem.')
+      if (useProvider === 'local' && retryTransient && isTransientLocalSeparationError(message)) {
+        await new Promise((resolve) => window.setTimeout(resolve, 350))
+        await separate(useProvider, false)
+        return
+      }
+      setError(message)
       setLastRemoteError(useProvider === 'remote')
     } finally {
       setCancelling(false)

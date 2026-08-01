@@ -3,6 +3,7 @@ import { api } from '../api'
 import { getActiveStemAudioPlayer } from '../audio-player'
 import { usePlayer } from '../store'
 import type { SeparationProgress, Track } from '../../shared/types'
+import { errorMessage } from '../error-message'
 
 type BatchStatus = 'queued' | 'processing' | 'done' | 'error' | 'cancelled'
 type BatchItem = { id: string; name: string; status: BatchStatus; progress: number; error?: string }
@@ -71,7 +72,7 @@ export function BatchSeparation({ tracks, activeProjectId, onTracksChanged }: { 
         updateItem(item.id, (current) => ({ ...current, status: 'done', progress: 1 }))
       } catch (reason) {
         const cancelled = cancelledRef.current.delete(item.id)
-        updateItem(item.id, (current) => ({ ...current, status: cancelled ? 'cancelled' : 'error', error: cancelled ? undefined : reason instanceof Error ? reason.message : 'Falha na separação.' }))
+        updateItem(item.id, (current) => ({ ...current, status: cancelled ? 'cancelled' : 'error', error: cancelled ? undefined : errorMessage(reason, 'Falha na separação.') }))
       } finally { activeIdRef.current = null }
     }
     runningRef.current = false; setRunning(false); setPaused(true)
