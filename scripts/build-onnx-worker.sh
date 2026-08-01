@@ -6,8 +6,13 @@ target_triple="$(rustc -vV | sed -n 's/^host: //p')"
 cargo build --manifest-path "${root_dir}/src-tauri/Cargo.toml" --release --bin griffin-onnx-worker --no-default-features
 mkdir -p "${root_dir}/src-tauri/binaries"
 worker_name="griffin-onnx-worker"
-if [[ "${target_triple}" == *windows* ]]; then worker_name="${worker_name}.exe"; fi
-cp "${root_dir}/src-tauri/target/release/${worker_name}" "${root_dir}/src-tauri/binaries/${worker_name}-${target_triple}"
+worker_binary="${worker_name}"
+worker_artifact="${worker_name}-${target_triple}"
+if [[ "${target_triple}" == *windows* ]]; then
+  worker_binary="${worker_binary}.exe"
+  worker_artifact="${worker_artifact}.exe"
+fi
+cp "${root_dir}/src-tauri/target/release/${worker_binary}" "${root_dir}/src-tauri/binaries/${worker_artifact}"
 
 # ONNX Runtime loads non-CPU execution providers as shared libraries at
 # runtime. Keep the provider libraries next to the external worker so Tauri

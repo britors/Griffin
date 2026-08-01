@@ -21,11 +21,12 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test -- --run
-      - run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Build ONNX worker and CUDA providers
         shell: bash
         run: npm run build:onnx-worker
+
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Validate native Windows x64 artifacts
         shell: pwsh
