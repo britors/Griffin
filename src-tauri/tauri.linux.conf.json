@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "externalBin": [
+      "binaries/griffin-onnx-worker",
+      "binaries/libonnxruntime_providers_cuda.so",
+      "binaries/libonnxruntime_providers_shared.so"
+    ],
+    "resources": ["binaries/"],
+    "targets": ["deb", "rpm"]
+  }
+}

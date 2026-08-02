@@ -16,9 +16,11 @@ class InMemoryTrackRepository implements TrackRepository {
 
 class FixedStemSeparator implements StemSeparator {
   target: StemName | undefined
+  calls = 0
   async init() {}
   async status(): Promise<SeparationStatus> { return { available: true, message: 'ok' } }
   async separate(_track: AudioTrack, _report: (progress: SeparationProgress) => void, target?: StemName) {
+    this.calls += 1
     this.target = target
     return { vocals: '/cache/vocals.wav' } satisfies Partial<Record<StemName, string>>
   }
@@ -29,11 +31,24 @@ describe('SeparationApplicationService', () => {
   it('passes the selected stem and preserves stems already attached to the track', async () => {
     const track = AudioTrack.restore({ id: 'track-1', name: 'song.wav', path: '/music/song.wav', importedAt: 'now', stems: { drums: '/cache/drums.wav' } } satisfies Track)
     const separator = new FixedStemSeparator()
-    const service = new SeparationApplicationService(new InMemoryTrackRepository([track]), separator)
+    const service = new SeparationApplicationService(new InMemoryTrackRepository([track]), separator, new FixedStemSeparator())
 
     const result = await service.start(track.snapshot(), () => undefined, 'vocals')
 
     expect(separator.target).toBe('vocals')
     expect(result.stems).toEqual({ drums: '/cache/drums.wav', vocals: '/cache/vocals.wav' })
+  })
+
+  it('routes remote requests through the remote separation port', async () => {
+    const track = AudioTrack.restore({ id: 'track-remote', name: 'song.wav', path: '/music/song.wav', importedAt: 'now' } satisfies Track)
+    const local = new FixedStemSeparator()
+    const remote = new FixedStemSeparator()
+    const service = new SeparationApplicationService(new InMemoryTrackRepository([track]), local, remote)
+
+    await service.start(track.snapshot(), () => undefined, 'vocals', 'remote')
+
+    expect(local.calls).toBe(0)
+    expect(remote.calls).toBe(1)
+    expect(remote.target).toBe('vocals')
   })
 })

@@ -24,16 +24,30 @@ for command_name in bash file grep; do
   command -v "${command_name}" >/dev/null || fail "comando obrigatório não encontrado: ${command_name}"
 done
 
-for script in scripts/download-models.sh scripts/install.sh scripts/uninstall.sh; do
+for script in scripts/download-models.sh scripts/install.sh scripts/uninstall.sh scripts/package-rpm.sh; do
   require_file "${script}"
   bash -n "${script}"
   [[ -x "${script}" ]] || fail "script sem permissão de execução: ${script}"
 done
+require_file scripts/validate-obs-spec.sh
+bash -n scripts/validate-obs-spec.sh
+[[ -x scripts/validate-obs-spec.sh ]] || fail "script sem permissão de execução: scripts/validate-obs-spec.sh"
 
 require_file PKGBUILD
 bash -n PKGBUILD
 grep -F "pkgname=griffin-music" PKGBUILD >/dev/null || fail "PKGBUILD sem pkgname esperado"
 grep -F "package()" PKGBUILD >/dev/null || fail "PKGBUILD sem função package()"
+
+if command -v rpmspec >/dev/null; then
+  require_file packaging/griffin.spec
+  rpmspec --parse packaging/griffin.spec >/dev/null || fail "griffin.spec inválido"
+  grep -E '^Name:[[:space:]]+griffin-music$' packaging/griffin.spec >/dev/null || fail "griffin.spec sem identidade esperada"
+  grep -F 'Obsoletes:      griffin < ' packaging/griffin.spec >/dev/null || fail "griffin.spec sem migração do pacote antigo griffin"
+  echo "Spec RPM validado por rpmspec."
+else
+  echo "rpmspec não disponível; spec RPM não validado."
+fi
+
 if command -v makepkg >/dev/null; then
   srcinfo="$(mktemp)"
   trap 'rm -f "${srcinfo}"' EXIT
@@ -47,43 +61,73 @@ fi
 if [[ "${mode}" == "windows" ]]; then
   exe="$(find "${release_dir}" -maxdepth 1 -type f -iname '*.exe' -print -quit)"
   require_file "${exe}"
+  require_file "${exe}.sig"
   file "${exe}" | grep -E 'PE32\+|MS Windows' >/dev/null || fail "instalador não parece ser um executável Windows x64: ${exe}"
+  require_file src-tauri/binaries/griffin-onnx-worker-x86_64-pc-windows-msvc.exe
+  require_file src-tauri/binaries/onnxruntime_providers_cuda.dll
+  require_file src-tauri/binaries/onnxruntime_providers_shared.dll
+  archive_tool=""
+  for candidate in 7z 7zz 7za; do
+    if command -v "${candidate}" >/dev/null; then
+      archive_tool="${candidate}"
+      break
+    fi
+  done
+  [[ -n "${archive_tool}" ]] || fail "7-Zip (7z, 7zz ou 7za) é obrigatório para validar o conteúdo do instalador"
+  installer_listing="$(${archive_tool} l -slt "${exe}")" || fail "não foi possível listar o conteúdo do instalador: ${exe}"
+  for required_entry in 'griffin-onnx-worker.*\.exe$' 'onnxruntime_providers_cuda\.dll$' 'onnxruntime_providers_shared\.dll$'; do
+    grep -E '^Path = .*' <<<"${installer_listing}" | grep -E "${required_entry}" >/dev/null || fail "conteúdo obrigatório não encontrado no instalador: ${required_entry}"
+  done
+  installer_tmp="$(mktemp -d)"
+  trap 'rm -rf "${installer_tmp}"' EXIT
+  "${archive_tool}" x -y "-o${installer_tmp}" "${exe}" >/dev/null || fail "não foi possível extrair o instalador: ${exe}"
+  for required_entry in 'griffin-onnx-worker.*\.exe$' 'onnxruntime_providers_cuda\.dll$' 'onnxruntime_providers_shared\.dll$'; do
+    extracted="$(find "${installer_tmp}" -type f -regextype posix-extended -iregex ".*/${required_entry}" -print -quit)"
+    require_file "${extracted}"
+    file "${extracted}" | grep -E 'PE32\+|x86-64' >/dev/null || fail "binário extraído não é PE x64: ${extracted}"
+  done
   echo "NSIS Windows x64 validado: ${exe}"
   exit 0
 fi
 
 [[ "${mode}" == "linux" ]] || fail "modo inválido: ${mode} (use linux ou windows)"
-appimage="$(find "${release_dir}" -maxdepth 1 -type f -iname '*.AppImage' -print -quit)"
 deb="$(find "${release_dir}" -maxdepth 1 -type f -iname '*.deb' -print -quit)"
 rpm="$(find "${release_dir}" -maxdepth 1 -type f -iname '*.rpm' -print -quit)"
-require_file "${appimage}"
 require_file "${deb}"
 require_file "${rpm}"
+require_file "${deb}.sig"
+require_file "${rpm}.sig"
 
-file "${appimage}" | grep -F 'ELF 64-bit' >/dev/null || fail "AppImage não é ELF 64-bit: ${appimage}"
 file "${deb}" | grep -F 'Debian binary package' >/dev/null || fail "DEB inválido: ${deb}"
 file "${rpm}" | grep -F 'RPM' >/dev/null || fail "RPM inválido: ${rpm}"
 
 command -v dpkg-deb >/dev/null || fail "dpkg-deb é obrigatório para validar o DEB"
 command -v rpm >/dev/null || fail "rpm é obrigatório para validar o RPM"
+
+selected_deb=""
+while IFS= read -r candidate; do
+  if dpkg-deb --contents "${candidate}" | grep -F 'libonnxruntime_providers_cuda' >/dev/null; then
+    selected_deb="${candidate}"
+    break
+  fi
+done < <(find "${release_dir}" -maxdepth 1 -type f -iname '*.deb' -print)
+selected_rpm=""
+while IFS= read -r candidate; do
+  if rpm -qlp "${candidate}" | grep -F 'libonnxruntime_providers_cuda' >/dev/null; then
+    selected_rpm="${candidate}"
+    break
+  fi
+done < <(find "${release_dir}" -maxdepth 1 -type f -iname '*.rpm' -print)
+require_file "${selected_deb}"
+require_file "${selected_rpm}"
+deb="${selected_deb}"
+rpm="${selected_rpm}"
 deb_listing="$(dpkg-deb --contents "${deb}")"
 rpm_listing="$(rpm -qlp "${rpm}")"
 for listing in "${deb_listing}" "${rpm_listing}"; do
-  require_listing_entry "${listing}" 'resources/icon.png'
-  require_listing_entry "${listing}" 'resources/models/htdemucs.onnx'
-  for stem in bass drums other vocals; do
-    require_listing_entry "${listing}" "resources/models/htdemucs-ft/htdemucs_ft_${stem}_fp16weights.onnx"
-  done
+  require_listing_entry "${listing}" 'hicolor/256x256/apps/griffin-music.png'
+  require_listing_entry "${listing}" 'libonnxruntime_providers_cuda'
 done
+bash scripts/validate-obs-spec.sh packaging/griffin.spec "${rpm}"
 
-temp_dir="$(mktemp -d)"
-trap 'rm -rf "${temp_dir}"' EXIT
-(cd "${temp_dir}" && "${OLDPWD}/${appimage}" --appimage-extract >/dev/null)
-require_file "${temp_dir}/squashfs-root/resources/icon.png"
-require_file "${temp_dir}/squashfs-root/resources/models/htdemucs.onnx"
-for stem in bass drums other vocals; do
-  require_file "${temp_dir}/squashfs-root/resources/models/htdemucs-ft/htdemucs_ft_${stem}_fp16weights.onnx"
-done
-"${appimage}" --appimage-version >/dev/null
-
-echo "AppImage, DEB e RPM validados com logo e modelos ONNX: ${release_dir}"
+echo "DEB e RPM validados com logo: ${release_dir}"

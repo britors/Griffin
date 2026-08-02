@@ -1,5 +1,6 @@
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { api } from './api'
 import { applyVisualPreferences } from './preferences'
 import { addRecentTrack, playerSnapshot, usePlayer } from './store'
@@ -8,7 +9,8 @@ import { PlayerPage } from './pages/player'
 import { PreferencesPage } from './pages/preferences'
 import { AudioPlayback } from './components/audio-playback'
 import { Splash } from './components/splash'
-import { ProjectPicker } from './components/project-picker'
+import { ModelSetupModal } from './components/model-setup-modal'
+import { DialogHost } from './components/dialog-host'
 import { KeyboardShortcuts } from './components/keyboard-shortcuts'
 import { Metronome } from './components/metronome'
 import './styles.css'
@@ -21,6 +23,7 @@ function App() {
 
   const [view, setView] = useState<View>('library')
   const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>('all')
+  const [appVersion, setAppVersion] = useState<string | null>(null)
   const { selected, recentTrackIds, setProgress, setFavoriteIds, setRecentTrackIds, setResetPlaybackOnTrackChange, setMetronomeEnabled, setMetronomeSubdivision, setMetronomeVolume, setCountInEnabled, setCountInBars } = usePlayer()
   const activeProjectId = usePlayer((state) => state.activeProjectId)
   const takePath = usePlayer((state) => state.takePath)
@@ -53,6 +56,13 @@ function App() {
   }, [setFavoriteIds, setRecentTrackIds, setResetPlaybackOnTrackChange, setMetronomeEnabled, setMetronomeSubdivision, setMetronomeVolume, setCountInEnabled, setCountInBars])
 
   useEffect(() => {
+    void api.version().then(setAppVersion)
+    void api.updates.check()
+    const timer = window.setInterval(() => { void api.updates.check() }, 6 * 60 * 60 * 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
     if (!selected) return
     const nextRecent = addRecentTrack(recentTrackIds, selected.id)
     setRecentTrackIds(nextRecent)
@@ -73,22 +83,28 @@ function App() {
   const showPreferences = () => setView('preferences')
 
   return <div className="app-shell">
+    <ModelSetupModal />
+    <DialogHost />
     <KeyboardShortcuts />
     <Metronome />
     <AudioPlayback />
     <aside className="sidebar">
       <div className="brand"><img className="brand-logo" src="./logo.svg" alt="Griffin Music" /><div><strong>Griffin</strong><span>Music</span></div></div>
-      <ProjectPicker />
       <nav>
         <button className={view === 'library' && libraryFilter === 'all' ? 'active' : ''} onClick={() => showLibrary()}>⌂ <span>Biblioteca</span></button>
         <button className={view === 'library' && libraryFilter === 'favorites' ? 'active' : ''} onClick={() => showLibrary('favorites')}>◈ <span>Favoritos</span></button>
         <button className={view === 'library' && libraryFilter === 'recent' ? 'active' : ''} onClick={() => showLibrary('recent')}>◌ <span>Recentes</span></button>
         <button className={view === 'preferences' ? 'active' : ''} onClick={showPreferences}>⚙ <span>Preferências</span></button>
       </nav>
-      <div className="sidebar-footer"><div><span className="offline-dot" />Processamento local</div><div className="version">v0.1.0</div></div>
+      <div className="sidebar-footer"><div><span className="offline-dot" />Processamento local</div><div className="version">{appVersion ? `v${appVersion}` : 'v—'}</div></div>
     </aside>
     <div className="content">
-      <header className="app-header">
+      <header className="app-header" data-tauri-drag-region="deep" onMouseDown={(event) => {
+        if (event.button !== 0) return
+        const target = event.target as HTMLElement
+        if (target.closest('button, input, select, textarea, a, [role="button"], .window-controls')) return
+        void getCurrentWindow().startDragging()
+      }}>
         <div className="header-title"><span>Griffin Music</span><i>/</i><strong>{view === 'preferences' ? 'Preferências' : selected ? selected.name : 'Biblioteca'}</strong></div>
         <div className="header-actions">
           <button className="settings" title="Abrir preferências" aria-label="Abrir preferências" onClick={showPreferences}>⚙</button>

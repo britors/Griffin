@@ -19,6 +19,7 @@ export class StemAudioPlayer {
   private readonly gains = new Map<StemName, GainNode>()
   private readonly panners = new Map<StemName, StereoPannerNode>()
   private readonly equalizers = new Map<StemName, BiquadFilterNode[]>()
+  private readonly inputs = new Map<StemName, AudioNode>()
   private microphoneAnalyser: AnalyserNode | null = null
   private readonly buffers = new Map<StemName, AudioBuffer>()
   private takeBuffer: AudioBuffer | null = null
@@ -30,6 +31,7 @@ export class StemAudioPlayer {
   private offset = 0
   private duration = 0
   private tempo = 1
+  private loadGeneration = 0
 
   constructor() {
     activePlayer = this
@@ -40,7 +42,15 @@ export class StemAudioPlayer {
       panner.connect(this.recordingDestination)
       this.gains.set(stem, gain)
       this.panners.set(stem, panner)
-      this.equalizers.set(stem, [])
+      const filters = [32, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000, 20000].map((frequency) => {
+        const filter = this.context.createBiquadFilter()
+        filter.type = 'peaking'; filter.frequency.value = frequency; filter.Q.value = 1
+        return filter
+      })
+      for (let index = 0; index < filters.length - 1; index += 1) filters[index].connect(filters[index + 1])
+      filters.at(-1)?.connect(gain)
+      this.equalizers.set(stem, filters)
+      this.inputs.set(stem, filters[0] ?? gain)
     }
   }
 
@@ -66,29 +76,43 @@ export class StemAudioPlayer {
   }
 
   async load(track: Track, takePath?: string | null) {
+    const generation = ++this.loadGeneration
     this.stop()
     this.buffers.clear()
     this.takeBuffer = null
     this.duration = 0
     if (!track.stems) return
-    await this.ensureWorklet()
-    const decoded = await Promise.all(stems.filter((stem) => Boolean(track.stems?.[stem])).map(async (stem) => {
+    const availableStems = stems.filter((stem) => Boolean(track.stems?.[stem]))
+    // Decode one stem at a time. Promise.all temporarily retained the source
+    // bytes and every decoded AudioBuffer at the same time.
+    for (const stem of availableStems) {
       const bytes = await api.library.read(track.stems![stem]!)
-      return [stem, await this.context.decodeAudioData(asArrayBuffer(bytes))] as const
-    }))
-    for (const [stem, buffer] of decoded) {
+      const buffer = await this.context.decodeAudioData(asArrayBuffer(bytes))
+      if (generation !== this.loadGeneration) return
       this.buffers.set(stem, buffer)
       this.duration = Math.max(this.duration, buffer.duration)
     }
     if (takePath) {
       const bytes = await api.library.read(takePath)
-      this.takeBuffer = await this.context.decodeAudioData(asArrayBuffer(bytes))
+      const buffer = await this.context.decodeAudioData(asArrayBuffer(bytes))
+      if (generation !== this.loadGeneration) return
+      this.takeBuffer = buffer
     }
+  }
+
+  unload() {
+    this.loadGeneration += 1
+    this.stop()
+    this.buffers.clear()
+    this.takeBuffer = null
+    this.duration = 0
   }
 
   async play(offset = this.offset, tempo = 1, pitch = 0, onEnded?: () => void) {
     if (!this.isLoaded || this.duration === 0) return
     if (this.context.state === 'suspended') await this.context.resume()
+    const requiresTimeStretch = tempo !== 1 || pitch !== 0
+    if (requiresTimeStretch) await this.ensureWorklet()
     this.stopSources()
     this.offset = Math.max(0, Math.min(offset, this.duration - 0.01))
     this.tempo = tempo
@@ -99,10 +123,14 @@ export class StemAudioPlayer {
       const source = this.context.createBufferSource()
       source.buffer = this.buffers.get(stem)!
       source.playbackRate.value = tempo
-      const processor = this.processors.get(stem)!
-      processor.playbackRate.value = tempo
-      processor.pitchSemitones.value = pitch
-      source.connect(processor)
+      const processor = requiresTimeStretch ? this.processors.get(stem) : undefined
+      if (processor) {
+        processor.playbackRate.value = tempo
+        processor.pitchSemitones.value = pitch
+        source.connect(processor)
+      } else {
+        source.connect(this.inputs.get(stem) ?? this.gains.get(stem)!)
+      }
       source.onended = () => {
         if (!ended && this.sources.get(stem) === source) {
           ended = true
@@ -176,7 +204,7 @@ export class StemAudioPlayer {
     for (const processor of this.processors.values()) processor.pitchSemitones.setValueAtTime(pitch, this.context.currentTime)
   }
 
-  dispose() { this.stop(); if (activePlayer === this) activePlayer = null; void this.context.close() }
+  dispose() { this.unload(); if (activePlayer === this) activePlayer = null; void this.context.close() }
 
   private stop() { this.stopSources(); this.offset = 0 }
   private stopSources() {
@@ -198,13 +226,7 @@ export class StemAudioPlayer {
     await SoundTouchNode.register(this.context, processorUrl)
     for (const stem of stems) {
       const processor = new SoundTouchNode({ context: this.context })
-      const filters = [32, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000, 20000].map((frequency) => {
-        const filter = this.context.createBiquadFilter()
-        filter.type = 'peaking'; filter.frequency.value = frequency; filter.Q.value = 1
-        return filter
-      })
-      filters.reduce<AudioNode>((output, filter) => output.connect(filter), processor).connect(this.gains.get(stem)!)
-      this.equalizers.set(stem, filters)
+      processor.connect(this.inputs.get(stem) ?? this.gains.get(stem)!)
       this.processors.set(stem, processor)
     }
     this.workletReady = true

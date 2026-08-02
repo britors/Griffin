@@ -2,33 +2,35 @@ import { useEffect, useRef, useState } from 'react'
 import { usePlayer } from '../store'
 
 export function ProgressivePractice() {
-  const { playing, position, tempo, loopEnabled, loopStart, loopEnd, setTempo } = usePlayer()
+  const { playing, tempo, loopEnabled, loopStart, loopEnd, loopIteration, setTempo } = usePlayer()
   const [enabled, setEnabled] = useState(false)
   const [startPercent, setStartPercent] = useState(70)
   const [endPercent, setEndPercent] = useState(100)
   const [incrementPercent, setIncrementPercent] = useState(5)
   const [repetitions, setRepetitions] = useState(2)
   const [completed, setCompleted] = useState(0)
-  const previousPosition = useRef(position)
+  const lastLoopIteration = useRef(loopIteration)
 
   useEffect(() => {
     if (!enabled) return
     setCompleted(0)
+    lastLoopIteration.current = loopIteration
     setTempo(startPercent / 100)
-  }, [enabled])
+  }, [enabled, setTempo, startPercent])
 
   useEffect(() => {
-    if (!enabled || !playing || !loopEnabled || position >= previousPosition.current - 0.05) {
-      previousPosition.current = position
+    if (!enabled || !playing || !loopEnabled) {
+      lastLoopIteration.current = loopIteration
       return
     }
+    if (loopIteration === lastLoopIteration.current) return
+    lastLoopIteration.current = loopIteration
     const nextCompleted = completed + 1
     if (nextCompleted >= repetitions) {
       setCompleted(0)
       setTempo(Math.min(endPercent / 100, tempo + incrementPercent / 100))
     } else setCompleted(nextCompleted)
-    previousPosition.current = position
-  }, [position, enabled, playing, loopEnabled, completed, repetitions, tempo, endPercent, incrementPercent, setTempo])
+  }, [loopIteration, enabled, playing, loopEnabled, completed, repetitions, tempo, endPercent, incrementPercent, setTempo])
 
   const toggle = () => {
     const nextEnabled = !enabled

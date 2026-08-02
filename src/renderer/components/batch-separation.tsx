@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
+import { getActiveStemAudioPlayer } from '../audio-player'
+import { usePlayer } from '../store'
 import type { SeparationProgress, Track } from '../../shared/types'
+import { errorMessage } from '../error-message'
 
 type BatchStatus = 'queued' | 'processing' | 'done' | 'error' | 'cancelled'
 type BatchItem = { id: string; name: string; status: BatchStatus; progress: number; error?: string }
@@ -58,13 +61,18 @@ export function BatchSeparation({ tracks, activeProjectId, onTracksChanged }: { 
       if (!track) { updateItem(item.id, (current) => ({ ...current, status: 'error', error: 'Faixa não encontrada na biblioteca.' })); continue }
       activeIdRef.current = item.id
       updateItem(item.id, (current) => ({ ...current, status: 'processing', progress: 0, error: undefined }))
+      const selectedBeforeSeparation = usePlayer.getState().selected
       try {
-        await api.separation.start(track)
+        usePlayer.getState().setPlaying(false)
+        getActiveStemAudioPlayer()?.unload()
+        const separated = await api.separation.start(track)
         onTracksChanged(await api.library.list())
+        const selectedAfterSeparation = selectedBeforeSeparation?.id === track.id ? separated : selectedBeforeSeparation
+        if (selectedAfterSeparation) usePlayer.getState().replaceSelected({ ...selectedAfterSeparation })
         updateItem(item.id, (current) => ({ ...current, status: 'done', progress: 1 }))
       } catch (reason) {
         const cancelled = cancelledRef.current.delete(item.id)
-        updateItem(item.id, (current) => ({ ...current, status: cancelled ? 'cancelled' : 'error', error: cancelled ? undefined : reason instanceof Error ? reason.message : 'Falha na separação.' }))
+        updateItem(item.id, (current) => ({ ...current, status: cancelled ? 'cancelled' : 'error', error: cancelled ? undefined : errorMessage(reason, 'Falha na separação.') }))
       } finally { activeIdRef.current = null }
     }
     runningRef.current = false; setRunning(false); setPaused(true)
@@ -79,5 +87,5 @@ export function BatchSeparation({ tracks, activeProjectId, onTracksChanged }: { 
   const completed = queue.filter((item) => item.status === 'done').length
   const progress = queue.length === 0 ? 0 : queue.reduce((total, item) => total + item.progress, 0) / queue.length
 
-  return <section className="panel batch-panel"><div className="section-heading"><div><span className="eyebrow">PROCESSAMENTO EM LOTE</span><h2>Separe várias faixas</h2></div><span className="badge">{completed}/{queue.length || 0}</span></div><p className="batch-help">Adicione várias músicas, acompanhe cada item e retome a fila depois de reiniciar o app.</p><div className="batch-actions"><button className="secondary-button" onClick={() => void importBatch}>＋ Adicionar arquivos</button><button className="primary-button" disabled={running || !queue.some((item) => item.status === 'queued')} onClick={() => void run}>▶ Iniciar fila</button>{running && <button className="secondary-button" onClick={pause}>Pausar após a faixa atual</button>}{!running && queue.some((item) => item.status === 'queued') && !paused && <button className="secondary-button" onClick={() => void run}>Retomar</button>}{queue.some((item) => item.status === 'done' || item.status === 'error' || item.status === 'cancelled') && <button className="text-button" onClick={clearFinished}>Limpar concluídas</button>}</div>{queue.length > 0 && <><div className="batch-progress"><span style={{ width: `${Math.round(progress * 100)}%` }} /><output>{Math.round(progress * 100)}% global</output></div><div className="batch-list">{queue.map((item) => <div className={`batch-row ${item.status}`} key={item.id}><span className="batch-status">{item.status === 'done' ? '✓' : item.status === 'processing' ? '…' : item.status === 'error' ? '!' : item.status === 'cancelled' ? '×' : '○'}</span><span className="batch-name"><strong>{item.name}</strong><small>{item.error ?? (item.status === 'processing' ? `${Math.round(item.progress * 100)}%` : item.status === 'queued' ? 'Na fila' : item.status === 'cancelled' ? 'Cancelada' : 'Concluída')}</small></span>{(item.status === 'queued' || item.status === 'processing') && <button className="text-button" onClick={() => void cancel(item)}>{item.status === 'processing' ? 'Cancelar' : 'Remover'}</button>}</div>)}</div></>}</section>
+  return <section className="panel batch-panel"><div className="section-heading"><div><span className="eyebrow">PROCESSAMENTO EM LOTE</span><h2>Separe várias faixas</h2></div><span className="badge">{completed}/{queue.length || 0}</span></div><p className="batch-help">Adicione várias músicas, acompanhe cada item e retome a fila depois de reiniciar o app.</p><div className="batch-actions"><button className="secondary-button" onClick={() => void importBatch()}>＋ Adicionar arquivos</button><button className="primary-button" disabled={running || !queue.some((item) => item.status === 'queued')} onClick={() => void run()}>▶ Iniciar fila</button>{running && <button className="secondary-button" onClick={pause}>Pausar após a faixa atual</button>}{!running && queue.some((item) => item.status === 'queued') && !paused && <button className="secondary-button" onClick={() => void run()}>Retomar</button>}{queue.some((item) => item.status === 'done' || item.status === 'error' || item.status === 'cancelled') && <button className="text-button" onClick={clearFinished}>Limpar concluídas</button>}</div>{queue.length > 0 && <><div className="batch-progress"><span style={{ width: `${Math.round(progress * 100)}%` }} /><output>{Math.round(progress * 100)}% global</output></div><div className="batch-list">{queue.map((item) => <div className={`batch-row ${item.status}`} key={item.id}><span className="batch-status">{item.status === 'done' ? '✓' : item.status === 'processing' ? '…' : item.status === 'error' ? '!' : item.status === 'cancelled' ? '×' : '○'}</span><span className="batch-name"><strong>{item.name}</strong><small>{item.error ?? (item.status === 'processing' ? `${Math.round(item.progress * 100)}%` : item.status === 'queued' ? 'Na fila' : item.status === 'cancelled' ? 'Cancelada' : 'Concluída')}</small></span>{(item.status === 'queued' || item.status === 'processing') && <button className="text-button" onClick={() => void cancel(item)}>{item.status === 'processing' ? 'Cancelar' : 'Remover'}</button>}</div>)}</div></>}</section>
 }
