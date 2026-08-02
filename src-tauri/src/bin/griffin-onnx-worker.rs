@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use hound::{SampleFormat, WavSpec, WavWriter};
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use ort::ep;

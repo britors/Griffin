@@ -1,4 +1,4 @@
-# Release 1.1.0
+# Release 1.1.1
 
 Esta versão corrige o salvamento de projetos que ainda continham referências a faixas removidas da biblioteca, o empacotamento de produção e a atualização imediata da lista de projetos após a criação.
 
@@ -12,7 +12,7 @@ O empacotamento é feito pelo Tauri: o instalador Windows usa NSIS e as distribu
 
 ## Publicação no OBS
 
-O pacote do Griffin Music fica no projeto pessoal `home:rodrigosbrito`, fora de qualquer projeto Lyra. O nome do pacote é `griffin-music`; não usar `home:rodrigosbrito:lyra` nem `griffin` como destino. A publicação da versão 1.1.0 deve atualizar `home:rodrigosbrito/griffin-music`.
+O pacote do Griffin Music fica no projeto pessoal `home:rodrigosbrito`, fora de qualquer projeto Lyra. O nome do pacote é `griffin-music`; não usar `home:rodrigosbrito:lyra` nem `griffin` como destino. A publicação da versão 1.1.1 deve atualizar `home:rodrigosbrito/griffin-music`.
 
 ## Chaves de assinatura
 
