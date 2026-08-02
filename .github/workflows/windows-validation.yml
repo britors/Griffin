@@ -1,0 +1,51 @@
+name: Windows x64 validation
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test -- --run
+
+      - name: Build ONNX worker and CUDA providers
+        shell: bash
+        run: npm run build:onnx-worker
+
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Validate native Windows x64 artifacts
+        shell: pwsh
+        run: ./scripts/validate-windows-build.ps1 -SkipInstaller
+
+      - name: Build NSIS installer
+        shell: bash
+        run: |
+          npx tauri signer generate --ci -w "$RUNNER_TEMP/griffin-validation-updater.key" --force
+          export TAURI_SIGNING_PRIVATE_KEY="$(cat "$RUNNER_TEMP/griffin-validation-updater.key")"
+          export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=
+          npm run package:win
+
+      - name: Validate NSIS installer and bundled prerequisites
+        shell: pwsh
+        run: ./scripts/validate-windows-build.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: griffin-windows-x64
+          path: release/*.exe
+          if-no-files-found: error

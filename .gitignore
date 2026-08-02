@@ -1,6 +1,9 @@
 node_modules
 out
 release
+dist
+src-tauri/binaries/*
+src-tauri/target
 *.log
 .DS_Store
 src/main/models/**/*.onnx

@@ -106,8 +106,35 @@ export interface Project {
   createdAt: string
   updatedAt: string
   trackIds: string[]
+  folderId?: string | null
+  filePath?: string | null
+  fileSavedAt?: string | null
   snapshots?: ProjectSnapshot[]
   playerState?: PlayerSnapshot
+}
+
+export interface ProjectFolder {
+  id: string
+  name: string
+  parentId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface GriffinProjectFile {
+  format: 'griffin-project'
+  version: 1
+  savedAt: string
+  project: Project
+  folders: ProjectFolder[]
+  tracks: Track[]
+}
+
+export interface ProjectOpenResult {
+  project: Project
+  folders: ProjectFolder[]
+  tracks: Track[]
+  missingTracks: string[]
 }
 
 export interface PlayerSnapshot {
@@ -153,6 +180,59 @@ export interface SeparationStatus {
   sixStemAvailable?: boolean
 }
 
+export type SeparationProvider = 'local' | 'remote'
+
+export interface RemoteSeparationStatus {
+  configured: boolean
+  verified: boolean
+  balanceFormatted?: string
+  message: string
+}
+
+export interface RemoteCostEstimate {
+  durationSeconds: number
+  estimatedUsd: number
+}
+
+export type ModelDownloadKind = 'standard' | 'extended'
+
+export interface ModelDownloadProgress {
+  kind: ModelDownloadKind
+  progress: number
+  stage: string
+}
+
+export interface ModelDownloadStatus {
+  standardInstalled: boolean
+  extendedInstalled: boolean
+  downloading: ModelDownloadKind | null
+}
+
+export interface CudaRuntimeStatus {
+  supported: boolean
+  installed: boolean
+  downloading: boolean
+  state?: 'installed' | 'installing' | 'incomplete' | 'error'
+  downloadBytes?: number
+  version?: string
+  message: string
+}
+
+export interface CudaRuntimeProgress {
+  progress: number
+  stage: string
+}
+
+export type AppUpdateStage = 'disabled' | 'system' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'not-available' | 'error'
+
+export interface AppUpdateStatus {
+  supported: boolean
+  stage: AppUpdateStage
+  version?: string
+  progress?: number
+  message: string
+}
+
 export interface LocalResourcesSummary {
   cachePath: string
   cacheBytes: number
@@ -192,6 +272,21 @@ export interface YoutubeImportProgress {
   message: string
 }
 
+export interface YtDlpStatus {
+  installed: boolean
+  downloading: boolean
+  asset: string
+  version?: string
+  path?: string
+  message: string
+}
+
+export interface YtDlpProgress {
+  progress: number
+  stage: 'downloading' | 'ready'
+  message: string
+}
+
 export interface GriffinAPI {
   window: {
     minimize: () => Promise<void>
@@ -210,29 +305,70 @@ export interface GriffinAPI {
     importUrl: (assetId: string) => Promise<Track>
     cancelRemoteImport: (assetId: string) => Promise<void>
     youtubePreview: (url: string) => Promise<YoutubeAudioPreview>
-    youtubeImport: (previewId: string) => Promise<Track>
+    youtubeImport: (previewId: string, fallbackUrl?: string) => Promise<Track>
     youtubeCancel: (previewId: string) => Promise<void>
     onYoutubeProgress: (callback: (progress: YoutubeImportProgress) => void) => () => void
   }
+  ytDlp: {
+    status: () => Promise<YtDlpStatus>
+    download: () => Promise<void>
+    cancel: () => Promise<void>
+    onProgress: (callback: (progress: YtDlpProgress) => void) => () => void
+  }
   projects: {
     list: () => Promise<Project[]>
+    listFolders: () => Promise<ProjectFolder[]>
     create: (name: string) => Promise<Project>
     rename: (projectId: string, name: string) => Promise<Project>
     remove: (projectId: string) => Promise<void>
+    createFolder: (name: string, parentId?: string | null) => Promise<ProjectFolder>
+    renameFolder: (folderId: string, name: string) => Promise<ProjectFolder>
+    removeFolder: (folderId: string) => Promise<void>
+    move: (projectId: string, folderId: string | null) => Promise<Project>
     addTrack: (projectId: string, trackId: string) => Promise<Project>
     removeTrack: (projectId: string, trackId: string) => Promise<Project>
     moveTrack: (projectId: string, trackId: string, direction: 'up' | 'down') => Promise<Project>
     createSnapshot: (projectId: string, name: string, player: PlayerSnapshot) => Promise<Project>
     restoreSnapshot: (projectId: string, snapshotId: string) => Promise<ProjectSnapshot>
-  removeSnapshot: (projectId: string, snapshotId: string) => Promise<Project>
+    removeSnapshot: (projectId: string, snapshotId: string) => Promise<Project>
     updatePlayerState: (projectId: string, player: PlayerSnapshot) => Promise<Project>
+    saveAs: (projectId: string) => Promise<Project | null>
+    save: (projectId: string) => Promise<Project>
+    open: () => Promise<ProjectOpenResult | null>
   }
   separation: {
     status: () => Promise<SeparationStatus>
-    start: (track: Track, target?: StemName) => Promise<Track>
+    start: (track: Track, target?: StemName, provider?: SeparationProvider) => Promise<Track>
     cancel: (trackId: string) => Promise<void>
     onProgress: (callback: (progress: SeparationProgress) => void) => () => void
   }
+  remoteProvider: {
+    status: () => Promise<RemoteSeparationStatus>
+    saveApiKey: (key: string) => Promise<RemoteSeparationStatus>
+    clearApiKey: () => Promise<RemoteSeparationStatus>
+    estimateCost: (trackId: string) => Promise<RemoteCostEstimate>
+  }
+  models: {
+    status: () => Promise<ModelDownloadStatus>
+    download: (kind: ModelDownloadKind) => Promise<void>
+    cancel: (kind: ModelDownloadKind) => Promise<void>
+    onProgress: (callback: (progress: ModelDownloadProgress) => void) => () => void
+  }
+  cudaRuntime: {
+    status: () => Promise<CudaRuntimeStatus>
+    install: () => Promise<void>
+    cancel: () => Promise<void>
+    onProgress: (callback: (progress: CudaRuntimeProgress) => void) => () => void
+  }
+  updates: {
+    status: () => Promise<AppUpdateStatus>
+    check: (force?: boolean) => Promise<AppUpdateStatus>
+    download: () => Promise<AppUpdateStatus>
+    cancel: () => Promise<AppUpdateStatus>
+    install: () => Promise<void>
+    onStatus: (callback: (status: AppUpdateStatus) => void) => () => void
+  }
+  version: () => Promise<string>
   settings: {
     get: () => Promise<Record<string, unknown>>
     set: (key: string, value: unknown) => Promise<void>

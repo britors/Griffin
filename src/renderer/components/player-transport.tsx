@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatDuration } from '../../shared/utils'
 import type { ChordEvent, TrackAnalysis, TrackSection } from '../../shared/types'
 import { api } from '../api'
@@ -11,19 +11,19 @@ export function PlayerTransport() {
   const duration = selected?.duration ?? 216
   const countInTimer = useRef<number | null>(null)
 
-  const requestPlay = () => {
+  const requestPlay = useCallback(() => {
     if (countInTimer.current !== null) { window.clearTimeout(countInTimer.current); countInTimer.current = null; setCountingIn(false) }
     if (playing) { setPlaying(false); return }
     if (!metronomeEnabled || !countInEnabled) { setPlaying(true); return }
     setCountingIn(true)
     countInTimer.current = window.setTimeout(() => { setCountingIn(false); setPlaying(true); countInTimer.current = null }, countInBars * 4 * (60_000 / (selected?.analysis?.bpm ?? 120)) / tempo)
-  }
+  }, [countInBars, countInEnabled, metronomeEnabled, playing, selected?.analysis?.bpm, setCountingIn, setPlaying, tempo])
 
   useEffect(() => {
     const onToggle = () => requestPlay()
     window.addEventListener('griffin:toggle-play', onToggle)
     return () => { window.removeEventListener('griffin:toggle-play', onToggle); if (countInTimer.current !== null) window.clearTimeout(countInTimer.current) }
-  })
+  }, [requestPlay])
 
   return <section className="panel transport">
     <div className="track-title"><div><span className="eyebrow">NOW PLAYING</span><h2>{selected?.name ?? 'Nenhuma faixa selecionada'}</h2></div><span className="time">{formatDuration(position * duration)} <i>/ {formatDuration(duration)}</i></span></div>
