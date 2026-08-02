@@ -40,6 +40,7 @@ const CORE_STEMS: [&str; 4] = ["vocals", "drums", "bass", "other"];
 const ALL_STEMS: [&str; 6] = ["vocals", "drums", "bass", "other", "guitar", "piano"];
 const MAX_REMOTE_DURATION_SECONDS: f64 = 60.0 * 60.0;
 const MAX_MODEL_DOWNLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const MAX_PUBLIC_REDIRECTS: usize = 5;
 const REMOTE_PREVIEW_TTL: Duration = Duration::from_secs(30 * 60);
 const MAX_REMOTE_PREVIEWS: usize = 32;
 const MAX_EXTERNAL_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
@@ -3250,6 +3251,17 @@ fn models_download_blocking(
     models_dir: PathBuf,
     cancelled: Arc<std::sync::Mutex<HashSet<String>>>,
 ) -> Result<(), String> {
+    let cleanup_dir = models_dir.clone();
+    models_download_blocking_inner(app, kind, models_dir, cancelled)
+        .map_err(|error| cleanup_models_after_download_failure(&cleanup_dir, error))
+}
+
+fn models_download_blocking_inner(
+    app: AppHandle,
+    kind: String,
+    models_dir: PathBuf,
+    cancelled: Arc<std::sync::Mutex<HashSet<String>>>,
+) -> Result<(), String> {
     fs::create_dir_all(models_dir.join("htdemucs-ft")).map_err(|e| e.to_string())?;
     let base = "https://huggingface.co/StemSplitio";
     let mut files: Vec<(PathBuf, String, &'static str)> = vec![(
@@ -3289,10 +3301,7 @@ fn models_download_blocking(
             "models:progress",
             serde_json::json!({ "kind": kind, "progress": index as f64 / total.max(1) as f64, "stage": format!("Baixando {} ({}/{})", path.file_name().and_then(|value| value.to_str()).unwrap_or("modelo"), index + 1, total) }),
         );
-        let (url, agent) = public_http_agent(&url)?;
-        let response = agent
-            .get(&url)
-            .call()
+        let response = public_http_get_following_redirects(&url)
             .map_err(|e| format!("Falha ao baixar modelo: {e}"))?;
         let expected = response
             .headers()
@@ -3343,6 +3352,15 @@ fn models_download_blocking(
         serde_json::json!({ "kind": kind, "progress": 1.0, "stage": "Modelo instalado" }),
     );
     Ok(())
+}
+
+fn cleanup_models_after_download_failure(models_dir: &Path, error: String) -> String {
+    match remove_dir_if_exists(models_dir) {
+        Ok(()) => error,
+        Err(cleanup_error) => {
+            format!("{error}. A limpeza dos modelos também falhou: {cleanup_error}")
+        }
+    }
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -4077,6 +4095,43 @@ fn public_http_agent(value: &str) -> Result<(String, ureq::Agent), String> {
         PinnedResolver { addresses },
     );
     Ok((url.to_string(), agent))
+}
+
+fn public_http_get_following_redirects(
+    value: &str,
+) -> Result<ureq::http::Response<ureq::Body>, String> {
+    let mut current = parse_public_url(value)?;
+    for redirect_count in 0..=MAX_PUBLIC_REDIRECTS {
+        let (url, agent) = public_http_agent(current.as_str())?;
+        let response = agent
+            .get(url.as_str())
+            .call()
+            .map_err(|error| error.to_string())?;
+        let status = response.status().as_u16();
+        if !matches!(status, 301 | 302 | 303 | 307 | 308) {
+            return Ok(response);
+        }
+        if redirect_count == MAX_PUBLIC_REDIRECTS {
+            return Err("limite de redirecionamentos excedido".into());
+        }
+        let location = response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok())
+            .ok_or_else(|| "redirecionamento sem destino".to_string())?;
+        current = public_redirect_target(&current, location)?;
+    }
+    unreachable!("redirect loop has a fixed upper bound")
+}
+
+fn public_redirect_target(current: &Url, location: &str) -> Result<Url, String> {
+    let next = current
+        .join(location)
+        .map_err(|error| format!("destino de redirecionamento inválido: {error}"))?;
+    if current.scheme() == "https" && next.scheme() != "https" {
+        return Err("redirecionamento inseguro para HTTP".into());
+    }
+    parse_public_url(next.as_str())
 }
 
 fn parse_public_url(value: &str) -> Result<Url, String> {
@@ -4831,6 +4886,24 @@ mod tests {
     }
 
     #[test]
+    fn follows_only_public_https_redirect_targets() {
+        let source = Url::parse("https://huggingface.co/StemSplitio/model/file.onnx").unwrap();
+        assert_eq!(
+            public_redirect_target(&source, "https://cdn.example.test/file.onnx")
+                .unwrap()
+                .as_str(),
+            "https://cdn.example.test/file.onnx"
+        );
+        assert_eq!(
+            public_redirect_target(&source, "/resolve/main/file.onnx")
+                .unwrap()
+                .as_str(),
+            "https://huggingface.co/resolve/main/file.onnx"
+        );
+        assert!(public_redirect_target(&source, "http://127.0.0.1/file.onnx").is_err());
+    }
+
+    #[test]
     fn rejects_private_ip_ranges_and_ipv6_variants() {
         for value in [
             "10.0.0.1",
@@ -5259,6 +5332,20 @@ mod tests {
             &model,
             "9372c470eeadd5ecd9c3c74c2b3cb633f8e2f2fad799250a0f70d652b6b825e4"
         ));
+    }
+
+    #[test]
+    fn removes_model_directory_after_download_failure() {
+        let temp = TempDir::new("failed-model-download");
+        let models = temp.path().join("models");
+        fs::create_dir_all(models.join("htdemucs-ft")).unwrap();
+        fs::write(models.join("htdemucs.onnx.download"), b"partial").unwrap();
+        fs::write(models.join("htdemucs-ft").join("partial.onnx"), b"partial").unwrap();
+
+        let error = cleanup_models_after_download_failure(&models, "download failed".into());
+
+        assert_eq!(error, "download failed");
+        assert!(!models.exists());
     }
 
     #[test]
