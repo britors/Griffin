@@ -108,6 +108,20 @@ npm ci
 npm run dev
 ```
 
+### Instalação via OBS (Open Build Service)
+
+O pacote RPM também é publicado no [Open Build Service](https://build.opensuse.org/package/show/home:griffin/griffin-music). Abra a página do pacote, escolha sua distribuição e versão e siga as instruções de instalação do repositório fornecidas pelo OBS.
+
+Por exemplo, no openSUSE Tumbleweed:
+
+```bash
+sudo zypper addrepo https://download.opensuse.org/repositories/home:/griffin/openSUSE_Tumbleweed/home:griffin.repo
+sudo zypper refresh
+sudo zypper install griffin-music
+```
+
+Para openSUSE Leap, Fedora ou outra distribuição compatível, use o endereço do repositório correspondente à sua versão, disponível na página do pacote. O OBS mantém o Griffin atualizado pelo gerenciador de pacotes; não é necessário baixar o RPM manualmente.
+
 As instruções de testes, empacotamento e publicação estão em [`docs/RELEASE.md`](docs/RELEASE.md).
 
 ## Licença
