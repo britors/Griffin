@@ -1046,7 +1046,11 @@ pub fn library_remove(state: State<'_, AppState>, track_id: String) -> Result<()
     };
     let removed = data.tracks.remove(index);
     let remaining = data.tracks.clone();
+    let projects_changed = remove_track_references_from_projects(&mut data, &track_id);
     save_tracks_locked(&data)?;
+    if projects_changed {
+        save_projects_locked(&data)?;
+    }
     let imports_dir = data.imports_dir.clone();
     let cache_dir = data.cache_dir.clone();
     drop(data);
@@ -2003,14 +2007,18 @@ fn save_project_file(
         .position(|project| project.id == project_id)
         .ok_or_else(|| "Projeto não encontrado.".to_string())?;
     let mut project = data.projects[project_index].clone();
+    // Older versions could leave a project pointing at a track that was
+    // removed from the library. Keep the project saveable and repair those
+    // stale references while preserving the rest of its state.
+    let missing_track_ids = remove_missing_track_references(&mut project, &data.tracks);
     let tracks = project
         .track_ids
         .iter()
         .filter_map(|track_id| data.tracks.iter().find(|track| &track.id == track_id))
         .cloned()
         .collect::<Vec<_>>();
-    if tracks.len() != project.track_ids.len() {
-        return Err("O projeto contém uma biblioteca que não está disponível.".into());
+    if !missing_track_ids.is_empty() {
+        project.updated_at = now();
     }
     let saved_at = now();
     project.file_path = Some(path.to_string_lossy().to_string());
@@ -2028,6 +2036,90 @@ fn save_project_file(
     data.projects[project_index] = project.clone();
     save_projects_locked(&data)?;
     Ok(project)
+}
+
+fn remove_track_references_from_projects(data: &mut crate::state::StateData, track_id: &str) -> bool {
+    let mut changed = false;
+    for project in &mut data.projects {
+        let project_changed = project.track_ids.iter().any(|id| id == track_id)
+            || project
+                .snapshots
+                .as_ref()
+                .is_some_and(|snapshots| snapshots.iter().any(|snapshot| {
+                    snapshot.track_ids.iter().any(|id| id == track_id)
+                        || snapshot.player.selected_track_id.as_deref() == Some(track_id)
+                }))
+            || project
+                .player_state
+                .as_ref()
+                .is_some_and(|player| player.selected_track_id.as_deref() == Some(track_id));
+        if !project_changed {
+            continue;
+        }
+        project.track_ids.retain(|id| id != track_id);
+        if let Some(snapshots) = project.snapshots.as_mut() {
+            for snapshot in snapshots {
+                snapshot.track_ids.retain(|id| id != track_id);
+                if snapshot.player.selected_track_id.as_deref() == Some(track_id) {
+                    snapshot.player.selected_track_id = None;
+                }
+            }
+        }
+        if project
+            .player_state
+            .as_ref()
+            .is_some_and(|player| player.selected_track_id.as_deref() == Some(track_id))
+        {
+            if let Some(player) = project.player_state.as_mut() {
+                player.selected_track_id = None;
+            }
+        }
+        project.updated_at = now();
+        changed = true;
+    }
+    changed
+}
+
+fn remove_missing_track_references(project: &mut Project, tracks: &[Track]) -> Vec<String> {
+    let available = tracks
+        .iter()
+        .map(|track| track.id.as_str())
+        .collect::<HashSet<_>>();
+    let missing = project
+        .track_ids
+        .iter()
+        .filter(|id| !available.contains(id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    project
+        .track_ids
+        .retain(|id| available.contains(id.as_str()));
+    if let Some(snapshots) = project.snapshots.as_mut() {
+        for snapshot in snapshots {
+            snapshot
+                .track_ids
+                .retain(|id| available.contains(id.as_str()));
+            if snapshot
+                .player
+                .selected_track_id
+                .as_ref()
+                .is_some_and(|id| !available.contains(id.as_str()))
+            {
+                snapshot.player.selected_track_id = None;
+            }
+        }
+    }
+    if project
+        .player_state
+        .as_ref()
+        .and_then(|player| player.selected_track_id.as_ref())
+        .is_some_and(|id| !available.contains(id.as_str()))
+    {
+        if let Some(player) = project.player_state.as_mut() {
+            player.selected_track_id = None;
+        }
+    }
+    missing
 }
 
 fn save_project_folders_locked(data: &crate::state::StateData) -> Result<(), String> {
@@ -4645,6 +4737,37 @@ mod tests {
         assert!(!orphan.exists());
         assert!(shared.exists());
         assert!(external.exists());
+    }
+
+    #[test]
+    fn repairs_project_references_to_missing_library_tracks() {
+        let mut project = Project {
+            id: "project".into(),
+            name: "Projeto".into(),
+            created_at: "0".into(),
+            updated_at: "0".into(),
+            track_ids: vec!["available".into(), "missing".into()],
+            folder_id: None,
+            file_path: None,
+            file_saved_at: None,
+            snapshots: None,
+            player_state: None,
+        };
+        let available = Track {
+            id: "available".into(),
+            name: "Faixa disponível".into(),
+            path: "/tmp/available.wav".into(),
+            imported_at: "0".into(),
+            duration: None,
+            stems: None,
+            analysis: None,
+            lyrics: None,
+        };
+
+        let missing = remove_missing_track_references(&mut project, &[available]);
+
+        assert_eq!(missing, vec!["missing"]);
+        assert_eq!(project.track_ids, vec!["available"]);
     }
 
     #[test]

@@ -47,7 +47,9 @@ export function ProjectPicker() {
     await run(async () => {
       const project = await api.projects.create(name)
       const placed = selectedFolderId ? await api.projects.move(project.id, selectedFolderId) : project
-      setProjects([...projects, placed])
+      const { nextProjects, nextFolders } = await refresh()
+      setProjects(nextProjects)
+      setFolders(nextFolders)
       setActiveProject(placed.id)
     })
   }
@@ -187,7 +189,7 @@ export function ProjectPicker() {
       {foldersIn(null).map(renderFolder)}
       {projects.length === 0 && <small className="project-tree-empty">Nenhum projeto criado.</small>}
     </div>
-    <div className="project-picker-actions"><button disabled={busy || !activeProjectId} onClick={() => void renameProject()}>Renomear</button><button disabled={busy || !activeProjectId} onClick={() => void moveProject()}>Mover para pasta selecionada</button><button disabled={busy || projects.length < 2} onClick={() => void removeProject()}>Remover</button></div>
+    <div className="project-picker-actions"><button disabled={busy || !activeProjectId} onClick={() => void renameProject()}>Renomear</button><button disabled={busy || !activeProjectId} onClick={() => void moveProject()}>Mover para pasta selecionada</button><button disabled={busy || !activeProjectId} onClick={() => void removeProject()}>Remover</button></div>
     {saved && <small className="project-saved" role="status">Projeto .gfn salvo</small>}
     {selectedFolderId && <small className="project-selection">Pasta selecionada: {folders.find((folder) => folder.id === selectedFolderId)?.name}</small>}
     <div className="snapshot-heading"><span>SNAPSHOTS</span><button title="Salvar snapshot" aria-label="Salvar snapshot" disabled={busy || !activeProjectId} onClick={() => void saveSnapshot()}>＋</button></div>

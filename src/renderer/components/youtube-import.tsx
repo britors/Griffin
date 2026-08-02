@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import type { Track, YoutubeAudioPreview, YoutubeImportProgress } from '../../shared/types'
 import { errorMessage } from '../error-message'
+import { alertDialog, confirmDialog } from './dialog-store'
 
 export function YoutubeImport({ activeProjectId, onTracksChanged }: { activeProjectId: string | null; onTracksChanged: (tracks: Track[]) => void }) {
   const [url, setUrl] = useState('')
@@ -19,7 +20,17 @@ export function YoutubeImport({ activeProjectId, onTracksChanged }: { activeProj
   const importAudio = async () => {
     if (!preview || !authorized) return
     setWorking(true); setError(null); setSuccess(null); setProgress({ id: preview.id, progress: 0.02, stage: 'downloading', message: 'Preparando download…' })
-    try { const track = await api.library.youtubeImport(preview.id, preview.url); if (activeProjectId) await api.projects.addTrack(activeProjectId, track.id); onTracksChanged(await api.library.list()); setPreview(null); setUrl(''); setAuthorized(false); setProgress(null); setSuccess(`“${track.name}” foi importada para a biblioteca.`) } catch (reason) { setError(errorMessage(reason, 'Não foi possível importar o vídeo.')) } finally { setWorking(false) }
+    try {
+      const track = await api.library.youtubeImport(preview.id, preview.url)
+      if (activeProjectId) await api.projects.addTrack(activeProjectId, track.id)
+      onTracksChanged(await api.library.list())
+      setPreview(null); setUrl(''); setAuthorized(false); setProgress(null); setSuccess(`“${track.name}” foi importada para a biblioteca.`)
+      await alertDialog(`A faixa “${track.name}” foi baixada e adicionada à biblioteca.`)
+    } catch (reason) {
+      const message = errorMessage(reason, 'Não foi possível baixar a faixa.')
+      setError(message)
+      if (await confirmDialog(`${message}\n\nDeseja tentar baixar a faixa novamente?`, { confirmLabel: 'Tentar novamente' })) await importAudio()
+    } finally { setWorking(false) }
   }
   const cancel = async () => { if (preview) await api.library.youtubeCancel(preview.id); setPreview(null); setProgress(null) }
   const progressLabel = preview ? 'Download do áudio' : 'Pesquisa no YouTube'

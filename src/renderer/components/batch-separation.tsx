@@ -4,6 +4,7 @@ import { getActiveStemAudioPlayer } from '../audio-player'
 import { usePlayer } from '../store'
 import type { SeparationProgress, Track } from '../../shared/types'
 import { errorMessage } from '../error-message'
+import { alertDialog } from './dialog-store'
 
 type BatchStatus = 'queued' | 'processing' | 'done' | 'error' | 'cancelled'
 type BatchItem = { id: string; name: string; status: BatchStatus; progress: number; error?: string }
@@ -70,6 +71,7 @@ export function BatchSeparation({ tracks, activeProjectId, onTracksChanged }: { 
         const selectedAfterSeparation = selectedBeforeSeparation?.id === track.id ? separated : selectedBeforeSeparation
         if (selectedAfterSeparation) usePlayer.getState().replaceSelected({ ...selectedAfterSeparation })
         updateItem(item.id, (current) => ({ ...current, status: 'done', progress: 1 }))
+        await alertDialog(`A separação de “${track.name}” foi concluída.`)
       } catch (reason) {
         const cancelled = cancelledRef.current.delete(item.id)
         updateItem(item.id, (current) => ({ ...current, status: cancelled ? 'cancelled' : 'error', error: cancelled ? undefined : errorMessage(reason, 'Falha na separação.') }))

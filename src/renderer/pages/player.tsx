@@ -10,7 +10,7 @@ import { ExportPanel } from '../components/export-panel'
 import { GraphicEqualizer } from '../components/graphic-equalizer'
 import { PerformanceRecorder } from '../components/performance-recorder'
 import { useRemoteProvider } from '../hooks/use-remote-provider'
-import { confirmDialog } from '../components/dialog-store'
+import { alertDialog, confirmDialog } from '../components/dialog-store'
 import { useModelDownload } from '../hooks/use-model-download'
 import { errorMessage } from '../error-message'
 import { remoteConsentMessage } from '../privacy-copy'
@@ -73,6 +73,7 @@ export function PlayerPage() {
       const separated = await api.separation.start(selected, target === 'all' ? undefined : target, useProvider)
       setTracks(await api.library.list())
       select(separated)
+      await alertDialog(`A separação de ${targetLabel} de “${separated.name}” foi concluída.`)
     } catch (reason) {
       const message = errorMessage(reason, 'Não foi possível extrair o stem.')
       if (useProvider === 'local' && retryTransient && isTransientLocalSeparationError(message)) {
