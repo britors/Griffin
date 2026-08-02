@@ -2,7 +2,7 @@
 
 O Griffin Music é um aplicativo desktop para separar músicas em stems e estudar uma faixa com controle de velocidade, tonalidade, loop, metrônomo e mixagem. Ele funciona localmente por padrão: os arquivos, a separação, a análise, o cache e as preferências permanecem no computador.
 
-Este manual descreve a versão 1.0.2 do projeto.
+Este manual descreve a versão 1.0.5 do projeto.
 
 ## 1. Instalação
 

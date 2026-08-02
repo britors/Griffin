@@ -1,4 +1,6 @@
-# Release 1.0.2
+# Release 1.0.5
+
+Esta versão corrige o salvamento de projetos que ainda continham referências a faixas removidas da biblioteca, o empacotamento de produção e a atualização imediata da lista de projetos após a criação.
 
 O workflow de release é disparado por tags `v*` e publica `.deb`, `.rpm`, instalador NSIS x64 e o manifesto assinado do updater. Os modelos ONNX não são mais empacotados no instalador: o próprio aplicativo os baixa sob demanda em runtime (`userData/models`), na primeira execução ou via Preferências.
 
@@ -7,6 +9,10 @@ O workflow de release é disparado por tags `v*` e publica `.deb`, `.rpm`, insta
 O arquivo `.gfn` é um manifesto JSON versionado que preserva o projeto, a árvore de pastas/subpastas e as referências das bibliotecas. Os áudios continuam armazenados na biblioteca local; ao abrir um projeto em outro local, o Griffin informa quais arquivos não foram encontrados sem descartar o projeto carregado.
 
 O empacotamento é feito pelo Tauri: o instalador Windows usa NSIS e as distribuições Linux geram `.deb` e `.rpm`. MSI não é anunciado pelo updater enquanto não houver um MSI real publicado. Cada artefato de atualização recebe assinatura Tauri e o `latest.json` é gerado a partir dos arquivos publicados no GitHub Releases. No Linux, o updater escolhe o `.deb` ou `.rpm` de acordo com o tipo do bundle instalado; o OBS continua disponível como canal de distribuição do RPM.
+
+## Publicação no OBS
+
+O pacote do Griffin Music fica no projeto pessoal `home:rodrigosbrito`, fora de qualquer projeto Lyra. O nome do pacote é `griffin-music`; não usar `home:rodrigosbrito:lyra` nem `griffin` como destino. A publicação da versão 1.0.5 deve atualizar `home:rodrigosbrito/griffin-music`.
 
 ## Chaves de assinatura
 

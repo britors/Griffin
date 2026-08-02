@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { RemoteAudioPreview, Track } from '../../shared/types'
+import { alertDialog, confirmDialog } from './dialog-store'
 
 export function RemoteImport({ activeProjectId, onTracksChanged }: { activeProjectId: string | null; onTracksChanged: (tracks: Track[]) => void }) {
   const [url, setUrl] = useState('')
@@ -13,18 +14,35 @@ export function RemoteImport({ activeProjectId, onTracksChanged }: { activeProje
 
   const requestPreview = async () => {
     setWorking(true); setError(null); setPreview(null); setAuthorized(false)
-    try { setPreview(await api.library.previewUrl(url.trim())) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível consultar esta URL.') } finally { setWorking(false) }
+    try { setPreview(await api.library.previewUrl(url.trim())) } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'Não foi possível baixar a faixa.'
+      setError(message)
+      if (await confirmDialog(`${message}\n\nDeseja tentar baixar a faixa novamente?`, { confirmLabel: 'Tentar novamente' })) await requestPreview()
+    } finally { setWorking(false) }
   }
 
-  const importAudio = async () => {
-    if (!preview || !authorized) return
+  const importAudio = async (candidate = preview) => {
+    if (!candidate || !authorized) return
     setWorking(true); setError(null)
     try {
-      const track = await api.library.importUrl(preview.id)
+      const track = await api.library.importUrl(candidate.id)
       if (activeProjectId) await api.projects.addTrack(activeProjectId, track.id)
       onTracksChanged(await api.library.list())
       setPreview(null); setUrl(''); setAuthorized(false)
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível importar o áudio remoto.') } finally { setWorking(false) }
+      await alertDialog(`A faixa “${track.name}” foi baixada e adicionada à biblioteca.`)
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'Não foi possível baixar a faixa.'
+      setError(message)
+      if (await confirmDialog(`${message}\n\nDeseja tentar baixar a faixa novamente?`, { confirmLabel: 'Tentar novamente' })) {
+        try {
+          const refreshed = await api.library.previewUrl(candidate.url)
+          setPreview(refreshed)
+          await importAudio(refreshed)
+        } catch (retryReason) {
+          setError(retryReason instanceof Error ? retryReason.message : 'Não foi possível baixar a faixa.')
+        }
+      }
+    } finally { setWorking(false) }
   }
 
   const cancel = async () => { if (preview) await api.library.cancelRemoteImport(preview.id); setPreview(null) }
