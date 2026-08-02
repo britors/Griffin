@@ -16,7 +16,7 @@
 %global __requires_exclude ^(libcublas|libcublasLt|libcudart|libcurand|libcuda)\.so
 
 Name:           griffin-music
-Version:        1.0.5
+Version:        1.1.0
 Release:        0
 Provides:       griffin = %{version}
 Obsoletes:      griffin < %{version}
