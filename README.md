@@ -56,6 +56,18 @@ sudo dnf install ./nome-do-arquivo.rpm
 sudo zypper install ./nome-do-arquivo.rpm
 ```
 
+### Instalação via OBS
+
+O checkout local do OBS usa o projeto [`home:rodrigosbrito:lyra`](https://build.opensuse.org/project/show/home%3Arodrigosbrito%3Alyra), o pacote `griffin` e o repositório `openSUSE_Leap_16.0`. Depois que o pacote estiver publicado no OBS, instale-o com:
+
+```bash
+sudo zypper addrepo https://download.opensuse.org/repositories/home:/rodrigosbrito:/lyra/openSUSE_Leap_16.0/home:rodrigosbrito:lyra.repo
+sudo zypper refresh
+sudo zypper install griffin-music
+```
+
+O pacote ainda precisa estar publicado e construído no OBS para que o último comando encontre `griffin-music`.
+
 ### Arch Linux e Manjaro
 
 Quando disponível, instale pelo AUR usando um helper, por exemplo:
