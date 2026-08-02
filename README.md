@@ -1,39 +1,105 @@
 # Griffin Music
 
-Aplicativo desktop standalone da W3TI para separação local de stems e prática instrumental. O processamento é local por padrão: não há servidor próprio, e o áudio só é enviado ao StemSplit quando você escolhe e confirma a separação remota.
+O Griffin Music é um aplicativo para separar músicas em faixas e praticar instrumento com mais liberdade. Você pode ouvir cada parte da música, diminuir ou aumentar o andamento, mudar a tonalidade, criar loops e acompanhar seu progresso.
 
 [![Baixar Griffin Music](https://img.shields.io/badge/Baixar-Griffin%20Music-d4a531?style=for-the-badge&logo=github&logoColor=white)](https://github.com/britors/Griffin/releases/latest)
 
-## Estado atual
+## O que você pode fazer
 
-O MVP e a Fase 2 de prática musical já estão integrados na `main`:
+- Separar uma música em voz, bateria, baixo e outros instrumentos. Há também um modo opcional com guitarra e piano.
+- Estudar com controle de velocidade, tonalidade, afinação, volume e panorâmica de cada faixa.
+- Repetir um trecho usando loop A-B e praticar com metrônomo, contagem de entrada e andamento progressivo.
+- Consultar BPM, tonalidade, seções, acordes e letras sincronizadas quando essas informações estiverem disponíveis.
+- Organizar músicas e exercícios em projetos, pastas, favoritos e recentes.
+- Salvar snapshots do seu estudo para continuar depois do mesmo ponto.
+- Exportar a mixagem ou faixas individuais em WAV.
 
-- separação local em vocal, bateria, baixo e outros com `htdemucs_ft`, com perfil opcional de seis stems para guitarra e piano, modelos baixados sob demanda pelo próprio app;
-- player sincronizado com mixer, mute/solo, pitch, tempo e loop A-B;
-- projetos, favoritos, recentes e cache local;
-- BPM, tonalidade, afinação, seções, acordes e letras sincronizadas;
-- metrônomo com subdivisão e contagem de entrada;
-- prática progressiva e atalhos de teclado;
-- projetos organizados em pastas e subpastas, com snapshots e salvamento/abertura de arquivos `.gfn`;
-- exportação de mixagens e stems individuais em WAV PCM, com sample rate e bit depth configuráveis;
-- build Linux DEB/RPM e Windows NSIS configurado no GitHub Actions.
+## Instalação
 
-A release pública `v1.0.2` será publicada a partir da nova tag e ficará disponível pelo botão de download acima.
+Baixe a versão mais recente na [página de releases](https://github.com/britors/Griffin/releases/latest) e escolha o arquivo correspondente ao seu sistema.
 
-## Requisitos
+Os instaladores são para computadores de 64 bits (x86_64/amd64).
 
-- Node.js 22.x recomendado (o CI usa Node 22);
-- npm;
-- aproximadamente 1 GB livre para os modelos ONNX (baixados pelo app na primeira execução) e alguns GB adicionais para empacotar os instaladores;
-- Linux: GTK3, NSS, ALSA e, para gerar RPM localmente, `rpm-build`.
+### Windows 10 e 11
 
-No openSUSE Leap:
+1. Baixe o instalador `.exe`.
+2. Abra o arquivo e siga as instruções na tela.
+3. Inicie o Griffin Music pelo menu Iniciar ou pelo atalho criado.
+
+Não é necessário instalar Node.js, Python ou outros programas para usar o instalador. Na primeira vez que você separar uma música, o Griffin fará o download do modelo necessário — esse download pode ter aproximadamente 1 GB.
+
+Para desinstalar, abra **Configurações → Aplicativos → Aplicativos instalados**, encontre **Griffin Music** e escolha **Desinstalar**. Seus projetos e preferências são preservados.
+
+### Ubuntu e Debian
+
+1. Baixe o arquivo `.deb`.
+2. Abra-o com a loja de aplicativos da sua distribuição e confirme a instalação.
+
+Se preferir usar o terminal, na pasta onde o arquivo foi baixado execute:
 
 ```bash
-sudo zypper install rpm-build
+sudo apt install ./nome-do-arquivo.deb
 ```
 
-## Desenvolvimento
+### Fedora, RHEL e openSUSE
+
+1. Baixe o arquivo `.rpm`.
+2. Abra-o com o instalador de aplicativos da sua distribuição e confirme a instalação.
+
+Pelo terminal, use o comando correspondente:
+
+```bash
+# Fedora/RHEL
+sudo dnf install ./nome-do-arquivo.rpm
+
+# openSUSE
+sudo zypper install ./nome-do-arquivo.rpm
+```
+
+### Arch Linux e Manjaro
+
+Quando disponível, instale pelo AUR usando um helper, por exemplo:
+
+```bash
+yay -S griffin-music
+```
+
+Também é possível compilar usando o `PKGBUILD` do projeto:
+
+```bash
+git clone https://github.com/britors/Griffin.git
+cd Griffin
+makepkg -si
+```
+
+## Começando a usar
+
+1. Abra o Griffin Music e importe uma música da sua biblioteca.
+2. Escolha **Separar música** e aguarde o processamento.
+3. Use o mixer para silenciar, destacar ou ajustar cada faixa.
+4. Marque um trecho com o loop A-B e ajuste velocidade, tonalidade ou metrônomo para estudar.
+5. Salve o projeto ou um snapshot para continuar mais tarde.
+
+Os arquivos são processados no seu computador por padrão. O Griffin só envia áudio para um serviço remoto quando você escolhe essa opção e confirma a operação. Os modelos e o cache ficam armazenados localmente.
+
+## Dicas importantes
+
+- A primeira separação pode demorar mais porque o modelo precisa ser baixado e preparado.
+- O modo padrão funciona usando o processador. Em computadores compatíveis, o suporte NVIDIA pode ser ativado em **Preferências → Processamento**.
+- Para separar guitarra e piano, ative essa opção nas preferências depois de instalar o modelo padrão.
+- A exportação disponível é em WAV PCM. Outros formatos poderão ser adicionados quando houver um codificador local compatível.
+- Ao importar conteúdo da internet, use apenas materiais para os quais você tenha autorização e respeite os termos do serviço de origem.
+
+## Ajuda e documentação
+
+- [Manual do usuário](docs/MANUAL.md)
+- [Política de privacidade](PRIVACY.md)
+- [Como contribuir](CONTRIBUTING.md)
+- [Documentação técnica](docs/ARCHITECTURE.md)
+
+## Para desenvolver
+
+Quem quiser contribuir com o projeto pode instalar Node.js 22.x, clonar o repositório e executar:
 
 ```bash
 git clone git@github.com:britors/Griffin.git
@@ -42,121 +108,7 @@ npm ci
 npm run dev
 ```
 
-Os modelos ONNX não são versionados no Git nem empacotados no instalador. Na primeira execução, o app oferece um download (~1 GB) do modelo especialista `htdemucs_ft` e do fallback single-file `htdemucs`, salvos em `userData/models`. O perfil padrão produz quatro stems.
-
-Para instalar também o modelo opcional `htdemucs-6s` — que adiciona guitarra e piano — use o botão "Ativar guitarra e piano" em Preferências → Processamento, depois que o modelo padrão estiver instalado.
-
-Alternativamente, `scripts/download-models.sh` continua disponível para baixar os modelos manualmente (por exemplo, em CI de testes ou provisionamento em lote), aceitando `GRIFFIN_MODEL_DIR` e `GRIFFIN_EXTENDED=1`.
-
-### Projetos e arquivos `.gfn`
-
-O Griffin mantém a biblioteca de áudio localmente e permite organizar projetos em pastas e subpastas. Use `Salvar` ou `Salvar como` para criar um arquivo `.gfn`, e `Abrir .gfn` para carregar o projeto em outra instalação. O arquivo preserva a estrutura do projeto, as pastas e as referências das bibliotecas; os áudios não são duplicados. Se algum arquivo não estiver disponível no novo local, o Griffin informa a biblioteca ausente e mantém o projeto aberto.
-
-Snapshots guardam versões do estado de prática — incluindo tempo, pitch e configurações do player — para que você possa restaurá-las sem alterar os arquivos de áudio.
-
-### Aceleração NVIDIA/CUDA
-
-O worker ONNX inclui o provider CUDA para Linux e Windows e tenta usar a GPU quando "Automático" ou "Preferir GPU" está selecionado em Preferências → Processamento. Em sistemas compatíveis, o botão "Instalar suporte NVIDIA" baixa e instala por usuário o runtime CUDA/cuDNN oficial, sem exigir instalação manual ou privilégios administrativos. O download é validado por checksum e fica dentro de `userData/runtimes/cuda`; o Griffin adiciona esse diretório ao processo do worker somente quando ele existe.
-
-`nvidia-smi` confirmar o driver não garante que as bibliotecas de inferência estejam disponíveis. Em sistemas sem suporte NVIDIA, ou quando a instalação não foi concluída, o Griffin informa CPU como provider efetivo e faz fallback sem interromper a separação.
-
-Para confirmar o uso real, observe o provider exibido no progresso da separação (`cuda` ou `cpu`) e o campo Provider ONNX após o processamento. A opção "Somente CPU" desativa a tentativa de CUDA.
-
-### Separação remota opcional
-
-O Griffin também pode usar o StemSplit como alternativa remota. O áudio só deixa o computador depois de uma confirmação explícita para cada operação remota; a chave fica armazenada localmente e a separação local continua disponível sem internet. O comparativo e a decisão sobre outros provedores estão em [`docs/REMOTE_PROVIDERS.md`](docs/REMOTE_PROVIDERS.md).
-
-## Validação e build
-
-```bash
-npm run typecheck
-npm run build
-npm test
-npm run validate:tauri
-npm run validate:version
-npx vitest run src/main/application/__tests__
-cargo test --manifest-path src-tauri/Cargo.toml
-```
-
-Linux:
-
-```bash
-npm run package:linux
-```
-
-Windows x64:
-
-```bash
-npm run package:win
-```
-
-Os artefatos são gravados em `release/`. O RPM local exige o executável `rpmbuild`; no GitHub Actions ele é instalado automaticamente.
-
-O workflow `Windows x64 validation` também compila o worker ONNX com os providers CUDA/shared, valida todos os binários como PE x64, executa um smoke test do protocolo sem exigir CUDA global e gera/valida o instalador NSIS. A validação de hardware e da experiência visual continua manual:
-
-1. Em uma instalação limpa do Windows 10/11 x64, instale o NSIS gerado e abra o Griffin.
-2. Em Preferências → Processamento, confirme que o botão de suporte NVIDIA aparece mesmo sem CUDA instalado globalmente.
-3. Baixe o modelo, faça uma separação com `Automático` e confirme que o provider exibido é `CPU` quando não houver CUDA utilizável.
-4. Em uma máquina NVIDIA compatível, instale o runtime pelo botão, repita a separação e confirme `CUDA / GPU`; se o runtime ou driver falhar, a separação deve voltar para CPU.
-5. Atualize por cima de uma instalação existente e depois valide a desinstalação, preservando a biblioteca do usuário.
-
-Depois de gerar os pacotes Linux, valide os formatos e o logo:
-
-```bash
-npm run validate:packages
-```
-
-Essa verificação também valida sintaticamente `install.sh`, `uninstall.sh`, `download-models.sh` e `PKGBUILD`. O workflow de release executa a mesma checagem para DEB/RPM no Linux e para o instalador NSIS x64 no Windows.
-
-### Exportação de áudio
-
-O painel de exportação permite salvar uma mixagem combinada ou cada stem selecionado separadamente em WAV PCM. A exportação aplica o estado atual do mixer, EQ, pitch, tempo e loop, sem sobrescrever arquivos existentes. MP3 e FLAC ficam reservados para quando um encoder local compatível for distribuído; o aplicativo informa essa indisponibilidade sem enviar áudio para a nuvem.
-
-### Importação remota e YouTube
-
-A importação remota exige uma fonte pública suportada e confirmação de que o usuário possui os direitos ou autorização. A integração do YouTube é opcional, depende de `yt-dlp` instalado pelo usuário, aceita apenas vídeos individuais e não contorna DRM, playlists ou restrições técnicas. Verifique os Termos de Serviço do YouTube e a legislação aplicável antes de usar ou distribuir essa funcionalidade.
-
-## Instalação por release
-
-Quando uma release estiver publicada:
-
-- Ubuntu/Debian: baixe o `.deb`;
-- Fedora/openSUSE: baixe o `.rpm`;
-- Windows 10/11: baixe o instalador `.exe`;
-- Arch/Manjaro: use o `PKGBUILD` com `makepkg` ou AUR.
-
-O instalador Linux verifica a assinatura minisign do pacote antes de chamar `apt`, `dnf` ou `zypper`; tenha `curl` e `minisign` instalados. Para instalação manual, os scripts aceitam `GRIFFIN_REPO` e `GRIFFIN_VERSION` para testar outra origem ou versão:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/britors/Griffin/main/scripts/install.sh | sudo bash
-sudo bash scripts/uninstall.sh
-sudo bash scripts/uninstall.sh --purge
-```
-
-O modo padrão preserva configurações, cache de stems e projetos. `--purge` remove os dados locais do usuário.
-
-As releases também publicam um manifesto assinado para o atualizador integrado. A chave privada usada para publicar releases nunca deve ser armazenada no repositório.
-
-## Arquitetura
-
-O projeto usa arquitetura hexagonal com DDD:
-
-- `src/shared/domain`: agregados e regras de domínio;
-- `src-tauri/src`: comandos, estado persistido, importação/exportação, áudio e integrações nativas;
-- `src-tauri/src/bin/griffin-onnx-worker.rs`: worker ONNX separado, com limite de memória;
-- `src/main/application` e parte de `src/main/infrastructure`: serviços TypeScript puros mantidos para testes e referência;
-- `src/renderer`: React, Zustand e player.
-
-Documentação adicional:
-
-- [Manual completo do usuário](docs/MANUAL.md)
-- [Arquitetura](docs/ARCHITECTURE.md)
-- [Validação de áudio e cache](docs/VALIDATION.md)
-- [Griffin com OBS no Windows](docs/OBS_WINDOWS.md)
-- [Processo de release](docs/RELEASE.md)
-- [Separação remota opcional](docs/REMOTE_SEPARATION.md)
-- [Política de privacidade](PRIVACY.md)
-- [Contribuição](CONTRIBUTING.md)
+As instruções de testes, empacotamento e publicação estão em [`docs/RELEASE.md`](docs/RELEASE.md).
 
 ## Licença
 
