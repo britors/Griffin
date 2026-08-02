@@ -14,10 +14,11 @@ O MVP e a Fase 2 de prática musical já estão integrados na `main`:
 - BPM, tonalidade, afinação, seções, acordes e letras sincronizadas;
 - metrônomo com subdivisão e contagem de entrada;
 - prática progressiva e atalhos de teclado;
+- projetos organizados em pastas e subpastas, com snapshots e salvamento/abertura de arquivos `.gfn`;
 - exportação de mixagens e stems individuais em WAV PCM, com sample rate e bit depth configuráveis;
 - build Linux DEB/RPM e Windows NSIS configurado no GitHub Actions.
 
-A release pública `v1.0.1` será publicada a partir da nova tag e ficará disponível pelo botão de download acima.
+A release pública `v1.0.2` será publicada a partir da nova tag e ficará disponível pelo botão de download acima.
 
 ## Requisitos
 
@@ -47,6 +48,12 @@ Para instalar também o modelo opcional `htdemucs-6s` — que adiciona guitarra 
 
 Alternativamente, `scripts/download-models.sh` continua disponível para baixar os modelos manualmente (por exemplo, em CI de testes ou provisionamento em lote), aceitando `GRIFFIN_MODEL_DIR` e `GRIFFIN_EXTENDED=1`.
 
+### Projetos e arquivos `.gfn`
+
+O Griffin mantém a biblioteca de áudio localmente e permite organizar projetos em pastas e subpastas. Use `Salvar` ou `Salvar como` para criar um arquivo `.gfn`, e `Abrir .gfn` para carregar o projeto em outra instalação. O arquivo preserva a estrutura do projeto, as pastas e as referências das bibliotecas; os áudios não são duplicados. Se algum arquivo não estiver disponível no novo local, o Griffin informa a biblioteca ausente e mantém o projeto aberto.
+
+Snapshots guardam versões do estado de prática — incluindo tempo, pitch e configurações do player — para que você possa restaurá-las sem alterar os arquivos de áudio.
+
 ### Aceleração NVIDIA/CUDA
 
 O worker ONNX inclui o provider CUDA para Linux e Windows e tenta usar a GPU quando "Automático" ou "Preferir GPU" está selecionado em Preferências → Processamento. Em sistemas compatíveis, o botão "Instalar suporte NVIDIA" baixa e instala por usuário o runtime CUDA/cuDNN oficial, sem exigir instalação manual ou privilégios administrativos. O download é validado por checksum e fica dentro de `userData/runtimes/cuda`; o Griffin adiciona esse diretório ao processo do worker somente quando ele existe.
@@ -64,6 +71,9 @@ O Griffin também pode usar o StemSplit como alternativa remota. O áudio só de
 ```bash
 npm run typecheck
 npm run build
+npm test
+npm run validate:tauri
+npm run validate:version
 npx vitest run src/main/application/__tests__
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
@@ -115,7 +125,7 @@ Quando uma release estiver publicada:
 - Windows 10/11: baixe o instalador `.exe`;
 - Arch/Manjaro: use o `PKGBUILD` com `makepkg` ou AUR.
 
-No Linux, os scripts aceitam `GRIFFIN_REPO` e `GRIFFIN_VERSION` para testar outra origem ou versão:
+O instalador Linux verifica a assinatura minisign do pacote antes de chamar `apt`, `dnf` ou `zypper`; tenha `curl` e `minisign` instalados. Para instalação manual, os scripts aceitam `GRIFFIN_REPO` e `GRIFFIN_VERSION` para testar outra origem ou versão:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/britors/Griffin/main/scripts/install.sh | sudo bash
@@ -124,6 +134,8 @@ sudo bash scripts/uninstall.sh --purge
 ```
 
 O modo padrão preserva configurações, cache de stems e projetos. `--purge` remove os dados locais do usuário.
+
+As releases também publicam um manifesto assinado para o atualizador integrado. A chave privada usada para publicar releases nunca deve ser armazenada no repositório.
 
 ## Arquitetura
 
@@ -137,6 +149,7 @@ O projeto usa arquitetura hexagonal com DDD:
 
 Documentação adicional:
 
+- [Manual completo do usuário](docs/MANUAL.md)
 - [Arquitetura](docs/ARCHITECTURE.md)
 - [Validação de áudio e cache](docs/VALIDATION.md)
 - [Griffin com OBS no Windows](docs/OBS_WINDOWS.md)

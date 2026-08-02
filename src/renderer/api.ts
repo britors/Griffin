@@ -2,7 +2,7 @@ import { Channel, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { BundleType, getBundleType } from '@tauri-apps/api/app'
 import { relaunch } from '@tauri-apps/plugin-process'
-import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, CudaRuntimeProgress, CudaRuntimeStatus, GriffinAPI, LyricsLine, ModelDownloadKind, ModelDownloadProgress, PlayerSnapshot, SeparationProgress, SeparationProvider, StemName, Track, TrackAnalysis, YoutubeImportProgress, YtDlpProgress, YtDlpStatus } from '../shared/types'
+import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, CudaRuntimeProgress, CudaRuntimeStatus, GriffinAPI, LyricsLine, ModelDownloadKind, ModelDownloadProgress, PlayerSnapshot, Project, ProjectFolder, ProjectOpenResult, SeparationProgress, SeparationProvider, StemName, Track, TrackAnalysis, YoutubeImportProgress, YtDlpProgress, YtDlpStatus } from '../shared/types'
 import type { AppUpdateStatus } from '../shared/types'
 
 type Unlisten = () => void
@@ -214,9 +214,14 @@ export const api: GriffinAPI = {
   },
   projects: {
     list: () => invoke('projects_list'),
+    listFolders: () => invoke<ProjectFolder[]>('projects_folders_list'),
     create: (name: string) => invoke('projects_create', { name }),
     rename: (projectId: string, name: string) => invoke('projects_rename', { projectId, name }),
     remove: (projectId: string) => invoke('projects_remove', { projectId }),
+    createFolder: (name: string, parentId?: string | null) => invoke<ProjectFolder>('projects_folder_create', { name, parentId }),
+    renameFolder: (folderId: string, name: string) => invoke<ProjectFolder>('projects_folder_rename', { folderId, name }),
+    removeFolder: (folderId: string) => invoke('projects_folder_remove', { folderId }),
+    move: (projectId: string, folderId: string | null) => invoke('projects_move', { projectId, folderId }),
     addTrack: (projectId: string, trackId: string) => invoke('projects_add_track', { projectId, trackId }),
     removeTrack: (projectId: string, trackId: string) => invoke('projects_remove_track', { projectId, trackId }),
     moveTrack: (projectId: string, trackId: string, direction: 'up' | 'down') => invoke('projects_move_track', { projectId, trackId, direction }),
@@ -224,6 +229,9 @@ export const api: GriffinAPI = {
     restoreSnapshot: (projectId: string, snapshotId: string) => invoke('projects_restore_snapshot', { projectId, snapshotId }),
     removeSnapshot: (projectId: string, snapshotId: string) => invoke('projects_remove_snapshot', { projectId, snapshotId }),
     updatePlayerState: (projectId: string, player: PlayerSnapshot) => invoke('projects_update_player_state', { projectId, player }),
+    saveAs: (projectId: string) => invoke<Project | null>('projects_save_as', { projectId }),
+    save: (projectId: string) => invoke('projects_save', { projectId }),
+    open: () => invoke<ProjectOpenResult | null>('projects_open'),
   },
   analysis: {
     analyze: (trackId: string) => invoke('analysis_analyze', { trackId }),

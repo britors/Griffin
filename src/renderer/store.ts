@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { ALL_STEMS, type EqualizerBands, type OutputRoute, type PlayerSnapshot, type Project, type ProjectSnapshot, type SeparationProgress, type StemName, type Track } from '../shared/types'
+import { ALL_STEMS, type EqualizerBands, type OutputRoute, type PlayerSnapshot, type Project, type ProjectFolder, type ProjectSnapshot, type SeparationProgress, type StemName, type Track } from '../shared/types'
 
 export type MetronomeSubdivision = 1 | 2 | 4
 
@@ -10,6 +10,7 @@ export function addRecentTrack(recentTrackIds: string[], trackId: string, limit 
 interface PlayerState {
   tracks: Track[]
   projects: Project[]
+  folders: ProjectFolder[]
   activeProjectId: string | null
   favoriteIds: string[]
   recentTrackIds: string[]
@@ -25,6 +26,7 @@ interface PlayerState {
   takeName: string | null
   playing: boolean
   position: number
+  loopIteration: number
   seekVersion: number
   pitch: number
   tempo: number
@@ -40,6 +42,7 @@ interface PlayerState {
   solo: StemName | null
   setTracks: (tracks: Track[]) => void
   setProjects: (projects: Project[]) => void
+  setFolders: (folders: ProjectFolder[]) => void
   setActiveProject: (projectId: string | null) => void
   setFavoriteIds: (ids: string[]) => void
   setRecentTrackIds: (ids: string[]) => void
@@ -55,6 +58,7 @@ interface PlayerState {
   replaceSelected: (track: Track) => void
   setPlaying: (playing: boolean) => void
   setPosition: (position: number) => void
+  notifyLoopIteration: () => void
   seekTo: (position: number) => void
   setPitch: (pitch: number) => void
   setTempo: (tempo: number) => void
@@ -77,7 +81,7 @@ interface PlayerState {
 }
 
 export const usePlayer = create<PlayerState>((set) => ({
-  tracks: [], projects: [], activeProjectId: null, favoriteIds: [], recentTrackIds: [], resetPlaybackOnTrackChange: true, metronomeEnabled: false, metronomeSubdivision: 1, metronomeVolume: 0.5, countInEnabled: false, countInBars: 1, countingIn: false, selected: null, takePath: null, takeName: null, playing: false, position: 0, seekVersion: 0, pitch: 0, tempo: 1, loopEnabled: false, loopStart: 0, loopEnd: 1, progress: null,
+  tracks: [], projects: [], folders: [], activeProjectId: null, favoriteIds: [], recentTrackIds: [], resetPlaybackOnTrackChange: true, metronomeEnabled: false, metronomeSubdivision: 1, metronomeVolume: 0.5, countInEnabled: false, countInBars: 1, countingIn: false, selected: null, takePath: null, takeName: null, playing: false, position: 0, loopIteration: 0, seekVersion: 0, pitch: 0, tempo: 1, loopEnabled: false, loopStart: 0, loopEnd: 1, progress: null,
   volumes: Object.fromEntries(ALL_STEMS.map((stem) => [stem, 0.82])),
   pans: Object.fromEntries(ALL_STEMS.map((stem) => [stem, 0])),
   routes: Object.fromEntries(ALL_STEMS.map((stem) => [stem, 'stereo'])),
@@ -85,6 +89,7 @@ export const usePlayer = create<PlayerState>((set) => ({
   muted: Object.fromEntries(ALL_STEMS.map((stem) => [stem, false])), solo: null,
   setTracks: (tracks) => set({ tracks }),
   setProjects: (projects) => set((state) => ({ projects, activeProjectId: projects.some((project) => project.id === state.activeProjectId) ? state.activeProjectId : projects[0]?.id ?? null })),
+  setFolders: (folders) => set({ folders }),
   setActiveProject: (activeProjectId) => set({ activeProjectId, selected: null, playing: false, position: 0 }),
   setFavoriteIds: (favoriteIds) => set({ favoriteIds }),
   setRecentTrackIds: (recentTrackIds) => set({ recentTrackIds }),
@@ -98,7 +103,7 @@ export const usePlayer = create<PlayerState>((set) => ({
   toggleFavorite: (trackId) => set((state) => ({ favoriteIds: state.favoriteIds.includes(trackId) ? state.favoriteIds.filter((id) => id !== trackId) : [trackId, ...state.favoriteIds] })),
   select: (selected) => set((state) => ({ selected, playing: false, position: selected && !state.resetPlaybackOnTrackChange ? state.position : 0 })),
   replaceSelected: (selected) => set({ selected }),
-  setPlaying: (playing) => set({ playing }), setPosition: (position) => set({ position }),
+  setPlaying: (playing) => set({ playing }), setPosition: (position) => set({ position }), notifyLoopIteration: () => set((state) => ({ loopIteration: state.loopIteration + 1 })),
   seekTo: (position) => set((state) => ({ position, seekVersion: state.seekVersion + 1 })),
   setPitch: (pitch) => set({ pitch }), setTempo: (tempo) => set({ tempo }),
   setLoopEnabled: (loopEnabled) => set({ loopEnabled }),

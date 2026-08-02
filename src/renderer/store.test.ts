@@ -46,3 +46,14 @@ describe('organização da biblioteca', () => {
     expect(history).toEqual(['first', 'second', 'third'])
   })
 })
+
+describe('repetição do loop', () => {
+  it('registra cada volta para os modos de prática', () => {
+    usePlayer.setState({ loopIteration: 0 })
+
+    usePlayer.getState().notifyLoopIteration()
+    usePlayer.getState().notifyLoopIteration()
+
+    expect(usePlayer.getState().loopIteration).toBe(2)
+  })
+})

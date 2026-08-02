@@ -71,9 +71,45 @@ pub struct Project {
     pub updated_at: String,
     pub track_ids: Vec<String>,
     #[serde(default)]
+    pub folder_id: Option<String>,
+    #[serde(default)]
+    pub file_path: Option<String>,
+    #[serde(default)]
+    pub file_saved_at: Option<String>,
+    #[serde(default)]
     pub snapshots: Option<Vec<ProjectSnapshot>>,
     #[serde(default)]
     pub player_state: Option<PlayerSnapshot>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectFolder {
+    pub id: String,
+    pub name: String,
+    pub parent_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GriffinProjectFile {
+    pub format: String,
+    pub version: u32,
+    pub saved_at: String,
+    pub project: Project,
+    pub folders: Vec<ProjectFolder>,
+    pub tracks: Vec<Track>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectOpenResult {
+    pub project: Project,
+    pub folders: Vec<ProjectFolder>,
+    pub tracks: Vec<Track>,
+    pub missing_tracks: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

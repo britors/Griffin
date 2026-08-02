@@ -1,4 +1,4 @@
-use crate::types::{Project, Track};
+use crate::types::{Project, ProjectFolder, Track};
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use keyring::Entry;
 use std::{
@@ -59,6 +59,7 @@ pub struct StateData {
     pub imports_dir: PathBuf,
     pub tracks: Vec<Track>,
     pub projects: Vec<Project>,
+    pub project_folders: Vec<ProjectFolder>,
     pub settings: serde_json::Map<String, serde_json::Value>,
 }
 
@@ -178,6 +179,7 @@ impl Default for AppState {
                 imports_dir: PathBuf::new(),
                 tracks: Vec::new(),
                 projects: Vec::new(),
+                project_folders: Vec::new(),
                 settings: serde_json::Map::new(),
             }),
             separation_metrics: std::sync::Mutex::new(SeparationMetrics::default()),
@@ -215,6 +217,7 @@ impl AppState {
         fs::create_dir_all(&imports_dir).map_err(|e| e.to_string())?;
         let tracks: Vec<Track> = read_json(&data_dir.join("library.json"))?.unwrap_or_default();
         let projects = read_json(&data_dir.join("projects.json"))?.unwrap_or_default();
+        let project_folders = read_json(&data_dir.join("project-folders.json"))?.unwrap_or_default();
         cleanup_stale_remote_imports(&imports_dir, &tracks);
         let mut settings = read_json_map(&data_dir.join("settings.json"))?.unwrap_or_default();
         if let Some(legacy_key) = settings
@@ -238,6 +241,7 @@ impl AppState {
             imports_dir,
             tracks,
             projects,
+            project_folders,
             settings,
         };
         Ok(())

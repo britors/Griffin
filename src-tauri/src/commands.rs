@@ -1023,16 +1023,13 @@ pub fn library_read(state: State<'_, AppState>, file_path: String) -> Result<Res
     let data = state.data.lock().map_err(lock_error)?;
     let requested = fs::canonicalize(&file_path)
         .map_err(|_| "Arquivo de áudio não pertence à biblioteca.".to_string())?;
-    let managed = is_path_within(&requested, &data.imports_dir)
-        || is_path_within(&requested, &data.cache_dir);
-    let allowed = managed
-        && data.tracks.iter().any(|track| {
-            track.path == file_path
-                || track
-                    .stems
-                    .as_ref()
-                    .is_some_and(|stems| stems.values().any(|path| path == &file_path))
-        });
+    let allowed = data.tracks.iter().any(|track| {
+        track.path == file_path
+            || track
+                .stems
+                .as_ref()
+                .is_some_and(|stems| stems.values().any(|path| path == &file_path))
+    });
     if !allowed {
         return Err("Arquivo de áudio não pertence à biblioteca.".into());
     }
@@ -1646,6 +1643,13 @@ pub fn projects_list(state: State<'_, AppState>) -> Result<Vec<Project>, String>
     Ok(state.data.lock().map_err(lock_error)?.projects.clone())
 }
 
+#[tauri::command(rename_all = "camelCase")]
+pub fn projects_folders_list(
+    state: State<'_, AppState>,
+) -> Result<Vec<ProjectFolder>, String> {
+    Ok(state.data.lock().map_err(lock_error)?.project_folders.clone())
+}
+
 #[tauri::command]
 pub fn projects_create(state: State<'_, AppState>, name: String) -> Result<Project, String> {
     let mut data = state.data.lock().map_err(lock_error)?;
@@ -1655,6 +1659,9 @@ pub fn projects_create(state: State<'_, AppState>, name: String) -> Result<Proje
         created_at: now(),
         updated_at: now(),
         track_ids: Vec::new(),
+        folder_id: None,
+        file_path: None,
+        file_saved_at: None,
         snapshots: Some(Vec::new()),
         player_state: None,
     };
@@ -1679,6 +1686,112 @@ pub fn projects_remove(state: State<'_, AppState>, project_id: String) -> Result
     let mut data = state.data.lock().map_err(lock_error)?;
     data.projects.retain(|project| project.id != project_id);
     save_projects_locked(&data)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn projects_folder_create(
+    state: State<'_, AppState>,
+    name: String,
+    parent_id: Option<String>,
+) -> Result<ProjectFolder, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("A pasta precisa ter um nome.".into());
+    }
+    let mut data = state.data.lock().map_err(lock_error)?;
+    if let Some(parent_id) = parent_id.as_ref() {
+        if !data.project_folders.iter().any(|folder| &folder.id == parent_id) {
+            return Err("Pasta pai não encontrada.".into());
+        }
+    }
+    let folder = ProjectFolder {
+        id: Uuid::new_v4().to_string(),
+        name: name.to_string(),
+        parent_id,
+        created_at: now(),
+        updated_at: now(),
+    };
+    data.project_folders.push(folder.clone());
+    save_project_folders_locked(&data)?;
+    Ok(folder)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn projects_folder_rename(
+    state: State<'_, AppState>,
+    folder_id: String,
+    name: String,
+) -> Result<ProjectFolder, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("A pasta precisa ter um nome.".into());
+    }
+    let mut data = state.data.lock().map_err(lock_error)?;
+    let folder = data
+        .project_folders
+        .iter_mut()
+        .find(|folder| folder.id == folder_id)
+        .ok_or_else(|| "Pasta não encontrada.".to_string())?;
+    folder.name = name.to_string();
+    folder.updated_at = now();
+    let result = folder.clone();
+    save_project_folders_locked(&data)?;
+    Ok(result)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn projects_folder_remove(
+    state: State<'_, AppState>,
+    folder_id: String,
+) -> Result<(), String> {
+    let mut data = state.data.lock().map_err(lock_error)?;
+    let parent_id = data
+        .project_folders
+        .iter()
+        .find(|folder| folder.id == folder_id)
+        .ok_or_else(|| "Pasta não encontrada.".to_string())?
+        .parent_id
+        .clone();
+    if data
+        .project_folders
+        .iter()
+        .any(|folder| folder.parent_id.as_deref() == Some(folder_id.as_str()))
+    {
+        return Err("Remova ou mova as subpastas antes de remover esta pasta.".into());
+    }
+    for project in &mut data.projects {
+        if project.folder_id.as_deref() == Some(folder_id.as_str()) {
+            project.folder_id = parent_id.clone();
+            project.updated_at = now();
+        }
+    }
+    data.project_folders.retain(|folder| folder.id != folder_id);
+    save_projects_locked(&data)?;
+    save_project_folders_locked(&data)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn projects_move(
+    state: State<'_, AppState>,
+    project_id: String,
+    folder_id: Option<String>,
+) -> Result<Project, String> {
+    let mut data = state.data.lock().map_err(lock_error)?;
+    if let Some(folder_id) = folder_id.as_ref() {
+        if !data.project_folders.iter().any(|folder| &folder.id == folder_id) {
+            return Err("Pasta não encontrada.".into());
+        }
+    }
+    let project = data
+        .projects
+        .iter_mut()
+        .find(|project| project.id == project_id)
+        .ok_or_else(|| "Projeto não encontrado.".to_string())?;
+    project.folder_id = folder_id;
+    project.updated_at = now();
+    let result = project.clone();
+    save_projects_locked(&data)?;
+    Ok(result)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -1787,6 +1900,154 @@ pub fn projects_update_player_state(
     mutate_project(&state, &project_id, |project| {
         project.player_state = Some(player.clone())
     })
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn projects_save_as(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<Option<Project>, String> {
+    let path = {
+        let data = state.data.lock().map_err(lock_error)?;
+        let project = data
+            .projects
+            .iter()
+            .find(|project| project.id == project_id)
+            .ok_or_else(|| "Projeto não encontrado.".to_string())?;
+        let suggested_name = format!("{}.gfn", sanitize_file_name(&project.name, "projeto"));
+        rfd::FileDialog::new()
+            .add_filter("Projeto Griffin", &["gfn"])
+            .set_file_name(&suggested_name)
+            .save_file()
+            .map(ensure_gfn_extension)
+    };
+    let Some(path) = path else { return Ok(None) };
+    save_project_file(&state, &project_id, &path).map(Some)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn projects_save(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<Project, String> {
+    let path = {
+        let data = state.data.lock().map_err(lock_error)?;
+        data.projects
+            .iter()
+            .find(|project| project.id == project_id)
+            .and_then(|project| project.file_path.clone())
+            .ok_or_else(|| "Este projeto ainda não possui um arquivo .gfn.".to_string())?
+    };
+    save_project_file(&state, &project_id, Path::new(&path))
+}
+
+#[tauri::command]
+pub fn projects_open(state: State<'_, AppState>) -> Result<Option<ProjectOpenResult>, String> {
+    let Some(path) = rfd::FileDialog::new()
+        .add_filter("Projeto Griffin", &["gfn"])
+        .pick_file()
+    else {
+        return Ok(None);
+    };
+    let bytes = fs::read(&path).map_err(|error| format!("Não foi possível abrir o projeto: {error}"))?;
+    let mut document: GriffinProjectFile = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Arquivo .gfn inválido: {error}"))?;
+    if document.format != "griffin-project" || document.version != 1 {
+        return Err("Versão de projeto .gfn não suportada.".into());
+    }
+    document.project.file_path = Some(path.to_string_lossy().to_string());
+    let missing_tracks = document
+        .tracks
+        .iter()
+        .filter(|track| track_files_missing(track))
+        .map(|track| track.name.clone())
+        .collect::<Vec<_>>();
+    let mut data = state.data.lock().map_err(lock_error)?;
+    data.project_folders = document.folders.clone();
+    data.tracks.retain(|track| {
+        !document
+            .tracks
+            .iter()
+            .any(|imported| imported.id == track.id)
+    });
+    data.tracks.extend(document.tracks.clone());
+    if let Some(existing) = data
+        .projects
+        .iter_mut()
+        .find(|project| project.id == document.project.id)
+    {
+        *existing = document.project.clone();
+    } else {
+        data.projects.push(document.project.clone());
+    }
+    save_tracks_locked(&data)?;
+    save_projects_locked(&data)?;
+    save_project_folders_locked(&data)?;
+    Ok(Some(ProjectOpenResult {
+        project: document.project,
+        folders: document.folders,
+        tracks: document.tracks,
+        missing_tracks,
+    }))
+}
+
+fn save_project_file(
+    state: &State<'_, AppState>,
+    project_id: &str,
+    path: &Path,
+) -> Result<Project, String> {
+    let mut data = state.data.lock().map_err(lock_error)?;
+    let project_index = data
+        .projects
+        .iter()
+        .position(|project| project.id == project_id)
+        .ok_or_else(|| "Projeto não encontrado.".to_string())?;
+    let mut project = data.projects[project_index].clone();
+    let tracks = project
+        .track_ids
+        .iter()
+        .filter_map(|track_id| data.tracks.iter().find(|track| &track.id == track_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    if tracks.len() != project.track_ids.len() {
+        return Err("O projeto contém uma biblioteca que não está disponível.".into());
+    }
+    let saved_at = now();
+    project.file_path = Some(path.to_string_lossy().to_string());
+    project.updated_at = saved_at.clone();
+    project.file_saved_at = Some(saved_at.clone());
+    let document = GriffinProjectFile {
+        format: "griffin-project".into(),
+        version: 1,
+        saved_at,
+        project: project.clone(),
+        folders: data.project_folders.clone(),
+        tracks,
+    };
+    write_json_atomic(path, &document)?;
+    data.projects[project_index] = project.clone();
+    save_projects_locked(&data)?;
+    Ok(project)
+}
+
+fn save_project_folders_locked(data: &crate::state::StateData) -> Result<(), String> {
+    write_json(&data.data_dir.join("project-folders.json"), &data.project_folders)
+}
+
+fn track_files_missing(track: &Track) -> bool {
+    !Path::new(&track.path).is_file()
+        || track
+            .stems
+            .as_ref()
+            .is_some_and(|stems| stems.values().any(|path| !Path::new(path).is_file()))
+}
+
+fn ensure_gfn_extension(path: PathBuf) -> PathBuf {
+    if path.extension().and_then(|value| value.to_str()) == Some("gfn") {
+        path
+    } else {
+        path.with_extension("gfn")
+    }
 }
 
 #[tauri::command]

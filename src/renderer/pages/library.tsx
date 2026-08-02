@@ -8,6 +8,7 @@ import { YoutubeImport } from '../components/youtube-import'
 import { formatDuration } from '../../shared/utils'
 import type { Track } from '../../shared/types'
 import { confirmDialog } from '../components/dialog-store'
+import { ProjectPicker } from '../components/project-picker'
 
 type LibraryFilter = 'all' | 'favorites' | 'recent'
 
@@ -24,7 +25,8 @@ export function LibraryPage({ filter = 'all' }: { filter?: LibraryFilter }) {
     restoredProject.current = activeProjectId
   }, [activeProjectId, projects, tracks.length])
 
-  const projectTracks = tracks
+  const activeProject = projects.find((project) => project.id === activeProjectId)
+  const projectTracks = activeProject ? tracks.filter((track) => activeProject.trackIds.includes(track.id)) : tracks
   const filteredTracks = filter === 'favorites' ? projectTracks.filter((track) => favoriteIds.includes(track.id)) : filter === 'recent' ? projectTracks.filter((track) => recentTrackIds.includes(track.id)).sort((a, b) => recentTrackIds.indexOf(a.id) - recentTrackIds.indexOf(b.id)) : projectTracks
   const visible = filteredTracks.filter((track) => track.name.toLowerCase().includes(search.toLowerCase()))
   const heading = filter === 'favorites' ? 'Faixas favoritas' : filter === 'recent' ? 'Reproduzidas recentemente' : 'Seu espaço de música'
@@ -67,6 +69,7 @@ export function LibraryPage({ filter = 'all' }: { filter?: LibraryFilter }) {
   const emptyMessage = filter === 'favorites' ? 'Você ainda não favoritou nenhuma faixa.' : filter === 'recent' ? 'Nenhuma faixa reproduzida recentemente.' : 'Nenhuma faixa encontrada para esta busca.'
 
   return <main className="library-page">
+    <ProjectPicker />
     <div className="page-heading"><div><span className="eyebrow">LIBRARY</span><h1>{heading}</h1><p>Separe, pratique e encontre o som certo.</p></div><button className="primary-button" onClick={() => void importTrack()}>＋ Importar faixa</button></div>
     <div className="library-tools"><div className="search">⌕<input placeholder="Buscar na biblioteca" value={search} onChange={(event) => setSearch(event.target.value)} /></div><span>{filteredTracks.length} {filteredTracks.length === 1 ? 'faixa' : 'faixas'}</span></div>
     {filter === 'all' && <BatchSeparation tracks={tracks} activeProjectId={activeProjectId} onTracksChanged={refreshLibrary} />}

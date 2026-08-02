@@ -1,6 +1,10 @@
-# Release 1.0.1
+# Release 1.0.2
 
 O workflow de release é disparado por tags `v*` e publica `.deb`, `.rpm`, instalador NSIS x64 e o manifesto assinado do updater. Os modelos ONNX não são mais empacotados no instalador: o próprio aplicativo os baixa sob demanda em runtime (`userData/models`), na primeira execução ou via Preferências.
+
+## Projetos `.gfn`
+
+O arquivo `.gfn` é um manifesto JSON versionado que preserva o projeto, a árvore de pastas/subpastas e as referências das bibliotecas. Os áudios continuam armazenados na biblioteca local; ao abrir um projeto em outro local, o Griffin informa quais arquivos não foram encontrados sem descartar o projeto carregado.
 
 O empacotamento é feito pelo Tauri: o instalador Windows usa NSIS e as distribuições Linux geram `.deb` e `.rpm`. MSI não é anunciado pelo updater enquanto não houver um MSI real publicado. Cada artefato de atualização recebe assinatura Tauri e o `latest.json` é gerado a partir dos arquivos publicados no GitHub Releases. No Linux, o updater escolhe o `.deb` ou `.rpm` de acordo com o tipo do bundle instalado; o OBS continua disponível como canal de distribuição do RPM.
 

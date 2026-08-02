@@ -106,8 +106,35 @@ export interface Project {
   createdAt: string
   updatedAt: string
   trackIds: string[]
+  folderId?: string | null
+  filePath?: string | null
+  fileSavedAt?: string | null
   snapshots?: ProjectSnapshot[]
   playerState?: PlayerSnapshot
+}
+
+export interface ProjectFolder {
+  id: string
+  name: string
+  parentId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface GriffinProjectFile {
+  format: 'griffin-project'
+  version: 1
+  savedAt: string
+  project: Project
+  folders: ProjectFolder[]
+  tracks: Track[]
+}
+
+export interface ProjectOpenResult {
+  project: Project
+  folders: ProjectFolder[]
+  tracks: Track[]
+  missingTracks: string[]
 }
 
 export interface PlayerSnapshot {
@@ -290,16 +317,24 @@ export interface GriffinAPI {
   }
   projects: {
     list: () => Promise<Project[]>
+    listFolders: () => Promise<ProjectFolder[]>
     create: (name: string) => Promise<Project>
     rename: (projectId: string, name: string) => Promise<Project>
     remove: (projectId: string) => Promise<void>
+    createFolder: (name: string, parentId?: string | null) => Promise<ProjectFolder>
+    renameFolder: (folderId: string, name: string) => Promise<ProjectFolder>
+    removeFolder: (folderId: string) => Promise<void>
+    move: (projectId: string, folderId: string | null) => Promise<Project>
     addTrack: (projectId: string, trackId: string) => Promise<Project>
     removeTrack: (projectId: string, trackId: string) => Promise<Project>
     moveTrack: (projectId: string, trackId: string, direction: 'up' | 'down') => Promise<Project>
     createSnapshot: (projectId: string, name: string, player: PlayerSnapshot) => Promise<Project>
     restoreSnapshot: (projectId: string, snapshotId: string) => Promise<ProjectSnapshot>
-  removeSnapshot: (projectId: string, snapshotId: string) => Promise<Project>
+    removeSnapshot: (projectId: string, snapshotId: string) => Promise<Project>
     updatePlayerState: (projectId: string, player: PlayerSnapshot) => Promise<Project>
+    saveAs: (projectId: string) => Promise<Project | null>
+    save: (projectId: string) => Promise<Project>
+    open: () => Promise<ProjectOpenResult | null>
   }
   separation: {
     status: () => Promise<SeparationStatus>
