@@ -530,6 +530,13 @@ fn configure_worker_library_paths(
     }
 }
 
+fn configure_hidden_windows_process(command: &mut Command) {
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000);
+    #[cfg(not(windows))]
+    let _ = command;
+}
+
 async fn probe_cuda_runtime(app: &AppHandle, data_dir: &Path) -> Result<(), String> {
     let worker = worker_path(app);
     if !worker.is_file() {
@@ -537,6 +544,7 @@ async fn probe_cuda_runtime(app: &AppHandle, data_dir: &Path) -> Result<(), Stri
     }
     let cuda_library_directory = cuda_runtime_library_dir(data_dir);
     let mut command = Command::new(&worker);
+    configure_hidden_windows_process(&mut command);
     command
         .arg("--probe-cuda")
         .stdout(Stdio::null())
@@ -699,18 +707,10 @@ fn cuda_runtime_install_blocking(
                 if offset > 0 { " · retomando" } else { "" }
             ),
         );
-        let (asset_url, agent) = match public_http_agent(asset.url) {
-            Ok(value) => value,
-            Err(error) => {
-                temporary_guard.keep();
-                return Err(error);
-            }
-        };
-        let mut request = agent.get(&asset_url);
-        if offset > 0 {
-            request = request.header("Range", format!("bytes={offset}-"));
-        }
-        let mut response = match request.call() {
+        let mut response = match public_http_get_following_redirects(
+            asset.url,
+            (offset > 0).then_some(offset),
+        ) {
             Ok(response) => response,
             Err(error) => {
                 temporary_guard.keep();
@@ -729,7 +729,7 @@ fn cuda_runtime_install_blocking(
             drop(response);
             remove_file_if_exists(&temporary)?;
             offset = 0;
-            response = match agent.get(&asset_url).call() {
+            response = match public_http_get_following_redirects(asset.url, None) {
                 Ok(response) => response,
                 Err(error) => {
                     temporary_guard.keep();
@@ -1112,10 +1112,8 @@ fn download_remote_preview_blocking(
     value: &str,
     path: &Path,
 ) -> Result<(String, String, u64), String> {
-    let (url, agent) = public_http_agent(value)?;
-    let response = agent
-        .get(&url)
-        .call()
+    let url = parse_public_url(value)?.to_string();
+    let response = public_http_get_following_redirects(value, None)
         .map_err(|error| format!("Falha ao baixar a fonte: {error}"))?;
     let content_type = response
         .headers()
@@ -1512,7 +1510,9 @@ pub async fn yt_dlp_status(state: State<'_, AppState>) -> Result<serde_json::Val
             "message": "yt-dlp não está instalado. Baixe-o para habilitar a importação do YouTube."
         }));
     }
-    let version = Command::new(&path)
+    let mut version_command = Command::new(&path);
+    configure_hidden_windows_process(&mut version_command);
+    let version = version_command
         .arg("--version")
         .output()
         .await
@@ -1585,10 +1585,7 @@ fn yt_dlp_download_blocking(
     remove_file_if_exists(&temporary)?;
     let temporary_guard = TemporaryFileGuard(Some(temporary.clone()));
     let _ = app.emit("yt-dlp:progress", serde_json::json!({ "progress": 0.0, "stage": "downloading", "message": "Baixando yt-dlp…" }));
-    let (asset_url, agent) = public_http_agent(asset)?;
-    let response = agent
-        .get(&asset_url)
-        .call()
+    let response = public_http_get_following_redirects(asset, None)
         .map_err(|e| format!("Falha ao baixar o yt-dlp: {e}"))?;
     let expected = response
         .headers()
@@ -2598,6 +2595,7 @@ pub async fn separation_start(
         .ok()
         .and_then(|data| cuda_runtime_library_dir(&data.data_dir));
     let mut worker_command = Command::new(&worker);
+    configure_hidden_windows_process(&mut worker_command);
     // The CUDA provider is shipped beside the external worker. ONNX Runtime
     // loads it by filename, so make that directory visible to the dynamic
     // loader in bundled installations as well as in local development.
@@ -2980,10 +2978,7 @@ async fn remote_download_stem(
     let url = url.to_string();
     let path = path.to_path_buf();
     tokio::task::spawn_blocking(move || {
-        let (url, agent) = public_http_agent(&url)?;
-        let response = agent
-            .get(&url)
-            .call()
+        let response = public_http_get_following_redirects(&url, None)
             .map_err(|error| format!("Falha ao baixar stem remoto: {error}"))?;
         let mut reader = response.into_body().into_reader();
         let temporary = path.with_extension("download");
@@ -3301,7 +3296,7 @@ fn models_download_blocking_inner(
             "models:progress",
             serde_json::json!({ "kind": kind, "progress": index as f64 / total.max(1) as f64, "stage": format!("Baixando {} ({}/{})", path.file_name().and_then(|value| value.to_str()).unwrap_or("modelo"), index + 1, total) }),
         );
-        let response = public_http_get_following_redirects(&url)
+        let response = public_http_get_following_redirects(&url, None)
             .map_err(|e| format!("Falha ao baixar modelo: {e}"))?;
         let expected = response
             .headers()
@@ -4099,12 +4094,16 @@ fn public_http_agent(value: &str) -> Result<(String, ureq::Agent), String> {
 
 fn public_http_get_following_redirects(
     value: &str,
+    range_start: Option<u64>,
 ) -> Result<ureq::http::Response<ureq::Body>, String> {
     let mut current = parse_public_url(value)?;
     for redirect_count in 0..=MAX_PUBLIC_REDIRECTS {
         let (url, agent) = public_http_agent(current.as_str())?;
-        let response = agent
-            .get(url.as_str())
+        let mut request = agent.get(url.as_str());
+        if let Some(offset) = range_start {
+            request = request.header("Range", format!("bytes={offset}-"));
+        }
+        let response = request
             .call()
             .map_err(|error| error.to_string())?;
         let status = response.status().as_u16();
@@ -4441,7 +4440,9 @@ fn cleanup_youtube_download(imports_dir: &Path, file_prefix: &str) {
 }
 
 async fn command_available(name: &str) -> bool {
-    Command::new(name)
+    let mut command = Command::new(name);
+    configure_hidden_windows_process(&mut command);
+    command
         .arg("--version")
         .output()
         .await
@@ -4461,7 +4462,7 @@ fn managed_yt_dlp_path(state: &State<'_, AppState>) -> PathBuf {
 }
 fn yt_dlp_command(state: &State<'_, AppState>) -> Command {
     let path = managed_yt_dlp_path(state);
-    if path.is_file() {
+    let mut command = if path.is_file() {
         Command::new(path)
     } else {
         Command::new(if cfg!(windows) {
@@ -4469,7 +4470,9 @@ fn yt_dlp_command(state: &State<'_, AppState>) -> Command {
         } else {
             "yt-dlp"
         })
-    }
+    };
+    configure_hidden_windows_process(&mut command);
+    command
 }
 fn yt_dlp_release_asset() -> (&'static str, &'static str) {
     #[cfg(windows)]
@@ -4509,12 +4512,10 @@ fn yt_dlp_release_asset() -> (&'static str, &'static str) {
     }
 }
 fn download_checksum(url: &str, asset_url: &str) -> Result<String, String> {
-    let (checksum_url, agent) = public_http_agent(
+    let body = public_http_get_following_redirects(
         "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS",
-    )?;
-    let body = agent
-        .get(&checksum_url)
-        .call()
+        None,
+    )
         .map_err(|e| format!("Não foi possível obter a assinatura do yt-dlp: {e}"))?
         .into_body()
         .into_reader();
