@@ -2633,7 +2633,11 @@ fn resolve_project_path(path: &str, project_directory: &Path) -> String {
     if path.is_absolute() {
         path.to_string_lossy().to_string()
     } else {
-        project_directory.join(path).to_string_lossy().to_string()
+        let resolved = project_directory.join(path).to_string_lossy().to_string();
+        #[cfg(target_os = "windows")]
+        return resolved.replace('/', "\\");
+        #[cfg(not(target_os = "windows"))]
+        resolved.replace('\\', "/")
     }
 }
 
