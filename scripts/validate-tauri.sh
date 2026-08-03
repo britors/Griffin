@@ -10,6 +10,7 @@ for required_file in \
   package.json \
   src-tauri/Cargo.toml \
   src-tauri/tauri.conf.json \
+  src-tauri/tauri.dev.conf.json \
   src-tauri/src/main.rs \
   src-tauri/src/lib.rs \
   src-tauri/src/bin/griffin-onnx-worker.rs \
@@ -36,6 +37,11 @@ for forbidden in electron electron-vite electron-builder electron-updater onnxru
 done
 
 grep -E -n 'tauri dev|tauri build' package.json >/dev/null || fail "scripts Tauri ausentes no package.json"
+if rg -n 'devUrl|127\.0\.0\.1:1420|ws://127\.0\.0\.1:1420' src-tauri/tauri.conf.json >/dev/null; then
+  fail "configuração de produção contém o servidor Vite de desenvolvimento"
+fi
+grep -F 'devUrl' src-tauri/tauri.dev.conf.json >/dev/null \
+  || fail "configuração de desenvolvimento sem devUrl"
 grep -E -n 'griffin-onnx-worker' src-tauri/tauri.conf.json src-tauri/src/lib.rs >/dev/null \
   || fail "worker ONNX não está integrado ao app Tauri"
 grep -E -n 'Command::new|griffin-onnx-worker' src-tauri/src/commands.rs >/dev/null \
