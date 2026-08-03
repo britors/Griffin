@@ -2624,7 +2624,7 @@ fn resolve_project_track_paths(track: &mut Track, project_directory: &Path) {
 fn project_path_for_save(path: &str, project_directory: &Path) -> String {
     let path = Path::new(path);
     path.strip_prefix(project_directory)
-        .map(|relative| relative.to_string_lossy().to_string())
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
         .unwrap_or_else(|_| path.to_string_lossy().to_string())
 }
 
