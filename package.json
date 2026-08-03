@@ -1,6 +1,6 @@
 {
   "name": "griffin-music",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Separação local de stems e prática instrumental.",
   "author": {
     "name": "W3TI",
@@ -9,7 +9,7 @@
   "homepage": "https://github.com/britors/Griffin",
   "license": "GPL-3.0-only",
   "scripts": {
-    "dev": "tauri dev",
+    "dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "dev:frontend": "vite --host 127.0.0.1 --port 1420",
     "build": "tauri build",
     "build:frontend": "vite build",

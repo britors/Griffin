@@ -1,6 +1,6 @@
-# Release 1.2.0
+# Release 1.2.1
 
-Esta versão torna robustos os downloads públicos do Griffin: modelos ONNX, CUDA/cuDNN, yt-dlp, prévias de áudio e stems remotos passam a seguir redirecionamentos públicos com validação de segurança. O download do runtime NVIDIA mantém a retomada por partes. Em builds Windows, os processos auxiliares não exibem mais janelas de console que possam parecer um prompt suspeito.
+Esta versão corrige o empacotamento de produção: o aplicativo não tenta mais conectar ao servidor Vite de desenvolvimento em `127.0.0.1:1420`; essa configuração ficou isolada no modo de desenvolvimento. Também torna robustos os downloads públicos do Griffin: modelos ONNX, CUDA/cuDNN, yt-dlp, prévias de áudio e stems remotos passam a seguir redirecionamentos públicos com validação de segurança. O download do runtime NVIDIA mantém a retomada por partes. Em builds Windows, os processos auxiliares não exibem mais janelas de console que possam parecer um prompt suspeito.
 
 O workflow de release é disparado por tags `v*` e publica `.deb`, `.rpm`, instalador NSIS x64 e o manifesto assinado do updater. Os modelos ONNX não são mais empacotados no instalador: o próprio aplicativo os baixa sob demanda em runtime (`userData/models`), na primeira execução ou via Preferências.
 
@@ -12,7 +12,7 @@ O empacotamento é feito pelo Tauri: o instalador Windows usa NSIS e as distribu
 
 ## Publicação no OBS
 
-O pacote do Griffin Music fica no projeto pessoal `home:rodrigosbrito`, fora de qualquer projeto Lyra. O nome do pacote é `griffin-music`; não usar `home:rodrigosbrito:lyra` nem `griffin` como destino. A publicação da versão 1.2.0 deve atualizar `home:rodrigosbrito/griffin-music`.
+O pacote do Griffin Music fica no projeto pessoal `home:rodrigosbrito`, fora de qualquer projeto Lyra. O nome do pacote é `griffin-music`; não usar `home:rodrigosbrito:lyra` nem `griffin` como destino. A publicação da versão 1.2.1 deve atualizar `home:rodrigosbrito/griffin-music`.
 
 ## Chaves de assinatura
 
