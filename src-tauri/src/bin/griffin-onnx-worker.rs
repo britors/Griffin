@@ -11,6 +11,7 @@ use std::{
     fs::File,
     io::{self, BufRead},
     path::{Path, PathBuf},
+    sync::{Arc, Condvar, Mutex},
 };
 use symphonia::{
     core::{
@@ -54,6 +55,32 @@ struct Track {
     path: String,
 }
 
+#[derive(Clone, Default)]
+struct PauseControl(Arc<(Mutex<bool>, Condvar)>);
+
+impl PauseControl {
+    fn set_paused(&self, paused: bool) {
+        let (state, wake) = &*self.0;
+        if let Ok(mut value) = state.lock() {
+            *value = paused;
+            if !paused {
+                wake.notify_all();
+            }
+        }
+    }
+
+    fn wait_if_paused(&self) {
+        let (state, wake) = &*self.0;
+        let Ok(mut paused) = state.lock() else { return };
+        while *paused {
+            paused = match wake.wait(paused) {
+                Ok(value) => value,
+                Err(_) => return,
+            };
+        }
+    }
+}
+
 fn main() {
     if std::env::args().any(|argument| argument == "--probe-cuda") {
         if let Err(error) = probe_cuda() {
@@ -77,7 +104,27 @@ fn main() {
         emit_error(&error);
         return;
     }
-    if let Err(error) = separate(request) {
+    let pause_control = PauseControl::default();
+    let reader_control = pause_control.clone();
+    std::thread::spawn(move || {
+        let stdin = io::stdin();
+        for line in stdin.lock().lines().flatten() {
+            let command = serde_json::from_str::<serde_json::Value>(&line)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("type")
+                        .and_then(|kind| kind.as_str())
+                        .map(str::to_owned)
+                });
+            match command.as_deref() {
+                Some("pause") => reader_control.set_paused(true),
+                Some("resume") => reader_control.set_paused(false),
+                _ => {}
+            }
+        }
+    });
+    if let Err(error) = separate(request, &pause_control) {
         emit_error(&error);
     }
 }
@@ -123,13 +170,16 @@ fn selected_stems(
         Some(target) if ALL_STEMS.contains(&target) => Ok(vec![target.to_string()]),
         Some(_) => Err("Stem de destino inválido.".into()),
         None if model_profile == "six-stem" && models_dir.join("htdemucs_6s.onnx").exists() => {
-            Ok(EXTENDED_ORDER.iter().map(|stem| (*stem).to_string()).collect())
+            Ok(EXTENDED_ORDER
+                .iter()
+                .map(|stem| (*stem).to_string())
+                .collect())
         }
         None => Ok(CORE_ORDER.iter().map(|stem| (*stem).to_string()).collect()),
     }
 }
 
-fn separate(request: Request) -> Result<(), String> {
+fn separate(request: Request, pause_control: &PauseControl) -> Result<(), String> {
     let _ = ort::init().with_name("griffin-onnx-worker").commit();
     let requested_provider = request
         .execution_provider
@@ -151,7 +201,11 @@ fn separate(request: Request) -> Result<(), String> {
         .as_deref()
         .filter(|profile| matches!(*profile, "four-stem" | "six-stem"))
         .unwrap_or("four-stem");
-    let names = selected_stems(request.target.as_deref(), model_profile, &request.models_dir)?;
+    let names = selected_stems(
+        request.target.as_deref(),
+        model_profile,
+        &request.models_dir,
+    )?;
     let source_hash = source_hash(Path::new(&request.track.path))?;
     let target_key = request
         .target
@@ -162,11 +216,8 @@ fn separate(request: Request) -> Result<(), String> {
         .iter()
         .map(|stem| choose_model(&request.models_dir, stem, processing_profile, model_profile))
         .collect::<Result<Vec<_>, _>>()?;
-    let (effective_provider, mut probe_session) = effective_provider(
-        requested_provider,
-        &models[0],
-        processing_threads,
-    )?;
+    let (effective_provider, mut probe_session) =
+        effective_provider(requested_provider, &models[0], processing_threads)?;
     let model_key = model_content_hash(&names, &models)?;
     let key = format!(
         "{}-{}-{}-{}-{}-{}-{}{}",
@@ -217,7 +268,9 @@ fn separate(request: Request) -> Result<(), String> {
             (
                 match probe_session.take() {
                     Some(session) => session,
-                    None => create_session(model, processing_threads, effective_provider == "cuda")?,
+                    None => {
+                        create_session(model, processing_threads, effective_provider == "cuda")?
+                    }
                 },
                 effective_provider,
             )
@@ -233,6 +286,7 @@ fn separate(request: Request) -> Result<(), String> {
         let mut weights = vec![0.0f32; left.len()];
         let mut start = 0usize;
         while start < left.len() {
+            pause_control.wait_if_paused();
             let mut input = vec![0.0f32; 2 * CHUNK_SIZE];
             let end = (start + CHUNK_SIZE).min(left.len());
             input[..end - start].copy_from_slice(&left[start..end]);
@@ -317,8 +371,8 @@ fn model_content_hash(names: &[String], models: &[PathBuf]) -> Result<String, St
         let mut file = File::open(model).map_err(|error| error.to_string())?;
         let mut buffer = [0u8; 1024 * 1024];
         loop {
-            let read = std::io::Read::read(&mut file, &mut buffer)
-                .map_err(|error| error.to_string())?;
+            let read =
+                std::io::Read::read(&mut file, &mut buffer).map_err(|error| error.to_string())?;
             if read == 0 {
                 break;
             }
@@ -589,7 +643,10 @@ fn emit_error(message: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     struct TempDir(PathBuf);
 
@@ -599,16 +656,23 @@ mod tests {
                 .duration_since(UNIX_EPOCH)
                 .expect("clock before epoch")
                 .as_nanos();
-            let path = std::env::temp_dir().join(format!("griffin-worker-{label}-{}-{suffix}", std::process::id()));
+            let path = std::env::temp_dir().join(format!(
+                "griffin-worker-{label}-{}-{suffix}",
+                std::process::id()
+            ));
             fs::create_dir_all(&path).expect("create temporary directory");
             Self(path)
         }
 
-        fn path(&self) -> &Path { &self.0 }
+        fn path(&self) -> &Path {
+            &self.0
+        }
     }
 
     impl Drop for TempDir {
-        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
     }
 
     fn request_json(kind: &str) -> String {
@@ -617,7 +681,8 @@ mod tests {
             "track": { "id": "track-1", "path": "/tmp/song.wav" },
             "modelsDir": "/tmp/models",
             "cacheDir": "/tmp/cache"
-        }).to_string()
+        })
+        .to_string()
     }
 
     #[test]
@@ -630,17 +695,32 @@ mod tests {
         assert!(invalid.starts_with("request inválido:"));
 
         let unknown = parse_request(&request_json("inspect")).expect("valid JSON");
-        assert_eq!(validate_request(&unknown).unwrap_err(), "tipo de operação desconhecido");
+        assert_eq!(
+            validate_request(&unknown).unwrap_err(),
+            "tipo de operação desconhecido"
+        );
     }
 
     #[test]
     fn selects_core_and_extended_stems_deterministically() {
         let temp = TempDir::new("models");
-        assert_eq!(selected_stems(None, "six-stem", temp.path()).unwrap().len(), 4);
+        assert_eq!(
+            selected_stems(None, "six-stem", temp.path()).unwrap().len(),
+            4
+        );
         fs::write(temp.path().join("htdemucs_6s.onnx"), b"model").unwrap();
-        assert_eq!(selected_stems(None, "six-stem", temp.path()).unwrap().len(), 6);
-        assert_eq!(selected_stems(Some("vocals"), "four-stem", temp.path()).unwrap(), vec!["vocals"]);
-        assert_eq!(selected_stems(Some("guitar"), "four-stem", temp.path()).unwrap(), vec!["guitar"]);
+        assert_eq!(
+            selected_stems(None, "six-stem", temp.path()).unwrap().len(),
+            6
+        );
+        assert_eq!(
+            selected_stems(Some("vocals"), "four-stem", temp.path()).unwrap(),
+            vec!["vocals"]
+        );
+        assert_eq!(
+            selected_stems(Some("guitar"), "four-stem", temp.path()).unwrap(),
+            vec!["guitar"]
+        );
         assert!(selected_stems(Some("invalid"), "four-stem", temp.path()).is_err());
     }
 
@@ -649,10 +729,21 @@ mod tests {
         let temp = TempDir::new("choose-model");
         fs::create_dir_all(temp.path().join("htdemucs-ft")).unwrap();
         fs::write(temp.path().join("htdemucs.onnx"), b"base").unwrap();
-        fs::write(temp.path().join("htdemucs-ft/htdemucs_ft_vocals_fp16weights.onnx"), b"specialist").unwrap();
-        assert!(choose_model(temp.path(), "vocals", "quality", "four-stem").unwrap().ends_with("htdemucs_ft_vocals_fp16weights.onnx"));
-        assert!(choose_model(temp.path(), "vocals", "speed", "four-stem").unwrap().ends_with("htdemucs.onnx"));
-        assert!(choose_model(temp.path(), "drums", "quality", "four-stem").unwrap().ends_with("htdemucs.onnx"));
+        fs::write(
+            temp.path()
+                .join("htdemucs-ft/htdemucs_ft_vocals_fp16weights.onnx"),
+            b"specialist",
+        )
+        .unwrap();
+        assert!(choose_model(temp.path(), "vocals", "quality", "four-stem")
+            .unwrap()
+            .ends_with("htdemucs_ft_vocals_fp16weights.onnx"));
+        assert!(choose_model(temp.path(), "vocals", "speed", "four-stem")
+            .unwrap()
+            .ends_with("htdemucs.onnx"));
+        assert!(choose_model(temp.path(), "drums", "quality", "four-stem")
+            .unwrap()
+            .ends_with("htdemucs.onnx"));
         assert!(choose_model(temp.path(), "vocals", "quality", "four-stem").is_ok());
         assert!(choose_model(temp.path(), "piano", "quality", "four-stem").is_ok());
     }

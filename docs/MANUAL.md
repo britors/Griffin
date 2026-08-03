@@ -306,6 +306,8 @@ Nesta seção você pode:
 
 O botão **Limpar cache** preserva faixas originais, projetos e modelos. Aguarde qualquer separação terminar antes de limpar o cache.
 
+Se o Griffin for fechado ou o computador reiniciar durante a preparação, os downloads parciais de modelo, cuDNN e `yt-dlp` são retomados automaticamente na próxima abertura. O aplicativo valida os arquivos antes de usá-los e repara uma cópia incompleta ou corrompida sem exigir configuração técnica.
+
 ### OBS / Windows
 
 No Windows, a integração recomendada é:
@@ -341,7 +343,7 @@ Os atalhos funcionam quando o foco não está em um campo de texto, seletor ou b
 
 ### O modelo não baixa
 
-Verifique internet, espaço livre e permissões da pasta de dados. Tente novamente pela tela de separação ou por **Preferências → Processamento**. O modelo é baixado uma vez e não precisa ser instalado em cada faixa.
+Verifique internet, espaço livre e permissões da pasta de dados. O Griffin preserva o que já foi baixado e tenta retomar automaticamente na próxima abertura. Tente novamente pela tela de separação ou por **Preferências → Processamento**. O modelo é baixado uma vez e não precisa ser instalado em cada faixa.
 
 ### A separação está usando CPU
 

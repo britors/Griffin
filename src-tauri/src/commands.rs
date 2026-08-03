@@ -40,6 +40,7 @@ const CORE_STEMS: [&str; 4] = ["vocals", "drums", "bass", "other"];
 const ALL_STEMS: [&str; 6] = ["vocals", "drums", "bass", "other", "guitar", "piano"];
 const MAX_REMOTE_DURATION_SECONDS: f64 = 60.0 * 60.0;
 const MAX_MODEL_DOWNLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const MIN_PREPARATION_DISK_SPACE: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_PUBLIC_REDIRECTS: usize = 5;
 const REMOTE_PREVIEW_TTL: Duration = Duration::from_secs(30 * 60);
 const MAX_REMOTE_PREVIEWS: usize = 32;
@@ -114,6 +115,81 @@ struct CancellationFlagGuard {
 struct TemporaryFileGuard(Option<PathBuf>);
 
 struct TemporaryDirectoryGuard(Option<PathBuf>);
+
+fn format_diagnostic_bytes(bytes: u64) -> String {
+    if bytes >= 1024 * 1024 * 1024 {
+        format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    } else {
+        format!("{:.0} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
+async fn available_disk_bytes(path: &Path) -> Option<u64> {
+    #[cfg(unix)]
+    {
+        let output = Command::new("df")
+            .args(["-Pk", path.to_string_lossy().as_ref()])
+            .output()
+            .await
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        return String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .last()
+            .and_then(|line| line.split_whitespace().nth(3))
+            .and_then(|value| value.parse::<u64>().ok())
+            .map(|kilobytes| kilobytes.saturating_mul(1024));
+    }
+    #[cfg(windows)]
+    {
+        let path_text = path.to_string_lossy();
+        let drive = path_text
+            .get(..2)
+            .filter(|value| value.as_bytes().get(1) == Some(&b':'))
+            .unwrap_or("C:");
+        let filter = format!("DeviceID='{}'", drive);
+        let output = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "(Get-CimInstance Win32_LogicalDisk -Filter $args[0]).FreeSpace",
+                &filter,
+            ])
+            .output()
+            .await
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        return String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse::<u64>()
+            .ok();
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = path;
+        None
+    }
+}
+
+async fn ensure_preparation_disk_space(path: &Path) -> Result<(), String> {
+    check_preparation_disk_space(available_disk_bytes(path).await)
+}
+
+fn check_preparation_disk_space(free: Option<u64>) -> Result<(), String> {
+    if let Some(free) = free.filter(|free| *free < MIN_PREPARATION_DISK_SPACE) {
+        return Err(format!(
+            "Há pouco espaço livre para preparar o Griffin. Libere pelo menos {} (disponível: {}).",
+            format_diagnostic_bytes(MIN_PREPARATION_DISK_SPACE),
+            format_diagnostic_bytes(free)
+        ));
+    }
+    Ok(())
+}
 
 impl Drop for DownloadingFlagGuard {
     fn drop(&mut self) {
@@ -257,6 +333,22 @@ fn cuda_runtime_assets() -> Option<Vec<CudaRuntimeAsset>> {
 
 fn cuda_runtime_root(data_dir: &Path) -> PathBuf {
     data_dir.join("runtimes").join("cuda").join("cudnn")
+}
+
+fn cuda_runtime_partial_exists(data_dir: &Path) -> bool {
+    let parent = data_dir.join("runtimes").join("cuda");
+    fs::read_dir(parent)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .any(|entry| {
+            entry
+                .path()
+                .extension()
+                .and_then(|extension| extension.to_str())
+                == Some("download")
+        })
 }
 
 fn cuda_runtime_download_bytes() -> Option<u64> {
@@ -579,6 +671,8 @@ pub async fn cuda_runtime_status(
     let data_dir = state.data.lock().map_err(lock_error)?.data_dir.clone();
     let supported = cuda_runtime_assets().is_some();
     let downloading = *state.cuda_runtime_installing.lock().map_err(lock_error)?;
+    let paused = *state.cuda_runtime_paused.lock().map_err(lock_error)?
+        || (!downloading && cuda_runtime_partial_exists(&data_dir));
     let recovery_error = if downloading || !supported {
         None
     } else {
@@ -608,6 +702,7 @@ pub async fn cuda_runtime_status(
         "supported": supported,
         "installed": installed,
         "downloading": downloading,
+        "paused": paused,
         "state": runtime_state,
         "downloadBytes": cuda_runtime_download_bytes(),
         "version": if supported { Some(CUDNN_VERSION) } else { None::<&str> },
@@ -627,6 +722,23 @@ pub async fn cuda_runtime_install(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    cuda_runtime_install_impl(app, state.inner(), false)
+        .await
+        .map_err(friendly_network_error)
+}
+
+#[tauri::command]
+pub async fn cuda_runtime_update(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    cuda_runtime_install_impl(app, state.inner(), true)
+        .await
+        .map_err(friendly_network_error)
+}
+
+async fn cuda_runtime_install_impl(
+    app: AppHandle,
+    state: &AppState,
+    force_update: bool,
+) -> Result<(), String> {
     let assets = cuda_runtime_assets()
         .ok_or_else(|| "A aceleração NVIDIA não é suportada neste sistema; use CPU.".to_string())?;
     {
@@ -638,17 +750,23 @@ pub async fn cuda_runtime_install(
     }
     let data_dir = state.data.lock().map_err(lock_error)?.data_dir.clone();
     let cancelled = Arc::clone(&state.cuda_runtime_cancelled);
+    let paused = Arc::clone(&state.cuda_runtime_paused);
+    *state.cuda_runtime_paused.lock().map_err(lock_error)? = false;
     let installing = Arc::clone(&state.cuda_runtime_installing);
     let _installing_guard = InstallingFlagGuard(Arc::clone(&installing));
     recover_cuda_runtime_transaction(&data_dir)?;
-    if cuda_runtime_installed(&data_dir) && probe_cuda_runtime(&app, &data_dir).await.is_ok() {
+    if !force_update
+        && cuda_runtime_installed(&data_dir)
+        && probe_cuda_runtime(&app, &data_dir).await.is_ok()
+    {
         return Ok(());
     }
+    ensure_preparation_disk_space(&data_dir).await?;
     *cancelled.lock().map_err(lock_error)? = false;
     let progress_app = app.clone();
     let install_data_dir = data_dir.clone();
     let backup = tokio::task::spawn_blocking(move || {
-        cuda_runtime_install_blocking(progress_app, assets, install_data_dir, cancelled)
+        cuda_runtime_install_blocking(progress_app, assets, install_data_dir, cancelled, paused)
     })
     .await
     .map_err(|error| format!("Falha no instalador do runtime NVIDIA: {error}"))?;
@@ -669,7 +787,15 @@ pub async fn cuda_runtime_install(
             format!("Runtime NVIDIA instalado, mas o backup antigo não pôde ser removido: {error}")
         })?;
     }
-    emit_cuda_runtime_progress(&app, 1.0, "Aceleração NVIDIA instalada.");
+    emit_cuda_runtime_progress(
+        &app,
+        1.0,
+        if force_update {
+            "Aceleração NVIDIA atualizada."
+        } else {
+            "Aceleração NVIDIA instalada."
+        },
+    );
     Ok(())
 }
 
@@ -678,6 +804,7 @@ fn cuda_runtime_install_blocking(
     assets: Vec<CudaRuntimeAsset>,
     data_dir: PathBuf,
     cancelled: Arc<std::sync::Mutex<bool>>,
+    paused: Arc<std::sync::Mutex<bool>>,
 ) -> Result<Option<PathBuf>, String> {
     let runtime_parent = data_dir.join("runtimes").join("cuda");
     fs::create_dir_all(&runtime_parent).map_err(|error| error.to_string())?;
@@ -687,12 +814,17 @@ fn cuda_runtime_install_blocking(
     let total_assets = assets.len();
     for (index, asset) in assets.iter().enumerate() {
         if *cancelled.lock().map_err(lock_error)? {
+            if *paused.lock().map_err(lock_error)? {
+                return Err("Download do runtime NVIDIA pausado.".into());
+            }
             return Err("Download do runtime NVIDIA cancelado.".into());
         }
         let archive_path = runtime_parent.join(asset.archive_name);
         let temporary = archive_path.with_extension("download");
         let temporary_guard = TemporaryFileGuard(Some(temporary.clone()));
-        let mut offset = fs::metadata(&temporary).map(|metadata| metadata.len()).unwrap_or(0);
+        let mut offset = fs::metadata(&temporary)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
         if offset > CUDNN_MAX_DOWNLOAD_BYTES {
             remove_file_if_exists(&temporary)?;
             offset = 0;
@@ -707,16 +839,14 @@ fn cuda_runtime_install_blocking(
                 if offset > 0 { " · retomando" } else { "" }
             ),
         );
-        let mut response = match public_http_get_following_redirects(
-            asset.url,
-            (offset > 0).then_some(offset),
-        ) {
-            Ok(response) => response,
-            Err(error) => {
-                temporary_guard.keep();
-                return Err(format!("Falha ao baixar o runtime NVIDIA: {error}"));
-            }
-        };
+        let mut response =
+            match public_http_get_following_redirects(asset.url, (offset > 0).then_some(offset)) {
+                Ok(response) => response,
+                Err(error) => {
+                    temporary_guard.keep();
+                    return Err(format!("Falha ao baixar o runtime NVIDIA: {error}"));
+                }
+            };
         let resumed = offset > 0
             && response.status().as_u16() == 206
             && response
@@ -754,10 +884,10 @@ fn cuda_runtime_install_blocking(
                 })
         } else {
             response
-            .headers()
-            .get("content-length")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse::<u64>().ok())
+                .headers()
+                .get("content-length")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse::<u64>().ok())
         };
         if expected.is_some_and(|size| size > CUDNN_MAX_DOWNLOAD_BYTES) {
             return Err(
@@ -781,6 +911,9 @@ fn cuda_runtime_install_blocking(
                 );
             }
             if *cancelled.lock().map_err(lock_error)? {
+                if *paused.lock().map_err(lock_error)? {
+                    return Err("Download do runtime NVIDIA pausado.".into());
+                }
                 return Err("Download do runtime NVIDIA cancelado.".into());
             }
             let fraction = expected
@@ -816,6 +949,9 @@ fn cuda_runtime_install_blocking(
         temporary_guard.keep();
     }
     if *cancelled.lock().map_err(lock_error)? {
+        if *paused.lock().map_err(lock_error)? {
+            return Err("Download do runtime NVIDIA pausado.".into());
+        }
         return Err("Download do runtime NVIDIA cancelado.".into());
     }
     if validate_cuda_runtime_root(&staging).is_err() {
@@ -828,6 +964,14 @@ fn cuda_runtime_install_blocking(
 
 #[tauri::command]
 pub fn cuda_runtime_cancel(state: State<'_, AppState>) -> Result<(), String> {
+    *state.cuda_runtime_paused.lock().map_err(lock_error)? = false;
+    *state.cuda_runtime_cancelled.lock().map_err(lock_error)? = true;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cuda_runtime_pause(state: State<'_, AppState>) -> Result<(), String> {
+    *state.cuda_runtime_paused.lock().map_err(lock_error)? = true;
     *state.cuda_runtime_cancelled.lock().map_err(lock_error)? = true;
     Ok(())
 }
@@ -938,7 +1082,10 @@ pub fn window_toggle_maximize(window: Window) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn window_close(window: Window) -> Result<(), String> {
+pub fn window_close(window: Window, state: State<'_, AppState>) -> Result<(), String> {
+    if let Ok(data) = state.data.lock() {
+        let _ = fs::remove_file(&data.session_marker_path);
+    }
     window.close().map_err(|e| e.to_string())
 }
 
@@ -1058,6 +1205,34 @@ pub fn library_remove(state: State<'_, AppState>, track_id: String) -> Result<()
     cleanup_removed_track_files(&removed, &remaining, &imports_dir, &cache_dir)
 }
 
+#[tauri::command(rename_all = "camelCase")]
+pub fn library_rename(
+    state: State<'_, AppState>,
+    track_id: String,
+    name: String,
+) -> Result<Track, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("A faixa precisa ter um nome.".into());
+    }
+    if name.len() > 200 {
+        return Err("O nome da faixa deve ter no máximo 200 caracteres.".into());
+    }
+    if name.contains(['/', '\\', '\n', '\r']) {
+        return Err("O nome da faixa não pode conter barras ou quebras de linha.".into());
+    }
+    let mut data = state.data.lock().map_err(lock_error)?;
+    let track = data
+        .tracks
+        .iter_mut()
+        .find(|track| track.id == track_id)
+        .ok_or_else(|| "Faixa não encontrada.".to_string())?;
+    track.name = name.to_string();
+    let result = track.clone();
+    save_tracks_locked(&data)?;
+    Ok(result)
+}
+
 #[tauri::command]
 pub fn library_choose_file(state: State<'_, AppState>) -> Result<Option<Track>, String> {
     library_import(state, None)
@@ -1091,7 +1266,8 @@ pub async fn library_preview_url(
             .map(|(url, format, size)| (url, format, size, temporary))
     })
     .await
-    .map_err(|error| format!("Falha ao consultar a fonte remota: {error}"))??;
+    .map_err(|error| format!("Falha ao consultar a fonte remota: {error}"))?
+    .map_err(friendly_network_error)?;
     let (url, format, size, path) = result;
     let file_name = format!("{file_stem}.{format}");
     state.remote_assets.lock().map_err(lock_error)?.insert(
@@ -1191,6 +1367,9 @@ pub async fn youtube_preview(
         if youtube_cancel_requested(&state.youtube_cancelled, &preview_id) {
             return Err("Consulta do YouTube cancelada.".into());
         }
+        ensure_yt_dlp_available(&app, state.inner(), Some(&preview_id))
+            .await
+            .map_err(|_| "Não foi possível preparar a importação do YouTube. Verifique sua conexão e tente novamente.".to_string())?;
         let mut command = yt_dlp_command(&state);
         command
             .args([
@@ -1324,6 +1503,9 @@ pub async fn youtube_import(
     if youtube_cancel_requested(&state.youtube_cancelled, &preview_id) {
         return Err("Download do YouTube cancelado.".into());
     }
+    ensure_yt_dlp_available(&app, state.inner(), Some(&preview_id))
+        .await
+        .map_err(|_| "Não foi possível preparar a importação do YouTube. Verifique sua conexão e tente novamente.".to_string())?;
     let (imports_dir, file_prefix) = {
         let data = state.data.lock().map_err(lock_error)?;
         (
@@ -1501,38 +1683,55 @@ pub async fn youtube_cancel(state: State<'_, AppState>, preview_id: String) -> R
 #[tauri::command]
 pub async fn yt_dlp_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let path = managed_yt_dlp_path(&state);
+    let paused = *state.yt_dlp_paused.lock().map_err(lock_error)?
+        || path.with_extension("download").is_file();
     let (asset, _) = yt_dlp_release_asset();
+    let version = if path.is_file() {
+        let mut version_command = Command::new(&path);
+        configure_hidden_windows_process(&mut version_command);
+        version_command
+            .arg("--version")
+            .output()
+            .await
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    } else {
+        None
+    };
     if !path.is_file() {
         return Ok(serde_json::json!({
             "installed": false,
             "downloading": false,
+            "paused": paused,
             "asset": asset,
             "message": "yt-dlp não está instalado. Baixe-o para habilitar a importação do YouTube."
         }));
     }
-    let mut version_command = Command::new(&path);
-    configure_hidden_windows_process(&mut version_command);
-    let version = version_command
-        .arg("--version")
-        .output()
-        .await
-        .ok()
-        .filter(|output| output.status.success())
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
+    let installed = version.is_some();
     Ok(serde_json::json!({
-        "installed": true,
+        "installed": installed,
         "downloading": false,
+        "paused": paused,
         "asset": asset,
         "version": version,
         "path": path,
-        "message": version.as_deref().map(|value| format!("yt-dlp {value} pronto para uso.")).unwrap_or_else(|| "yt-dlp instalado, mas a versão não pôde ser consultada.".into())
+        "message": version.as_deref().map(|value| format!("yt-dlp {value} pronto para uso.")).unwrap_or_else(|| "O yt-dlp precisa ser reparado; o Griffin fará isso automaticamente quando necessário.".into())
     }))
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn yt_dlp_download(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    yt_dlp_download_impl(app, state.inner(), None).await
+}
+
+async fn yt_dlp_download_impl(
+    app: AppHandle,
+    state: &AppState,
+    progress_id: Option<String>,
+) -> Result<(), String> {
     const DOWNLOAD_ID: &str = "yt-dlp";
     state
         .yt_dlp_cancelled
@@ -1540,6 +1739,8 @@ pub async fn yt_dlp_download(app: AppHandle, state: State<'_, AppState>) -> Resu
         .map_err(lock_error)?
         .remove(DOWNLOAD_ID);
     let cancelled = Arc::clone(&state.yt_dlp_cancelled);
+    let paused = Arc::clone(&state.yt_dlp_paused);
+    *state.yt_dlp_paused.lock().map_err(lock_error)? = false;
     let _cancelled_guard = CancellationFlagGuard {
         cancelled: Arc::clone(&cancelled),
         id: DOWNLOAD_ID.into(),
@@ -1565,10 +1766,52 @@ pub async fn yt_dlp_download(app: AppHandle, state: State<'_, AppState>) -> Resu
             destination,
             &asset,
             &checksum_asset,
+            paused,
+            progress_id,
         )
     })
     .await
     .map_err(|error| format!("Falha no download do yt-dlp: {error}"))?
+    .map_err(friendly_network_error)
+}
+
+async fn ensure_yt_dlp_available(
+    app: &AppHandle,
+    state: &AppState,
+    progress_id: Option<&str>,
+) -> Result<(), String> {
+    let managed_path = {
+        let data = state.data.lock().map_err(lock_error)?;
+        data.data_dir.join("tools").join(if cfg!(windows) {
+            "yt-dlp.exe"
+        } else {
+            "yt-dlp"
+        })
+    };
+    let system_name = if cfg!(windows) {
+        "yt-dlp.exe"
+    } else {
+        "yt-dlp"
+    };
+    if (managed_path.is_file() && executable_available(&managed_path).await)
+        || (!managed_path.is_file() && command_available(system_name).await)
+    {
+        return Ok(());
+    }
+    if let Some(id) = progress_id {
+        emit_youtube_progress(app, id, 0.02, "downloading", "Preparando o Griffin…");
+    }
+    yt_dlp_download_impl(app.clone(), state, progress_id.map(str::to_owned)).await?;
+    if let Some(id) = progress_id {
+        emit_youtube_progress(
+            app,
+            id,
+            0.08,
+            "downloading",
+            "Preparação concluída. Consultando vídeo…",
+        );
+    }
+    Ok(())
 }
 
 fn yt_dlp_download_blocking(
@@ -1578,41 +1821,119 @@ fn yt_dlp_download_blocking(
     destination: PathBuf,
     asset: &str,
     checksum_asset: &str,
+    paused: Arc<std::sync::Mutex<bool>>,
+    progress_id: Option<String>,
 ) -> Result<(), String> {
     const DOWNLOAD_ID: &str = "yt-dlp";
     fs::create_dir_all(&tools_dir).map_err(|e| e.to_string())?;
     let temporary = destination.with_extension("download");
-    remove_file_if_exists(&temporary)?;
+    let offset = fs::metadata(&temporary)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
     let temporary_guard = TemporaryFileGuard(Some(temporary.clone()));
     let _ = app.emit("yt-dlp:progress", serde_json::json!({ "progress": 0.0, "stage": "downloading", "message": "Baixando yt-dlp…" }));
-    let response = public_http_get_following_redirects(asset, None)
+    if let Some(id) = progress_id.as_deref() {
+        emit_youtube_progress(&app, id, 0.02, "downloading", "Preparando o Griffin…");
+    }
+    let mut response = public_http_get_following_redirects(asset, (offset > 0).then_some(offset))
         .map_err(|e| format!("Falha ao baixar o yt-dlp: {e}"))?;
-    let expected = response
-        .headers()
-        .get("content-length")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok());
+    let resumed = offset > 0
+        && response.status().as_u16() == 206
+        && response
+            .headers()
+            .get("content-range")
+            .and_then(|value| value.to_str().ok())
+            .and_then(parse_content_range)
+            .is_some_and(|(start, _)| start == offset);
+    if offset > 0 && !resumed {
+        drop(response);
+        remove_file_if_exists(&temporary)?;
+        response = public_http_get_following_redirects(asset, None)
+            .map_err(|e| format!("Falha ao baixar o yt-dlp: {e}"))?;
+    }
+    let expected = if resumed {
+        response
+            .headers()
+            .get("content-range")
+            .and_then(|value| value.to_str().ok())
+            .and_then(parse_content_range)
+            .map(|(_, total)| total)
+            .or_else(|| {
+                response
+                    .headers()
+                    .get("content-length")
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .map(|remaining| offset.saturating_add(remaining))
+            })
+    } else {
+        response
+            .headers()
+            .get("content-length")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+    };
     if expected.is_some_and(|size| size > 100 * 1024 * 1024) {
         return Err("O download do yt-dlp excede o limite de segurança.".into());
     }
     let mut reader = response.into_body().into_reader();
-    let mut file = fs::File::create(&temporary).map_err(|e| e.to_string())?;
+    let mut file = if resumed {
+        fs::OpenOptions::new()
+            .append(true)
+            .open(&temporary)
+            .map_err(|e| e.to_string())?
+    } else {
+        fs::File::create(&temporary).map_err(|e| e.to_string())?
+    };
     let copy_result = copy_with_progress(&mut reader, &mut file, expected, |received| {
-        if received > 100 * 1024 * 1024 {
+        let received_total = offset.saturating_add(received);
+        if received_total > 100 * 1024 * 1024 {
             return Err("O download do yt-dlp excede o limite de segurança.".into());
         }
         if cancelled.lock().map_err(lock_error)?.contains(DOWNLOAD_ID) {
+            if *paused.lock().map_err(lock_error)? {
+                return Err("Download pausado.".into());
+            }
             return Err("Download do yt-dlp cancelado.".into());
         }
         let progress = expected
-            .map(|total| (received as f64 / total.max(1) as f64).min(1.0))
+            .map(|total| (received_total as f64 / total.max(1) as f64).min(1.0))
             .unwrap_or(0.0);
         let _ = app.emit("yt-dlp:progress", serde_json::json!({ "progress": progress * 0.9, "stage": "downloading", "message": format!("Baixando yt-dlp · {}%", (progress * 100.0) as u32) }));
+        if let Some(id) = progress_id.as_deref() {
+            emit_youtube_progress(
+                &app,
+                id,
+                0.02 + progress * 0.11,
+                "downloading",
+                &format!("Preparando o Griffin · {}%", (progress * 100.0) as u32),
+            );
+        }
         Ok(())
     });
-    copy_result?;
+    if let Err(error) = copy_result {
+        if error == "Download pausado." {
+            temporary_guard.keep();
+        }
+        return Err(error);
+    }
     file.sync_all().map_err(|e| e.to_string())?;
     drop(file);
+    if *paused.lock().map_err(lock_error)? {
+        temporary_guard.keep();
+        return Err("Download pausado.".into());
+    }
+    let _ = app.emit(
+        "yt-dlp:progress",
+        serde_json::json!({
+            "progress": 0.9,
+            "stage": "verifying",
+            "message": "Verificando assinatura do yt-dlp…"
+        }),
+    );
+    if let Some(id) = progress_id.as_deref() {
+        emit_youtube_progress(&app, id, 0.14, "downloading", "Verificando a preparação…");
+    }
     let expected_hash = download_checksum(checksum_asset, asset)?;
     let actual_hash = sha256_file(&temporary)?;
     if expected_hash != actual_hash {
@@ -1624,14 +1945,131 @@ fn yt_dlp_download_blocking(
         fs::set_permissions(&temporary, fs::Permissions::from_mode(0o755))
             .map_err(|e| e.to_string())?;
     }
-    fs::rename(&temporary, &destination).map_err(|e| e.to_string())?;
+    replace_downloaded_file(&temporary, &destination)?;
     temporary_guard.keep();
     let _ = app.emit("yt-dlp:progress", serde_json::json!({ "progress": 1.0, "stage": "ready", "message": "yt-dlp instalado e verificado." }));
+    if let Some(id) = progress_id.as_deref() {
+        emit_youtube_progress(
+            &app,
+            id,
+            0.15,
+            "downloading",
+            "Preparação concluída. Consultando vídeo…",
+        );
+    }
     Ok(())
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn preparation_resume_pending(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    {
+        let mut resuming = state.preparation_auto_resuming.lock().map_err(lock_error)?;
+        if *resuming {
+            return Ok(false);
+        }
+        *resuming = true;
+    }
+
+    let result = preparation_resume_pending_impl(&app, state.inner()).await;
+    if let Ok(mut resuming) = state.preparation_auto_resuming.lock() {
+        *resuming = false;
+    }
+    result
+}
+
+async fn preparation_resume_pending_impl(
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<bool, String> {
+    let (models_dir, data_dir, yt_dlp_path) = {
+        let data = state.data.lock().map_err(lock_error)?;
+        (
+            data.models_dir.clone(),
+            data.data_dir.clone(),
+            data.data_dir.join("tools").join(if cfg!(windows) {
+                "yt-dlp.exe"
+            } else {
+                "yt-dlp"
+            }),
+        )
+    };
+    let model_kind = model_pending_kind(&models_dir);
+    let cuda_pending = cuda_runtime_assets().is_some()
+        && (cuda_runtime_partial_exists(&data_dir)
+            || (cuda_runtime_root(&data_dir).exists()
+                && validate_cuda_runtime_files(&data_dir).is_err()));
+    let yt_dlp_pending = yt_dlp_path.with_extension("download").is_file()
+        || (yt_dlp_path.is_file() && !executable_available(&yt_dlp_path).await);
+    let has_pending = model_kind.is_some() || cuda_pending || yt_dlp_pending;
+    if !has_pending {
+        return Ok(false);
+    }
+
+    emit_preparation_resume_progress(app, 0.0, "Retomando preparação…");
+    if let Some(kind) = model_kind {
+        emit_preparation_resume_progress(app, 0.05, "Retomando o download do modelo…");
+        if let Err(error) = models_download_impl(app.clone(), state, kind, None).await {
+            record_diagnostic_error(state, &format!("reparo automático do modelo: {error}"));
+            emit_preparation_resume_progress(
+                app,
+                0.05,
+                "O download do modelo será retomado quando você tentar novamente.",
+            );
+        }
+    }
+    if cuda_pending {
+        emit_preparation_resume_progress(app, 0.45, "Retomando a preparação NVIDIA…");
+        if let Err(error) = cuda_runtime_install_impl(app.clone(), state, true).await {
+            record_diagnostic_error(
+                state,
+                &format!("reparo automático do runtime NVIDIA: {error}"),
+            );
+            emit_preparation_resume_progress(
+                app,
+                0.45,
+                "A preparação NVIDIA será retomada quando necessário.",
+            );
+        }
+    }
+    if yt_dlp_pending {
+        emit_preparation_resume_progress(app, 0.8, "Retomando o download do YouTube…");
+        if let Err(error) = yt_dlp_download_impl(app.clone(), state, None).await {
+            record_diagnostic_error(state, &format!("reparo automático do yt-dlp: {error}"));
+            emit_preparation_resume_progress(
+                app,
+                0.8,
+                "A preparação do YouTube será retomada quando necessário.",
+            );
+        }
+    }
+    emit_preparation_resume_progress(app, 1.0, "Preparação verificada.");
+    Ok(true)
+}
+
+fn emit_preparation_resume_progress(app: &AppHandle, progress: f64, message: &str) {
+    let _ = app.emit(
+        "preparation:progress",
+        serde_json::json!({ "progress": progress.clamp(0.0, 1.0), "message": message }),
+    );
 }
 
 #[tauri::command]
 pub fn yt_dlp_cancel(state: State<'_, AppState>) -> Result<(), String> {
+    *state.yt_dlp_paused.lock().map_err(lock_error)? = false;
+    state
+        .yt_dlp_cancelled
+        .lock()
+        .map_err(lock_error)?
+        .insert("yt-dlp".into());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn yt_dlp_pause(state: State<'_, AppState>) -> Result<(), String> {
+    *state.yt_dlp_paused.lock().map_err(lock_error)? = true;
     state
         .yt_dlp_cancelled
         .lock()
@@ -1646,18 +2084,22 @@ pub fn projects_list(state: State<'_, AppState>) -> Result<Vec<Project>, String>
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn projects_folders_list(
-    state: State<'_, AppState>,
-) -> Result<Vec<ProjectFolder>, String> {
-    Ok(state.data.lock().map_err(lock_error)?.project_folders.clone())
+pub fn projects_folders_list(state: State<'_, AppState>) -> Result<Vec<ProjectFolder>, String> {
+    Ok(state
+        .data
+        .lock()
+        .map_err(lock_error)?
+        .project_folders
+        .clone())
 }
 
 #[tauri::command]
 pub fn projects_create(state: State<'_, AppState>, name: String) -> Result<Project, String> {
+    let name = validate_project_name(&name)?;
     let mut data = state.data.lock().map_err(lock_error)?;
     let project = Project {
         id: Uuid::new_v4().to_string(),
-        name: name.trim().to_string(),
+        name,
         created_at: now(),
         updated_at: now(),
         track_ids: Vec::new(),
@@ -1678,9 +2120,8 @@ pub fn projects_rename(
     project_id: String,
     name: String,
 ) -> Result<Project, String> {
-    mutate_project(&state, &project_id, |project| {
-        project.name = name.trim().to_string()
-    })
+    let name = validate_project_name(&name)?;
+    mutate_project(&state, &project_id, |project| project.name = name.clone())
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -1702,7 +2143,11 @@ pub fn projects_folder_create(
     }
     let mut data = state.data.lock().map_err(lock_error)?;
     if let Some(parent_id) = parent_id.as_ref() {
-        if !data.project_folders.iter().any(|folder| &folder.id == parent_id) {
+        if !data
+            .project_folders
+            .iter()
+            .any(|folder| &folder.id == parent_id)
+        {
             return Err("Pasta pai não encontrada.".into());
         }
     }
@@ -1742,10 +2187,7 @@ pub fn projects_folder_rename(
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn projects_folder_remove(
-    state: State<'_, AppState>,
-    folder_id: String,
-) -> Result<(), String> {
+pub fn projects_folder_remove(state: State<'_, AppState>, folder_id: String) -> Result<(), String> {
     let mut data = state.data.lock().map_err(lock_error)?;
     let parent_id = data
         .project_folders
@@ -1780,7 +2222,11 @@ pub fn projects_move(
 ) -> Result<Project, String> {
     let mut data = state.data.lock().map_err(lock_error)?;
     if let Some(folder_id) = folder_id.as_ref() {
-        if !data.project_folders.iter().any(|folder| &folder.id == folder_id) {
+        if !data
+            .project_folders
+            .iter()
+            .any(|folder| &folder.id == folder_id)
+        {
             return Err("Pasta não encontrada.".into());
         }
     }
@@ -1850,13 +2296,14 @@ pub fn projects_create_snapshot(
     name: String,
     player: PlayerSnapshot,
 ) -> Result<Project, String> {
+    let name = validate_project_name(&name)?;
     mutate_project(&state, &project_id, |project| {
         project
             .snapshots
             .get_or_insert_default()
             .push(ProjectSnapshot {
                 id: Uuid::new_v4().to_string(),
-                name: name.trim().to_string(),
+                name: name.clone(),
                 created_at: now(),
                 track_ids: project.track_ids.clone(),
                 player: player.clone(),
@@ -1928,10 +2375,7 @@ pub fn projects_save_as(
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn projects_save(
-    state: State<'_, AppState>,
-    project_id: String,
-) -> Result<Project, String> {
+pub fn projects_save(state: State<'_, AppState>, project_id: String) -> Result<Project, String> {
     let path = {
         let data = state.data.lock().map_err(lock_error)?;
         data.projects
@@ -1951,13 +2395,18 @@ pub fn projects_open(state: State<'_, AppState>) -> Result<Option<ProjectOpenRes
     else {
         return Ok(None);
     };
-    let bytes = fs::read(&path).map_err(|error| format!("Não foi possível abrir o projeto: {error}"))?;
+    let bytes =
+        fs::read(&path).map_err(|error| format!("Não foi possível abrir o projeto: {error}"))?;
     let mut document: GriffinProjectFile = serde_json::from_slice(&bytes)
         .map_err(|error| format!("Arquivo .gfn inválido: {error}"))?;
     if document.format != "griffin-project" || document.version != 1 {
         return Err("Versão de projeto .gfn não suportada.".into());
     }
     document.project.file_path = Some(path.to_string_lossy().to_string());
+    let project_directory = path.parent().unwrap_or_else(|| Path::new("."));
+    for track in &mut document.tracks {
+        resolve_project_track_paths(track, project_directory);
+    }
     let missing_tracks = document
         .tracks
         .iter()
@@ -2022,13 +2471,17 @@ fn save_project_file(
     project.file_path = Some(path.to_string_lossy().to_string());
     project.updated_at = saved_at.clone();
     project.file_saved_at = Some(saved_at.clone());
+    let project_directory = path.parent().unwrap_or_else(|| Path::new("."));
     let document = GriffinProjectFile {
         format: "griffin-project".into(),
         version: 1,
         saved_at,
         project: project.clone(),
         folders: data.project_folders.clone(),
-        tracks,
+        tracks: tracks
+            .iter()
+            .map(|track| project_track_for_save(track, project_directory))
+            .collect(),
     };
     write_json_atomic(path, &document)?;
     data.projects[project_index] = project.clone();
@@ -2036,17 +2489,19 @@ fn save_project_file(
     Ok(project)
 }
 
-fn remove_track_references_from_projects(data: &mut crate::state::StateData, track_id: &str) -> bool {
+fn remove_track_references_from_projects(
+    data: &mut crate::state::StateData,
+    track_id: &str,
+) -> bool {
     let mut changed = false;
     for project in &mut data.projects {
         let project_changed = project.track_ids.iter().any(|id| id == track_id)
-            || project
-                .snapshots
-                .as_ref()
-                .is_some_and(|snapshots| snapshots.iter().any(|snapshot| {
+            || project.snapshots.as_ref().is_some_and(|snapshots| {
+                snapshots.iter().any(|snapshot| {
                     snapshot.track_ids.iter().any(|id| id == track_id)
                         || snapshot.player.selected_track_id.as_deref() == Some(track_id)
-                }))
+                })
+            })
             || project
                 .player_state
                 .as_ref()
@@ -2121,7 +2576,10 @@ fn remove_missing_track_references(project: &mut Project, tracks: &[Track]) -> V
 }
 
 fn save_project_folders_locked(data: &crate::state::StateData) -> Result<(), String> {
-    write_json(&data.data_dir.join("project-folders.json"), &data.project_folders)
+    write_json(
+        &data.data_dir.join("project-folders.json"),
+        &data.project_folders,
+    )
 }
 
 fn track_files_missing(track: &Track) -> bool {
@@ -2130,6 +2588,57 @@ fn track_files_missing(track: &Track) -> bool {
             .stems
             .as_ref()
             .is_some_and(|stems| stems.values().any(|path| !Path::new(path).is_file()))
+}
+
+fn validate_project_name(value: &str) -> Result<String, String> {
+    let name = value.trim();
+    if name.is_empty() {
+        return Err("O nome precisa ser preenchido.".into());
+    }
+    if name.chars().count() > 120 {
+        return Err("O nome pode ter no máximo 120 caracteres.".into());
+    }
+    Ok(name.to_string())
+}
+
+fn project_track_for_save(track: &Track, project_directory: &Path) -> Track {
+    let mut result = track.clone();
+    result.path = project_path_for_save(&result.path, project_directory);
+    if let Some(stems) = result.stems.as_mut() {
+        for path in stems.values_mut() {
+            *path = project_path_for_save(path, project_directory);
+        }
+    }
+    result
+}
+
+fn resolve_project_track_paths(track: &mut Track, project_directory: &Path) {
+    track.path = resolve_project_path(&track.path, project_directory);
+    if let Some(stems) = track.stems.as_mut() {
+        for path in stems.values_mut() {
+            *path = resolve_project_path(path, project_directory);
+        }
+    }
+}
+
+fn project_path_for_save(path: &str, project_directory: &Path) -> String {
+    let path = Path::new(path);
+    path.strip_prefix(project_directory)
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| path.to_string_lossy().to_string())
+}
+
+fn resolve_project_path(path: &str, project_directory: &Path) -> String {
+    let path = Path::new(path);
+    if path.is_absolute() {
+        path.to_string_lossy().to_string()
+    } else {
+        let resolved = project_directory.join(path).to_string_lossy().to_string();
+        #[cfg(target_os = "windows")]
+        return resolved.replace('/', "\\");
+        #[cfg(not(target_os = "windows"))]
+        resolved.replace('\\', "/")
+    }
 }
 
 fn ensure_gfn_extension(path: PathBuf) -> PathBuf {
@@ -2206,6 +2715,229 @@ pub async fn resources_clear_cache(
     })
     .await
     .map_err(|error| format!("Falha ao limpar o cache: {error}"))?
+}
+
+const DIAGNOSTIC_MAX_FILE_BYTES: u64 = 64 * 1024;
+
+fn read_diagnostic_file(path: &Path) -> Option<String> {
+    let file = fs::File::open(path).ok()?;
+    let mut bytes = Vec::new();
+    file.take(DIAGNOSTIC_MAX_FILE_BYTES)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    let text = String::from_utf8_lossy(&bytes).trim().to_string();
+    (!text.is_empty()).then_some(text)
+}
+
+fn diagnostic_value(settings: &serde_json::Map<String, serde_json::Value>, key: &str) -> String {
+    settings
+        .get(key)
+        .map(|value| match value {
+            serde_json::Value::String(value) => value.clone(),
+            serde_json::Value::Number(value) => value.to_string(),
+            serde_json::Value::Bool(value) => value.to_string(),
+            _ => "não definido".to_string(),
+        })
+        .unwrap_or_else(|| "não definido".to_string())
+}
+
+async fn nvidia_diagnostic() -> String {
+    let mut command = Command::new("nvidia-smi");
+    configure_hidden_windows_process(&mut command);
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        command
+            .args([
+                "--query-gpu=name,driver_version,memory.total",
+                "--format=csv,noheader,nounits",
+            ])
+            .output(),
+    )
+    .await;
+    match result {
+        Ok(Ok(output)) if output.status.success() => {
+            let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if value.is_empty() {
+                "GPU NVIDIA não identificada".to_string()
+            } else {
+                value
+            }
+        }
+        _ => "nvidia-smi não disponível ou GPU NVIDIA não detectada".to_string(),
+    }
+}
+
+fn model_diagnostic_summary(models_dir: &Path) -> String {
+    MODEL_SHA256
+        .iter()
+        .map(|(name, _)| {
+            let path = models_dir.join(name);
+            let state = match fs::metadata(path) {
+                Ok(metadata) if metadata.is_file() => {
+                    format!("instalado ({} bytes)", metadata.len())
+                }
+                _ => "ausente".to_string(),
+            };
+            format!("{name}: {state}")
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn redact_diagnostic_text(text: &str, data_dir: &Path) -> String {
+    text.replace(data_dir.to_string_lossy().as_ref(), "[pasta de dados]")
+        .lines()
+        .map(|line| {
+            let has_windows_path = line.as_bytes().get(1) == Some(&b':')
+                && (line.contains('\\') || line.contains('/'));
+            let has_unix_path =
+                line.contains('/') && !line.contains("http://") && !line.contains("https://");
+            if has_windows_path || has_unix_path {
+                "[detalhe de caminho omitido]"
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn record_diagnostic_error(state: &AppState, message: &str) {
+    let Ok(data) = state.data.lock() else {
+        return;
+    };
+    let message = redact_diagnostic_text(message, &data.data_dir);
+    let content = format!(
+        "recorded_at={}\n{}\n",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or_default(),
+        message
+    );
+    let _ = fs::write(data.data_dir.join("last-error.txt"), content);
+}
+
+#[tauri::command]
+pub async fn diagnostics_collect(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let (data_dir, models_dir, settings, model_bytes, cache_bytes) = {
+        let data = state.data.lock().map_err(lock_error)?;
+        (
+            data.data_dir.clone(),
+            data.models_dir.clone(),
+            data.settings.clone(),
+            directory_size(&data.models_dir),
+            directory_size(&data.cache_dir),
+        )
+    };
+    let workers = state.workers.lock().await.len();
+    let active_separations = state.active_separations.lock().map_err(lock_error)?.len();
+    let (last_provider, last_duration) = {
+        let metrics = state.separation_metrics.lock().map_err(lock_error)?;
+        (
+            metrics.last_provider.clone(),
+            metrics
+                .last_duration_ms
+                .map(|value| format!("{value} ms"))
+                .unwrap_or_else(|| "nenhuma".to_string()),
+        )
+    };
+    let cuda_runtime = validate_cuda_runtime_files(&data_dir)
+        .map(|_| "arquivos presentes")
+        .unwrap_or("não instalado ou incompleto");
+    let yt_dlp = managed_yt_dlp_path(&state).is_file();
+    let gpu = nvidia_diagnostic().await;
+    let unexpected_shutdown = read_diagnostic_file(&data_dir.join("unexpected-shutdown.txt"));
+    let last_error = read_diagnostic_file(&data_dir.join("last-error.txt"))
+        .map(|value| redact_diagnostic_text(&value, &data_dir));
+    let previous_note = unexpected_shutdown
+        .map(|value| format!("SIM\n{value}"))
+        .unwrap_or_else(|| "NÃO".to_string());
+    let last_provider = last_provider.as_deref().unwrap_or("nenhum");
+    let report = format!(
+        "Griffin Music — relatório de diagnóstico\n\n\
+coletado_em_unix={}\n\
+versão={}\n\
+sistema={} ({})\n\
+arquitetura={}\n\
+gpu={}\n\
+provider_configurado={}\n\
+perfil_processamento={}\n\
+perfil_modelo={}\n\
+threads_configuradas={}\n\
+runtime_nvidia={}\n\
+yt_dlp_instalado={}\n\
+modelos={}\n\
+uso_modelos_bytes={}\n\
+cache_stems_bytes={}\n\
+separacoes_ativas={}\n\
+workers_ativos={}\n\
+ultima_separacao_provider={}\n\
+ultima_separacao_duracao={}\n\
+encerramento_anterior_inesperado={}\n\
+ultimo_erro={}\n\
+\nNenhuma chave de API, áudio ou caminho pessoal foi incluído neste relatório.",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or_default(),
+        app.package_info().version,
+        std::env::consts::OS,
+        std::env::consts::FAMILY,
+        std::env::consts::ARCH,
+        gpu,
+        diagnostic_value(&settings, "executionProvider"),
+        diagnostic_value(&settings, "processingProfile"),
+        diagnostic_value(&settings, "modelProfile"),
+        diagnostic_value(&settings, "processingThreads"),
+        cuda_runtime,
+        yt_dlp,
+        model_diagnostic_summary(&models_dir),
+        model_bytes,
+        cache_bytes,
+        active_separations,
+        workers,
+        last_provider,
+        last_duration,
+        previous_note,
+        last_error.unwrap_or_else(|| "nenhum registrado".to_string()),
+    );
+    Ok(report)
+}
+
+#[tauri::command]
+pub fn diagnostics_previous(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    let data_dir = state.data.lock().map_err(lock_error)?.data_dir.clone();
+    Ok(read_diagnostic_file(
+        &data_dir.join("unexpected-shutdown.txt"),
+    ))
+}
+
+#[tauri::command]
+pub fn diagnostics_clear_previous(state: State<'_, AppState>) -> Result<(), String> {
+    let data_dir = state.data.lock().map_err(lock_error)?.data_dir.clone();
+    match fs::remove_file(data_dir.join("unexpected-shutdown.txt")) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn diagnostics_save(report: String) -> Result<serde_json::Value, String> {
+    if report.trim().is_empty() {
+        return Err("O relatório está vazio.".into());
+    }
+    let path = rfd::FileDialog::new()
+        .add_filter("Relatório de diagnóstico", &["txt"])
+        .set_file_name("griffin-diagnostico.txt")
+        .save_file()
+        .ok_or_else(|| "Salvamento cancelado.".to_string())?;
+    fs::write(&path, report).map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({ "path": path }))
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -2402,6 +3134,16 @@ fn cuda_runtime_available(data_dir: &Path) -> bool {
     cuda_runtime_installed(data_dir)
 }
 
+fn safe_execution_provider(configured: &str, cuda_runtime_available: bool) -> &'static str {
+    if configured == "cpu" || !cuda_runtime_available {
+        "cpu"
+    } else if configured == "cuda" {
+        "cuda"
+    } else {
+        "auto"
+    }
+}
+
 #[derive(Debug)]
 enum WorkerOutput {
     Progress(serde_json::Value),
@@ -2469,15 +3211,58 @@ where
     }
 }
 
+fn add_worker_diagnostics(
+    result: Result<(Stems, Option<String>), String>,
+    status: Option<std::process::ExitStatus>,
+    stderr: &[u8],
+) -> Result<(Stems, Option<String>), String> {
+    result.map_err(|error| {
+        let mut message = error;
+        if message == "O worker ONNX terminou sem resultado." {
+            if let Some(status) = status.filter(|status| !status.success()) {
+                message.push_str(&format!(" Processo encerrado com {status}."));
+            }
+        }
+        let detail = compact_process_output(stderr);
+        if !detail.is_empty() {
+            message.push_str(&format!(" Detalhes: {detail}"));
+        }
+        message
+    })
+}
+
+fn compact_process_output(bytes: &[u8]) -> String {
+    let detail = String::from_utf8_lossy(bytes)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if detail.chars().count() > 1200 {
+        format!("{}…", detail.chars().take(1200).collect::<String>())
+    } else {
+        detail
+    }
+}
+
 async fn terminate_worker(
     workers: &tokio::sync::Mutex<
         std::collections::HashMap<String, Arc<Mutex<tokio::process::Child>>>,
     >,
     track_id: &str,
     child: &Arc<Mutex<tokio::process::Child>>,
-) {
-    let _ = child.lock().await.kill().await;
+) -> Option<std::process::ExitStatus> {
+    let mut process = child.lock().await;
+    let status = match process.try_wait() {
+        Ok(Some(status)) => Some(status),
+        Ok(None) => {
+            let _ = process.kill().await;
+            process.wait().await.ok()
+        }
+        Err(_) => None,
+    };
     workers.lock().await.remove(track_id);
+    status
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -2536,14 +3321,13 @@ pub async fn separation_start(
     let (
         models_dir,
         cache_dir,
-        execution_provider,
         processing_threads,
         processing_profile,
         model_profile,
-        cuda_runtime_available,
+        configured_provider,
     ) = {
         let data = state.data.lock().map_err(lock_error)?;
-        let execution_provider = data
+        let configured_provider = data
             .settings
             .get("executionProvider")
             .and_then(|value| value.as_str())
@@ -2570,17 +3354,74 @@ pub async fn separation_start(
             .filter(|value| matches!(*value, "four-stem" | "six-stem"))
             .unwrap_or("four-stem")
             .to_string();
-        let cuda_runtime_available = cuda_runtime_installed(&data.data_dir);
         (
             data.models_dir.clone(),
             data.cache_dir.clone(),
-            execution_provider,
             processing_threads,
             processing_profile,
             model_profile,
-            cuda_runtime_available,
+            configured_provider,
         )
     };
+    let data_dir = state.data.lock().map_err(lock_error)?.data_dir.clone();
+    let cuda_runtime_available = if cuda_runtime_installed(&data_dir) {
+        probe_cuda_runtime(&app, &data_dir).await.is_ok()
+    } else {
+        false
+    };
+    let standard_model_installed = tokio::task::spawn_blocking({
+        let models_dir = models_dir.clone();
+        move || model_installation_status(&models_dir).0
+    })
+    .await
+    .map_err(|error| format!("Falha ao validar o modelo de separação: {error}"))?;
+    if !standard_model_installed {
+        let _ = app.emit(
+            "separation:progress",
+            serde_json::json!({
+                "trackId": track.id,
+                "progress": 0.01,
+                "stage": "Preparando o Griffin…"
+            }),
+        );
+        models_download_impl(
+            app.clone(),
+            state.inner(),
+            "standard".to_string(),
+            Some(track.id.clone()),
+        )
+        .await
+        .map_err(|error| {
+            if error == "Download pausado." {
+                "Preparação pausada. O download será retomado quando você tentar novamente."
+                    .to_string()
+            } else {
+                format!("Não foi possível preparar o Griffin para a separação: {error}")
+            }
+        })?;
+    }
+    let mut cuda_runtime_available = cuda_runtime_available;
+    let wants_gpu = configured_provider == "cuda"
+        || (configured_provider == "auto" && command_available("nvidia-smi").await);
+    if wants_gpu && !cuda_runtime_available && cuda_runtime_assets().is_some() {
+        let _ = app.emit(
+            "separation:progress",
+            serde_json::json!({
+                "trackId": track.id,
+                "progress": 0.01,
+                "stage": "Preparando o Griffin…"
+            }),
+        );
+        let _ = cuda_runtime_install_impl(app.clone(), state.inner(), false).await;
+        cuda_runtime_available = state
+            .data
+            .lock()
+            .map_err(lock_error)
+            .map(|data| cuda_runtime_installed(&data.data_dir))
+            .unwrap_or(false);
+    }
+    let execution_provider =
+        safe_execution_provider(&configured_provider, cuda_runtime_available).to_string();
     if !state.workers.lock().await.is_empty() {
         return Err("Outra separação já está em andamento. Aguarde ela terminar para preservar a memória RAM.".into());
     }
@@ -2607,18 +3448,21 @@ pub async fn separation_start(
     let mut child = worker_command
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("Não foi possível iniciar o processo ONNX nativo: {e}"))?;
-    if let Some(mut stdin) = child.stdin.take() {
+    if let Some(stdin) = child.stdin.as_mut() {
         if let Err(error) = stdin.write_all(format!("{}\n", request).as_bytes()).await {
             let _ = child.kill().await;
             return Err(error.to_string());
         }
-        if let Err(error) = stdin.shutdown().await {
+        if let Err(error) = stdin.flush().await {
             let _ = child.kill().await;
             return Err(error.to_string());
         }
+    } else {
+        let _ = child.kill().await;
+        return Err("O worker ONNX não abriu a entrada.".into());
     }
     let child = Arc::new(Mutex::new(child));
     let mut workers = state.workers.lock().await;
@@ -2629,7 +3473,16 @@ pub async fn separation_start(
     }
     workers.insert(track_id.clone(), child.clone());
     drop(workers);
-    let stdout = match child.lock().await.stdout.take() {
+    let (stdout, stderr) = {
+        let mut process = child.lock().await;
+        (process.stdout.take(), process.stderr.take())
+    };
+    let stderr_task = stderr.map(|mut stderr| {
+        tokio::spawn(async move {
+            read_async_to_end_limited(&mut stderr, MAX_EXTERNAL_OUTPUT_BYTES).await
+        })
+    });
+    let stdout = match stdout {
         Some(stdout) => stdout,
         None => {
             terminate_worker(&state.workers, &track_id, &child).await;
@@ -2659,8 +3512,19 @@ pub async fn separation_start(
             Err("A separação ONNX excedeu o tempo limite.".into())
         }
     };
-    terminate_worker(&state.workers, &track_id, &child).await;
-    let (stems, active_provider) = worker_result?;
+    let worker_status = terminate_worker(&state.workers, &track_id, &child).await;
+    let worker_stderr = match stderr_task {
+        Some(task) => task.await.ok().and_then(Result::ok).unwrap_or_default(),
+        None => Vec::new(),
+    };
+    let worker_result = add_worker_diagnostics(worker_result, worker_status, &worker_stderr);
+    let (stems, active_provider) = match worker_result {
+        Ok(result) => result,
+        Err(error) => {
+            record_diagnostic_error(&state, &error);
+            return Err(error);
+        }
+    };
     state
         .separation_metrics
         .lock()
@@ -3019,6 +3883,43 @@ pub async fn separation_cancel(state: State<'_, AppState>, track_id: String) -> 
     Ok(())
 }
 
+async fn send_worker_control(
+    state: &AppState,
+    track_id: &str,
+    command: &str,
+) -> Result<(), String> {
+    let child = state
+        .workers
+        .lock()
+        .await
+        .get(track_id)
+        .cloned()
+        .ok_or_else(|| "Nenhuma separação ativa para esta faixa.".to_string())?;
+    let mut process = child.lock().await;
+    let stdin = process
+        .stdin
+        .as_mut()
+        .ok_or_else(|| "O worker ONNX não aceita controles.".to_string())?;
+    stdin
+        .write_all(format!("{{\"type\":\"{command}\"}}\n").as_bytes())
+        .await
+        .map_err(|error| format!("Não foi possível controlar a separação: {error}"))?;
+    stdin
+        .flush()
+        .await
+        .map_err(|error| format!("Não foi possível controlar a separação: {error}"))
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn separation_pause(state: State<'_, AppState>, track_id: String) -> Result<(), String> {
+    send_worker_control(state.inner(), &track_id, "pause").await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn separation_resume(state: State<'_, AppState>, track_id: String) -> Result<(), String> {
+    send_worker_control(state.inner(), &track_id, "resume").await
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub async fn export_audio(
     app: AppHandle,
@@ -3198,15 +4099,31 @@ pub fn export_cancel(state: State<'_, AppState>, request_id: String) -> Result<(
 #[tauri::command]
 pub async fn models_status(state: State<'_, AppState>) -> Result<ModelDownloadStatus, String> {
     let models_dir = state.data.lock().map_err(lock_error)?.models_dir.clone();
+    let status_models_dir = models_dir.clone();
     let (standard_installed, extended_installed) =
-        tokio::task::spawn_blocking(move || model_installation_status(&models_dir))
+        tokio::task::spawn_blocking(move || model_installation_status(&status_models_dir))
             .await
             .map_err(|error| format!("Falha ao validar os modelos ONNX: {error}"))?;
     let downloading = state.model_downloading.lock().map_err(lock_error)?.clone();
+    let paused = state
+        .model_paused
+        .lock()
+        .map_err(lock_error)?
+        .iter()
+        .next()
+        .cloned()
+        .or_else(|| {
+            if downloading.is_none() {
+                model_partial_kind(&models_dir)
+            } else {
+                None
+            }
+        });
     Ok(ModelDownloadStatus {
         standard_installed,
         extended_installed,
         downloading,
+        paused,
     })
 }
 
@@ -3216,9 +4133,20 @@ pub async fn models_download(
     state: State<'_, AppState>,
     kind: String,
 ) -> Result<(), String> {
+    models_download_impl(app, state.inner(), kind, None).await
+}
+
+async fn models_download_impl(
+    app: AppHandle,
+    state: &AppState,
+    kind: String,
+    separation_id: Option<String>,
+) -> Result<(), String> {
     if !matches!(kind.as_str(), "standard" | "extended") {
         return Err("Tipo de modelo inválido.".into());
     }
+    let models_dir = state.data.lock().map_err(lock_error)?.models_dir.clone();
+    ensure_preparation_disk_space(&models_dir).await?;
     {
         let mut downloading = state.model_downloading.lock().map_err(lock_error)?;
         if downloading.is_some() {
@@ -3227,17 +4155,21 @@ pub async fn models_download(
         *downloading = Some(kind.clone());
     }
     let cancelled = Arc::clone(&state.model_cancelled);
+    let paused = Arc::clone(&state.model_paused);
     let downloading = Arc::clone(&state.model_downloading);
     let _downloading_guard = DownloadingFlagGuard(Arc::clone(&downloading));
     cancelled.lock().map_err(lock_error)?.remove(&kind);
+    paused.lock().map_err(lock_error)?.remove(&kind);
     let _cancelled_guard = CancellationFlagGuard {
         cancelled: Arc::clone(&cancelled),
         id: kind.clone(),
     };
-    let models_dir = state.data.lock().map_err(lock_error)?.models_dir.clone();
-    tokio::task::spawn_blocking(move || models_download_blocking(app, kind, models_dir, cancelled))
-        .await
-        .map_err(|error| format!("Falha no instalador dos modelos ONNX: {error}"))?
+    tokio::task::spawn_blocking(move || {
+        models_download_blocking(app, kind, models_dir, cancelled, paused, separation_id)
+    })
+    .await
+    .map_err(|error| format!("Falha no instalador dos modelos ONNX: {error}"))?
+    .map_err(friendly_model_download_error)
 }
 
 fn models_download_blocking(
@@ -3245,9 +4177,11 @@ fn models_download_blocking(
     kind: String,
     models_dir: PathBuf,
     cancelled: Arc<std::sync::Mutex<HashSet<String>>>,
+    paused: Arc<std::sync::Mutex<HashSet<String>>>,
+    separation_id: Option<String>,
 ) -> Result<(), String> {
     let cleanup_dir = models_dir.clone();
-    models_download_blocking_inner(app, kind, models_dir, cancelled)
+    models_download_blocking_inner(app, kind, models_dir, cancelled, paused, separation_id)
         .map_err(|error| cleanup_models_after_download_failure(&cleanup_dir, error))
 }
 
@@ -3256,6 +4190,8 @@ fn models_download_blocking_inner(
     kind: String,
     models_dir: PathBuf,
     cancelled: Arc<std::sync::Mutex<HashSet<String>>>,
+    paused: Arc<std::sync::Mutex<HashSet<String>>>,
+    separation_id: Option<String>,
 ) -> Result<(), String> {
     fs::create_dir_all(models_dir.join("htdemucs-ft")).map_err(|e| e.to_string())?;
     let base = "https://huggingface.co/StemSplitio";
@@ -3284,6 +4220,9 @@ fn models_download_blocking_inner(
     let total = files.len();
     for (index, (path, url, expected_hash)) in files.into_iter().enumerate() {
         if cancelled.lock().map_err(lock_error)?.contains(&kind) {
+            if paused.lock().map_err(lock_error)?.contains(&kind) {
+                return Err("Download pausado.".into());
+            }
             return Err("Download cancelado.".into());
         }
         if path.is_file() {
@@ -3292,42 +4231,112 @@ fn models_download_blocking_inner(
             }
             fs::remove_file(&path).map_err(|e| e.to_string())?;
         }
-        let _ = app.emit(
-            "models:progress",
-            serde_json::json!({ "kind": kind, "progress": index as f64 / total.max(1) as f64, "stage": format!("Baixando {} ({}/{})", path.file_name().and_then(|value| value.to_str()).unwrap_or("modelo"), index + 1, total) }),
+        emit_model_progress(
+            &app,
+            &kind,
+            index as f64 / total.max(1) as f64,
+            &format!(
+                "Baixando {} ({}/{})",
+                path.file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("modelo"),
+                index + 1,
+                total
+            ),
+            separation_id.as_deref(),
         );
-        let response = public_http_get_following_redirects(&url, None)
-            .map_err(|e| format!("Falha ao baixar modelo: {e}"))?;
-        let expected = response
-            .headers()
-            .get("content-length")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse::<u64>().ok());
+        let temporary = path.with_extension("download");
+        let offset = fs::metadata(&temporary)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        let mut response =
+            public_http_get_following_redirects(&url, (offset > 0).then_some(offset))
+                .map_err(|e| format!("Falha ao baixar modelo: {e}"))?;
+        let resumed = offset > 0
+            && response.status().as_u16() == 206
+            && response
+                .headers()
+                .get("content-range")
+                .and_then(|value| value.to_str().ok())
+                .and_then(parse_content_range)
+                .is_some_and(|(start, _)| start == offset);
+        if offset > 0 && !resumed {
+            drop(response);
+            remove_file_if_exists(&temporary)?;
+            response = public_http_get_following_redirects(&url, None)
+                .map_err(|e| format!("Falha ao baixar modelo: {e}"))?;
+        }
+        let expected = if resumed {
+            response
+                .headers()
+                .get("content-range")
+                .and_then(|value| value.to_str().ok())
+                .and_then(parse_content_range)
+                .map(|(_, total)| total)
+                .or_else(|| {
+                    response
+                        .headers()
+                        .get("content-length")
+                        .and_then(|value| value.to_str().ok())
+                        .and_then(|value| value.parse::<u64>().ok())
+                        .map(|remaining| offset.saturating_add(remaining))
+                })
+        } else {
+            response
+                .headers()
+                .get("content-length")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse::<u64>().ok())
+        };
         if expected.is_some_and(|size| size > MAX_MODEL_DOWNLOAD_BYTES) {
             return Err("O modelo excede o limite de segurança do Griffin.".into());
         }
+        let total_offset = if resumed { offset } else { 0 };
         let mut reader = response.into_body().into_reader();
-        let temporary = path.with_extension("download");
-        remove_file_if_exists(&temporary)?;
         let temporary_guard = TemporaryFileGuard(Some(temporary.clone()));
-        let mut file = fs::File::create(&temporary).map_err(|e| e.to_string())?;
+        let mut file = if resumed {
+            fs::OpenOptions::new()
+                .append(true)
+                .open(&temporary)
+                .map_err(|e| e.to_string())?
+        } else {
+            fs::File::create(&temporary).map_err(|e| e.to_string())?
+        };
         let copy_result = copy_with_progress(&mut reader, &mut file, expected, |received| {
-            if received > MAX_MODEL_DOWNLOAD_BYTES {
+            let received_total = total_offset.saturating_add(received);
+            if received_total > MAX_MODEL_DOWNLOAD_BYTES {
                 return Err("O modelo excede o limite de segurança do Griffin.".into());
             }
             if cancelled.lock().map_err(lock_error)?.contains(&kind) {
+                if paused.lock().map_err(lock_error)?.contains(&kind) {
+                    return Err("Download pausado.".into());
+                }
                 return Err("Download cancelado.".into());
             }
             let fraction = expected
-                .map(|total_bytes| (received as f64 / total_bytes.max(1) as f64).min(1.0))
+                .map(|total_bytes| (received_total as f64 / total_bytes.max(1) as f64).min(1.0))
                 .unwrap_or(0.0);
-            let _ = app.emit(
-                "models:progress",
-                serde_json::json!({ "kind": kind, "progress": (index as f64 + fraction) / total.max(1) as f64, "stage": format!("Baixando {} · {}%", path.file_name().and_then(|value| value.to_str()).unwrap_or("modelo"), (fraction * 100.0) as u32) }),
+            emit_model_progress(
+                &app,
+                &kind,
+                (index as f64 + fraction) / total.max(1) as f64,
+                &format!(
+                    "Baixando {} · {}%",
+                    path.file_name()
+                        .and_then(|value| value.to_str())
+                        .unwrap_or("modelo"),
+                    (fraction * 100.0) as u32
+                ),
+                separation_id.as_deref(),
             );
             Ok(())
         });
-        copy_result?;
+        if let Err(error) = copy_result {
+            if error != "Download cancelado." && !error.contains("excede o limite de segurança") {
+                temporary_guard.keep();
+            }
+            return Err(error);
+        }
         file.sync_all().map_err(|e| e.to_string())?;
         drop(file);
         if sha256_file(&temporary).map_err(|e| e.to_string())? != expected_hash {
@@ -3342,24 +4351,76 @@ fn models_download_blocking_inner(
         fs::rename(&temporary, &path).map_err(|e| e.to_string())?;
         temporary_guard.keep();
     }
-    let _ = app.emit(
-        "models:progress",
-        serde_json::json!({ "kind": kind, "progress": 1.0, "stage": "Modelo instalado" }),
+    emit_model_progress(
+        &app,
+        &kind,
+        1.0,
+        "Modelo instalado",
+        separation_id.as_deref(),
     );
     Ok(())
 }
 
-fn cleanup_models_after_download_failure(models_dir: &Path, error: String) -> String {
-    match remove_dir_if_exists(models_dir) {
-        Ok(()) => error,
-        Err(cleanup_error) => {
-            format!("{error}. A limpeza dos modelos também falhou: {cleanup_error}")
-        }
+fn emit_model_progress(
+    app: &AppHandle,
+    kind: &str,
+    progress: f64,
+    stage: &str,
+    separation_id: Option<&str>,
+) {
+    let _ = app.emit(
+        "models:progress",
+        serde_json::json!({ "kind": kind, "progress": progress.clamp(0.0, 1.0), "stage": stage }),
+    );
+    if let Some(track_id) = separation_id {
+        let _ = app.emit(
+            "separation:progress",
+            serde_json::json!({
+                "trackId": track_id,
+                "progress": (0.02 + progress.clamp(0.0, 1.0) * 0.43).min(0.45),
+                "stage": "Preparando o Griffin…"
+            }),
+        );
     }
+}
+
+fn cleanup_models_after_download_failure(models_dir: &Path, error: String) -> String {
+    let _ = models_dir;
+    error
+}
+
+fn friendly_model_download_error(error: String) -> String {
+    if error.contains("Falha ao baixar modelo")
+        || error.contains("Download do modelo")
+        || error.contains("timed out")
+        || error.contains("timeout")
+    {
+        return "Não foi possível baixar o modelo agora. Verifique sua conexão e tente novamente. O que já foi baixado foi preservado.".into();
+    }
+    error
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub fn models_cancel(state: State<'_, AppState>, kind: String) -> Result<(), String> {
+    state.model_paused.lock().map_err(lock_error)?.remove(&kind);
+    state
+        .model_cancelled
+        .lock()
+        .map_err(lock_error)?
+        .insert(kind);
+    Ok(())
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn models_pause(state: State<'_, AppState>, kind: String) -> Result<(), String> {
+    if !matches!(kind.as_str(), "standard" | "extended") {
+        return Err("Tipo de modelo inválido.".into());
+    }
+    state
+        .model_paused
+        .lock()
+        .map_err(lock_error)?
+        .insert(kind.clone());
     state
         .model_cancelled
         .lock()
@@ -3912,6 +4973,15 @@ fn cleanup_remote_preview_state(state: &AppState) -> Result<(), String> {
         .lock()
         .map_err(lock_error)?
         .retain(|kind| downloading.as_deref() == Some(kind.as_str()));
+    state
+        .model_paused
+        .lock()
+        .map_err(lock_error)?
+        .retain(|kind| {
+            downloading.as_deref() == Some(kind.as_str())
+                || kind == "standard"
+                || kind == "extended"
+        });
     Ok(())
 }
 
@@ -4103,9 +5173,7 @@ fn public_http_get_following_redirects(
         if let Some(offset) = range_start {
             request = request.header("Range", format!("bytes={offset}-"));
         }
-        let response = request
-            .call()
-            .map_err(|error| error.to_string())?;
+        let response = request.call().map_err(|error| error.to_string())?;
         let status = response.status().as_u16();
         if !matches!(status, 301 | 302 | 303 | 307 | 308) {
             return Ok(response);
@@ -4253,6 +5321,31 @@ fn normalize_yt_dlp_error(error: std::io::Error) -> String {
         format!("Não foi possível executar o yt-dlp: {error}")
     }
 }
+
+fn friendly_network_error(error: String) -> String {
+    let lower = error.to_ascii_lowercase();
+    let network_failure = [
+        "network",
+        "connection",
+        "connect timed out",
+        "timed out",
+        "timeout",
+        "dns",
+        "resolve",
+        "name or service not known",
+        "could not resolve",
+        "connection refused",
+        "falha ao baixar",
+        "não foi possível conectar",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker));
+    if network_failure {
+        return "Não foi possível conectar à internet agora. Verifique sua conexão e tente novamente. O que já está instalado no Griffin continua disponível offline.".into();
+    }
+    error
+}
+
 fn yt_dlp_process_error(action: &str, stderr: &[u8], stdout: &[u8]) -> String {
     let detail = String::from_utf8_lossy(stderr).trim().to_string();
     let detail = if detail.is_empty() {
@@ -4274,7 +5367,7 @@ fn yt_dlp_process_error(action: &str, stderr: &[u8], stdout: &[u8]) -> String {
     } else {
         detail
     };
-    format!("{action} Detalhes: {detail}")
+    friendly_network_error(format!("{action} Detalhes: {detail}"))
 }
 async fn yt_dlp_runtime_args() -> Vec<String> {
     if command_available("deno").await {
@@ -4448,6 +5541,17 @@ async fn command_available(name: &str) -> bool {
         .await
         .is_ok_and(|output| output.status.success())
 }
+
+async fn executable_available(path: &Path) -> bool {
+    let mut command = Command::new(path);
+    configure_hidden_windows_process(&mut command);
+    command
+        .arg("--version")
+        .output()
+        .await
+        .is_ok_and(|output| output.status.success())
+}
+
 fn managed_yt_dlp_path(state: &State<'_, AppState>) -> PathBuf {
     let data_dir = state
         .data
@@ -4516,9 +5620,9 @@ fn download_checksum(url: &str, asset_url: &str) -> Result<String, String> {
         "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS",
         None,
     )
-        .map_err(|e| format!("Não foi possível obter a assinatura do yt-dlp: {e}"))?
-        .into_body()
-        .into_reader();
+    .map_err(|e| format!("Não foi possível obter a assinatura do yt-dlp: {e}"))?
+    .into_body()
+    .into_reader();
     let body = read_to_string_limited(body, MAX_EXTERNAL_RESPONSE_BYTES)?;
     let asset = asset_url.rsplit('/').next().unwrap_or(url);
     body.lines()
@@ -4543,6 +5647,31 @@ fn sha256_file(path: &Path) -> Result<String, String> {
         hasher.update(&buffer[..read]);
     }
     Ok(hex::encode(hasher.finalize()))
+}
+
+fn replace_downloaded_file(temporary: &Path, destination: &Path) -> Result<(), String> {
+    let backup = destination.with_file_name(format!(
+        ".{}-backup-{}",
+        destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("download"),
+        Uuid::new_v4()
+    ));
+    let had_destination = destination.is_file();
+    if had_destination {
+        fs::rename(destination, &backup).map_err(|error| error.to_string())?;
+    }
+    if let Err(error) = fs::rename(temporary, destination) {
+        if had_destination {
+            let _ = fs::rename(&backup, destination);
+        }
+        return Err(error.to_string());
+    }
+    if had_destination {
+        remove_file_if_exists(&backup)?;
+    }
+    Ok(())
 }
 fn pick_audio() -> Option<String> {
     rfd::FileDialog::new()
@@ -5089,6 +6218,29 @@ mod tests {
         assert_eq!(youtube_download_percent("download: 200%"), Some(100.0));
         let error = yt_dlp_process_error("Falha", b"linha 1\nlinha 2", b"");
         assert_eq!(error, "Falha Detalhes: linha 1 linha 2");
+        let offline = friendly_network_error("Falha ao baixar: connection timed out".into());
+        assert!(offline.contains("Verifique sua conexão"));
+    }
+
+    #[test]
+    fn avoids_cuda_when_runtime_is_unavailable() {
+        assert_eq!(safe_execution_provider("cuda", false), "cpu");
+        assert_eq!(safe_execution_provider("auto", false), "cpu");
+        assert_eq!(safe_execution_provider("cpu", true), "cpu");
+        assert_eq!(safe_execution_provider("cuda", true), "cuda");
+        assert_eq!(safe_execution_provider("auto", true), "auto");
+    }
+
+    #[test]
+    fn preserves_worker_error_and_adds_stderr_diagnostics() {
+        let error = add_worker_diagnostics(
+            Err("O worker ONNX terminou sem resultado.".into()),
+            None,
+            b"CUDA provider could not be loaded\n",
+        )
+        .unwrap_err();
+        assert!(error.contains("O worker ONNX terminou sem resultado."));
+        assert!(error.contains("CUDA provider could not be loaded"));
     }
 
     #[test]
@@ -5336,7 +6488,7 @@ mod tests {
     }
 
     #[test]
-    fn removes_model_directory_after_download_failure() {
+    fn preserves_model_directory_after_download_failure() {
         let temp = TempDir::new("failed-model-download");
         let models = temp.path().join("models");
         fs::create_dir_all(models.join("htdemucs-ft")).unwrap();
@@ -5346,7 +6498,45 @@ mod tests {
         let error = cleanup_models_after_download_failure(&models, "download failed".into());
 
         assert_eq!(error, "download failed");
-        assert!(!models.exists());
+        assert!(models.exists());
+        assert!(models.join("htdemucs.onnx.download").is_file());
+    }
+
+    #[test]
+    fn rejects_low_disk_space_but_allows_unknown_measurements() {
+        let error = check_preparation_disk_space(Some(MIN_PREPARATION_DISK_SPACE - 1))
+            .expect_err("low disk space must block preparation");
+        assert!(error.contains("pouco espaço"));
+        assert!(check_preparation_disk_space(Some(MIN_PREPARATION_DISK_SPACE)).is_ok());
+        assert!(check_preparation_disk_space(None).is_ok());
+    }
+
+    #[test]
+    fn detects_partial_model_downloads_for_resume() {
+        let temp = TempDir::new("partial-model-resume");
+        assert_eq!(model_partial_kind(temp.path()), None);
+        fs::write(temp.path().join("htdemucs.onnx.download"), b"partial").unwrap();
+        assert_eq!(model_partial_kind(temp.path()).as_deref(), Some("standard"));
+        fs::remove_file(temp.path().join("htdemucs.onnx.download")).unwrap();
+        fs::write(temp.path().join("htdemucs_6s.onnx.download"), b"partial").unwrap();
+        assert_eq!(model_partial_kind(temp.path()).as_deref(), Some("extended"));
+    }
+
+    #[test]
+    fn detects_corrupt_model_for_automatic_repair() {
+        let temp = TempDir::new("corrupt-model-repair");
+        fs::write(temp.path().join("htdemucs.onnx"), b"corrupt").unwrap();
+        assert_eq!(model_pending_kind(temp.path()).as_deref(), Some("standard"));
+    }
+
+    #[test]
+    fn detects_partial_cuda_downloads_for_resume() {
+        let temp = TempDir::new("partial-cuda-resume");
+        assert!(!cuda_runtime_partial_exists(temp.path()));
+        let runtime = temp.path().join("runtimes").join("cuda");
+        fs::create_dir_all(&runtime).unwrap();
+        fs::write(runtime.join("cudnn.download"), b"partial").unwrap();
+        assert!(cuda_runtime_partial_exists(temp.path()));
     }
 
     #[test]
@@ -5355,6 +6545,25 @@ mod tests {
         assert_eq!(first, cache_component("track-1"));
         assert_eq!(first.len(), 24);
         assert_ne!(first, cache_component("track-2"));
+    }
+
+    #[test]
+    fn project_paths_round_trip_relative_to_gfn_directory() {
+        let temp = TempDir::new("project-paths");
+        let audio = temp.path().join("audio").join("song.wav");
+        let relative = project_path_for_save(&audio.to_string_lossy(), temp.path());
+        assert_eq!(relative, "audio/song.wav");
+        assert_eq!(
+            resolve_project_path(&relative, temp.path()),
+            audio.to_string_lossy()
+        );
+    }
+
+    #[test]
+    fn project_names_are_validated_for_commands() {
+        assert!(validate_project_name(" ").is_err());
+        assert!(validate_project_name(&"x".repeat(121)).is_err());
+        assert_eq!(validate_project_name("  Ensaio  ").unwrap(), "Ensaio");
     }
 }
 
@@ -5698,6 +6907,51 @@ fn model_installation_status(models: &Path) -> (bool, bool) {
     (standard, extended)
 }
 
+fn model_partial_kind(models: &Path) -> Option<String> {
+    if models.join("htdemucs.onnx.download").is_file()
+        || models
+            .join("htdemucs-ft")
+            .read_dir()
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .any(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    == Some("download")
+            })
+    {
+        return Some("standard".to_string());
+    }
+    if models.join("htdemucs_6s.onnx.download").is_file() {
+        return Some("extended".to_string());
+    }
+    None
+}
+
+fn model_pending_kind(models: &Path) -> Option<String> {
+    if let Some(kind) = model_partial_kind(models) {
+        return Some(kind);
+    }
+    let standard_has_files = models.join("htdemucs.onnx").is_file()
+        || CORE_STEMS.iter().any(|stem| {
+            models
+                .join("htdemucs-ft")
+                .join(format!("htdemucs_ft_{stem}_fp16weights.onnx"))
+                .is_file()
+        });
+    if standard_has_files && !model_installation_status(models).0 {
+        return Some("standard".to_string());
+    }
+    if models.join("htdemucs_6s.onnx").is_file() && !model_installation_status(models).1 {
+        return Some("extended".to_string());
+    }
+    None
+}
+
 fn mix_wav<F: FnMut() -> Result<(), String>>(
     selected: &[(&str, String)],
     options: &AudioExportOptions,
@@ -5957,21 +7211,14 @@ fn export_is_cancelled(
     cancelled: &Arc<std::sync::Mutex<HashSet<String>>>,
     request_id: &str,
 ) -> Result<(), String> {
-    if cancelled
-        .lock()
-        .map_err(lock_error)?
-        .contains(request_id)
-    {
+    if cancelled.lock().map_err(lock_error)?.contains(request_id) {
         Err("Exportação cancelada.".into())
     } else {
         Ok(())
     }
 }
 
-fn clear_export_cancelled(
-    cancelled: &Arc<std::sync::Mutex<HashSet<String>>>,
-    request_id: &str,
-) {
+fn clear_export_cancelled(cancelled: &Arc<std::sync::Mutex<HashSet<String>>>, request_id: &str) {
     if let Ok(mut cancelled) = cancelled.lock() {
         cancelled.remove(request_id);
     }

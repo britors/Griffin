@@ -1,4 +1,12 @@
-# Release 1.2.1
+# Release 2.0.0
+
+Esta versão reúne a preparação automática para usuários não técnicos, retomada de downloads após reinício, reparo de modelos/runtime/yt-dlp corrompidos, pausa e retomada durante downloads e separação, projetos `.gfn` com organização em pastas e melhorias de estabilidade do worker ONNX. Os diagnósticos continuam locais e manuais; nenhum relatório é enviado automaticamente.
+
+Os artefatos de produção devem ser gerados pelos workflows Linux e Windows disparados pela tag `v2.0.0`. Antes da publicação, valide `npm run validate:version`, `npm run validate:tauri`, os testes e os pacotes gerados.
+
+## Histórico
+
+### Release 1.2.1
 
 Esta versão corrige o empacotamento de produção: o aplicativo não tenta mais conectar ao servidor Vite de desenvolvimento em `127.0.0.1:1420`; essa configuração ficou isolada no modo de desenvolvimento. Também torna robustos os downloads públicos do Griffin: modelos ONNX, CUDA/cuDNN, yt-dlp, prévias de áudio e stems remotos passam a seguir redirecionamentos públicos com validação de segurança. O download do runtime NVIDIA mantém a retomada por partes. Em builds Windows, os processos auxiliares não exibem mais janelas de console que possam parecer um prompt suspeito.
 

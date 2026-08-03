@@ -27,12 +27,17 @@ fn run_worker(input: &str) -> serde_json::Value {
 fn worker_reports_malformed_requests_without_panicking() {
     let response = run_worker("not json\n");
     assert_eq!(response["type"], "error");
-    assert!(response["message"].as_str().unwrap().contains("request inválido"));
+    assert!(response["message"]
+        .as_str()
+        .unwrap()
+        .contains("request inválido"));
 }
 
 #[test]
 fn worker_rejects_unknown_operations_before_loading_onnx() {
-    let response = run_worker(r#"{"type":"inspect","track":{"id":"track-1","path":"/tmp/song.wav"},"modelsDir":"/tmp/models","cacheDir":"/tmp/cache"}"#);
+    let response = run_worker(
+        r#"{"type":"inspect","track":{"id":"track-1","path":"/tmp/song.wav"},"modelsDir":"/tmp/models","cacheDir":"/tmp/cache"}"#,
+    );
     assert_eq!(response["type"], "error");
     assert_eq!(response["message"], "tipo de operação desconhecido");
 }

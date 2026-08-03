@@ -17,10 +17,19 @@ export function useModelDownload() {
 
   const download = useCallback(async (kind: ModelDownloadKind) => {
     setError(null)
-    try { await api.models.download(kind) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível baixar o modelo.') } finally { setProgress(null); refresh() }
+    try {
+      await api.models.download(kind)
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'Não foi possível baixar o modelo.'
+      if (!message.includes('Download pausado.')) setError(message)
+    } finally {
+      setProgress(null)
+      refresh()
+    }
   }, [refresh])
 
   const cancel = useCallback((kind: ModelDownloadKind) => api.models.cancel(kind), [])
+  const pause = useCallback((kind: ModelDownloadKind) => api.models.pause(kind), [])
 
-  return { status, progress, error, download, cancel, refresh }
+  return { status, progress, error, download, cancel, pause, refresh }
 }

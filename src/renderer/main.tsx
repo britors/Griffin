@@ -9,10 +9,10 @@ import { PlayerPage } from './pages/player'
 import { PreferencesPage } from './pages/preferences'
 import { AudioPlayback } from './components/audio-playback'
 import { Splash } from './components/splash'
-import { ModelSetupModal } from './components/model-setup-modal'
 import { DialogHost } from './components/dialog-host'
 import { KeyboardShortcuts } from './components/keyboard-shortcuts'
 import { Metronome } from './components/metronome'
+import type { PreparationProgress } from '../shared/types'
 import './styles.css'
 
 type View = 'library' | 'preferences'
@@ -24,6 +24,7 @@ function App() {
   const [view, setView] = useState<View>('library')
   const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>('all')
   const [appVersion, setAppVersion] = useState<string | null>(null)
+  const [preparation, setPreparation] = useState<PreparationProgress | null>(null)
   const { selected, recentTrackIds, setProgress, setFavoriteIds, setRecentTrackIds, setResetPlaybackOnTrackChange, setMetronomeEnabled, setMetronomeSubdivision, setMetronomeVolume, setCountInEnabled, setCountInBars } = usePlayer()
   const activeProjectId = usePlayer((state) => state.activeProjectId)
   const takePath = usePlayer((state) => state.takePath)
@@ -63,6 +64,26 @@ function App() {
   }, [])
 
   useEffect(() => {
+    let active = true
+    const unlisten = api.preparation.onProgress(setPreparation)
+    setPreparation({ progress: 0, message: 'Verificando preparações…' })
+    void api.preparation.resumePending().then((resumed) => {
+      if (!active) return
+      if (!resumed) {
+        setPreparation(null)
+        return
+      }
+      window.setTimeout(() => { if (active) setPreparation(null) }, 1800)
+    }).catch(() => {
+      if (active) {
+        setPreparation({ progress: 1, message: 'A preparação será retomada quando necessário.' })
+        window.setTimeout(() => { if (active) setPreparation(null) }, 3200)
+      }
+    })
+    return () => { active = false; unlisten() }
+  }, [])
+
+  useEffect(() => {
     if (!selected) return
     const nextRecent = addRecentTrack(recentTrackIds, selected.id)
     setRecentTrackIds(nextRecent)
@@ -83,7 +104,6 @@ function App() {
   const showPreferences = () => setView('preferences')
 
   return <div className="app-shell">
-    <ModelSetupModal />
     <DialogHost />
     <KeyboardShortcuts />
     <Metronome />
@@ -115,6 +135,7 @@ function App() {
           </div>
         </div>
       </header>
+      {preparation && <div className="preparation-banner" role="status" aria-live="polite"><span>{preparation.message}</span><div className="preparation-banner-track"><span style={{ width: `${Math.round(preparation.progress * 100)}%` }} /></div></div>}
       <div className="content-scroll">
         {view === 'preferences' ? <PreferencesPage /> : <><LibraryPage filter={libraryFilter} />{selected && <PlayerPage />}</>}
       </div>

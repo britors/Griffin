@@ -2,7 +2,7 @@ import { Channel, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { BundleType, getBundleType } from '@tauri-apps/api/app'
 import { relaunch } from '@tauri-apps/plugin-process'
-import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, CudaRuntimeProgress, CudaRuntimeStatus, GriffinAPI, LyricsLine, ModelDownloadKind, ModelDownloadProgress, PlayerSnapshot, Project, ProjectFolder, ProjectOpenResult, SeparationProgress, SeparationProvider, StemName, Track, TrackAnalysis, YoutubeImportProgress, YtDlpProgress, YtDlpStatus } from '../shared/types'
+import type { AudioExportOptions, AudioExportProgress, ChordExportFormat, CudaRuntimeProgress, CudaRuntimeStatus, DiagnosticsSaveResult, GriffinAPI, LyricsLine, ModelDownloadKind, ModelDownloadProgress, PlayerSnapshot, PreparationProgress, Project, ProjectFolder, ProjectOpenResult, SeparationProgress, SeparationProvider, StemName, Track, TrackAnalysis, YoutubeImportProgress, YtDlpProgress, YtDlpStatus } from '../shared/types'
 import type { AppUpdateStatus } from '../shared/types'
 
 type Unlisten = () => void
@@ -198,6 +198,7 @@ export const api: GriffinAPI = {
     remove: (trackId: string) => invoke('library_remove', { trackId }),
     chooseFile: () => invoke<Track | null>('library_choose_file'),
     chooseFiles: () => invoke<Track[]>('library_choose_files'),
+    rename: (trackId: string, name: string) => invoke<Track>('library_rename', { trackId, name }),
     previewUrl: (url: string) => invoke('library_preview_url', { url }),
     importUrl: (assetId: string) => invoke<Track>('library_import_url', { assetId }),
     cancelRemoteImport: (assetId: string) => invoke('library_cancel_remote_import', { assetId }),
@@ -210,7 +211,12 @@ export const api: GriffinAPI = {
     status: () => invoke<YtDlpStatus>('yt_dlp_status'),
     download: () => invoke('yt_dlp_download'),
     cancel: () => invoke('yt_dlp_cancel'),
+    pause: () => invoke('yt_dlp_pause'),
     onProgress: (callback: (progress: YtDlpProgress) => void) => onEvent('yt-dlp:progress', callback),
+  },
+  preparation: {
+    resumePending: () => invoke<boolean>('preparation_resume_pending'),
+    onProgress: (callback: (progress: PreparationProgress) => void) => onEvent('preparation:progress', callback),
   },
   projects: {
     list: () => invoke('projects_list'),
@@ -250,6 +256,8 @@ export const api: GriffinAPI = {
     status: () => invoke('separation_status'),
     start: (track: Track, target?: StemName, provider?: SeparationProvider) => invoke('separation_start', { track, target, provider }),
     cancel: (trackId: string) => invoke('separation_cancel', { trackId }),
+    pause: (trackId: string) => invoke('separation_pause', { trackId }),
+    resume: (trackId: string) => invoke('separation_resume', { trackId }),
     onProgress: (callback: (progress: SeparationProgress) => void) => onEvent('separation:progress', callback),
   },
   remoteProvider: {
@@ -262,12 +270,15 @@ export const api: GriffinAPI = {
     status: () => invoke('models_status'),
     download: (kind: ModelDownloadKind) => invoke('models_download', { kind }),
     cancel: (kind: ModelDownloadKind) => invoke('models_cancel', { kind }),
+    pause: (kind: ModelDownloadKind) => invoke('models_pause', { kind }),
     onProgress: (callback: (progress: ModelDownloadProgress) => void) => onEvent('models:progress', callback),
   },
   cudaRuntime: {
     status: () => invoke<CudaRuntimeStatus>('cuda_runtime_status'),
     install: () => invoke('cuda_runtime_install'),
+    update: () => invoke('cuda_runtime_update'),
     cancel: () => invoke('cuda_runtime_cancel'),
+    pause: () => invoke('cuda_runtime_pause'),
     onProgress: (callback: (progress: CudaRuntimeProgress) => void) => onEvent('cuda-runtime:progress', callback),
   },
   updates: {
@@ -286,5 +297,11 @@ export const api: GriffinAPI = {
   resources: {
     summary: () => invoke('resources_summary'),
     clearCache: () => invoke('resources_clear_cache'),
+  },
+  diagnostics: {
+    collect: () => invoke<string>('diagnostics_collect'),
+    previous: () => invoke<string | null>('diagnostics_previous'),
+    clearPrevious: () => invoke('diagnostics_clear_previous'),
+    save: (report: string) => invoke<DiagnosticsSaveResult>('diagnostics_save', { report }),
   },
 }

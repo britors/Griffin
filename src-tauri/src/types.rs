@@ -208,4 +208,5 @@ pub struct ModelDownloadStatus {
     pub standard_installed: bool,
     pub extended_installed: bool,
     pub downloading: Option<String>,
+    pub paused: Option<String>,
 }
