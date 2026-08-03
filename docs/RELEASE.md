@@ -1,8 +1,8 @@
-# Release 2.0.0
+# Release 2.0.1
 
 Esta versão reúne a preparação automática para usuários não técnicos, retomada de downloads após reinício, reparo de modelos/runtime/yt-dlp corrompidos, pausa e retomada durante downloads e separação, projetos `.gfn` com organização em pastas e melhorias de estabilidade do worker ONNX. Os diagnósticos continuam locais e manuais; nenhum relatório é enviado automaticamente.
 
-Os artefatos de produção devem ser gerados pelos workflows Linux e Windows disparados pela tag `v2.0.0`. Antes da publicação, valide `npm run validate:version`, `npm run validate:tauri`, os testes e os pacotes gerados.
+Os artefatos de produção devem ser gerados pelos workflows Linux e Windows disparados pela tag `v2.0.1`. Antes da publicação, valide `npm run validate:version`, `npm run validate:tauri`, os testes e os pacotes gerados.
 
 ## Histórico
 

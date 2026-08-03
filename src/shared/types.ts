@@ -401,6 +401,7 @@ export interface GriffinAPI {
     clearCache: () => Promise<LocalResourcesSummary>
   }
   diagnostics: {
+    log: (event: string, detail?: string) => Promise<void>
     collect: () => Promise<string>
     previous: () => Promise<string | null>
     clearPrevious: () => Promise<void>
