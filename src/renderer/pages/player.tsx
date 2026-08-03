@@ -117,10 +117,10 @@ export function PlayerPage() {
         : <button className="secondary-button compact-control" disabled={modelDownload.status.downloading !== null} onClick={() => void modelDownload.download('standard')}>Baixar modelo (~1 GB)</button>)}
       {modelDownload.error && <span className="model-download-error">{modelDownload.error}</span>}
     </div>}
-    <PlayerTransport />
+    {hasSeparatedStems && <PlayerTransport />}
     <LyricsPanel />
     <StemMixer />
-    <GraphicEqualizer />
+    {hasSeparatedStems && <GraphicEqualizer />}
     <PerformanceRecorder />
     <ExportPanel />
   </main>
