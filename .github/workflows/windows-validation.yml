@@ -21,6 +21,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test -- --run
+      - name: Build frontend for Tauri tests
+        run: npm run build:frontend
 
       - name: Build ONNX worker and CUDA providers
         shell: bash
