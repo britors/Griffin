@@ -18,6 +18,22 @@ import './styles.css'
 type View = 'library' | 'preferences'
 type LibraryFilter = 'all' | 'favorites' | 'recent'
 
+function errorDetail(reason: unknown) {
+  if (reason instanceof Error) return `${reason.name}: ${reason.message}${reason.stack ? `\n${reason.stack}` : ''}`
+  return typeof reason === 'string' ? reason : String(reason)
+}
+
+function logRendererEvent(event: string, detail?: string) {
+  void api.diagnostics.log(event, detail).catch(() => undefined)
+}
+
+window.addEventListener('error', (event) => {
+  logRendererEvent('renderer.window_error', event.error ? errorDetail(event.error) : event.message)
+})
+window.addEventListener('unhandledrejection', (event) => {
+  logRendererEvent('renderer.unhandled_rejection', errorDetail(event.reason))
+})
+
 function App() {
   if (new URLSearchParams(window.location.search).has('splash')) return <Splash />
 
@@ -43,6 +59,8 @@ function App() {
   const solo = usePlayer((state) => state.solo)
 
   useEffect(() => {
+    logRendererEvent('renderer.app_mounted', 'ok')
+    logRendererEvent('startup.settings_load_started', 'ok')
     void api.settings.get().then((settings) => {
       applyVisualPreferences(settings)
       setFavoriteIds(Array.isArray(settings.favoriteTrackIds) ? settings.favoriteTrackIds.filter((id): id is string => typeof id === 'string') : [])
@@ -53,12 +71,18 @@ function App() {
       setMetronomeVolume(typeof settings.metronomeVolume === 'number' ? Math.min(1, Math.max(0, settings.metronomeVolume)) : 0.5)
       setCountInEnabled(settings.countInEnabled === true)
       setCountInBars(settings.countInBars === 2 ? 2 : 1)
-    })
+      logRendererEvent('startup.settings_loaded', 'ok')
+    }).catch((reason) => logRendererEvent('startup.settings_load_failed', errorDetail(reason)))
   }, [setFavoriteIds, setRecentTrackIds, setResetPlaybackOnTrackChange, setMetronomeEnabled, setMetronomeSubdivision, setMetronomeVolume, setCountInEnabled, setCountInBars])
 
   useEffect(() => {
-    void api.version().then(setAppVersion)
-    void api.updates.check()
+    logRendererEvent('startup.version_load_started', 'ok')
+    void api.version().then((version) => {
+      setAppVersion(version)
+      logRendererEvent('startup.version_loaded', `version=${version}`)
+    }).catch((reason) => logRendererEvent('startup.version_load_failed', errorDetail(reason)))
+    logRendererEvent('startup.update_check_started', 'ok')
+    void api.updates.check().then((status) => logRendererEvent('startup.update_check_finished', `stage=${status.stage}`)).catch((reason) => logRendererEvent('startup.update_check_failed', errorDetail(reason)))
     const timer = window.setInterval(() => { void api.updates.check() }, 6 * 60 * 60 * 1000)
     return () => window.clearInterval(timer)
   }, [])
@@ -67,14 +91,17 @@ function App() {
     let active = true
     const unlisten = api.preparation.onProgress(setPreparation)
     setPreparation({ progress: 0, message: 'Verificando preparações…' })
+    logRendererEvent('startup.resume_pending_started', 'ok')
     void api.preparation.resumePending().then((resumed) => {
       if (!active) return
+      logRendererEvent('startup.resume_pending_finished', `resumed=${resumed}`)
       if (!resumed) {
         setPreparation(null)
         return
       }
       window.setTimeout(() => { if (active) setPreparation(null) }, 1800)
-    }).catch(() => {
+    }).catch((reason) => {
+      logRendererEvent('startup.resume_pending_failed', errorDetail(reason))
       if (active) {
         setPreparation({ progress: 1, message: 'A preparação será retomada quando necessário.' })
         window.setTimeout(() => { if (active) setPreparation(null) }, 3200)

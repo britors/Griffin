@@ -4,7 +4,7 @@ use keyring::Entry;
 use std::{
     collections::{HashMap, HashSet},
     fs,
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -59,6 +59,8 @@ pub struct YoutubePreview {
 pub struct StateData {
     pub data_dir: PathBuf,
     pub session_marker_path: PathBuf,
+    pub session_log_path: PathBuf,
+    pub session_id: String,
     pub models_dir: PathBuf,
     pub cache_dir: PathBuf,
     pub imports_dir: PathBuf,
@@ -180,6 +182,8 @@ impl Default for AppState {
             data: std::sync::Mutex::new(StateData {
                 data_dir: PathBuf::new(),
                 session_marker_path: PathBuf::new(),
+                session_log_path: PathBuf::new(),
+                session_id: String::new(),
                 models_dir: PathBuf::new(),
                 cache_dir: PathBuf::new(),
                 imports_dir: PathBuf::new(),
@@ -223,31 +227,125 @@ impl AppState {
         let cache_dir = data_dir.join("stems");
         let imports_dir = data_dir.join("imports");
         let session_marker_path = data_dir.join("session.active");
+        let logs_dir = data_dir.join("logs");
         fs::create_dir_all(&models_dir).map_err(|e| e.to_string())?;
         fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
         fs::create_dir_all(&imports_dir).map_err(|e| e.to_string())?;
+        fs::create_dir_all(&logs_dir).map_err(|e| e.to_string())?;
         let previous_session = fs::read_to_string(&session_marker_path).ok();
         if let Some(previous_session) = previous_session {
-            let report = unexpected_shutdown_report(&previous_session);
+            let previous_log = previous_session_log(&data_dir, &previous_session);
+            let report = unexpected_shutdown_report(&previous_session, previous_log.as_deref());
             let _ = fs::write(data_dir.join("unexpected-shutdown.txt"), report);
         }
+        let started_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or_default();
+        let session_id = Uuid::new_v4().to_string();
+        let session_log_name = format!("session-{started_at}-{session_id}.log");
+        let session_log_path = logs_dir.join(&session_log_name);
+        let _ = append_session_log(
+            &session_log_path,
+            &session_id,
+            "session.started",
+            &format!(
+                "version={} os={} arch={}",
+                app.package_info().version,
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            ),
+        );
+        let _ = append_session_log(
+            &session_log_path,
+            &session_id,
+            "startup.data_dir_ready",
+            "ok",
+        );
         let session = format!(
-            "started_at={}\nversion={}\nos={}\narch={}\n",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|duration| duration.as_secs())
-                .unwrap_or_default(),
+            "session_id={}\nstarted_at={}\nversion={}\nos={}\narch={}\nlog_file={}\n",
+            session_id,
+            started_at,
             app.package_info().version,
             std::env::consts::OS,
             std::env::consts::ARCH,
+            session_log_name,
         );
         fs::write(&session_marker_path, session).map_err(|e| e.to_string())?;
-        let tracks: Vec<Track> = read_json(&data_dir.join("library.json"))?.unwrap_or_default();
-        let projects = read_json(&data_dir.join("projects.json"))?.unwrap_or_default();
-        let project_folders =
-            read_json(&data_dir.join("project-folders.json"))?.unwrap_or_default();
+        let _ = append_session_log(
+            &session_log_path,
+            &session_id,
+            "startup.session_marker_written",
+            "ok",
+        );
+        let tracks: Vec<Track> = match read_json(&data_dir.join("library.json")) {
+            Ok(value) => value.unwrap_or_default(),
+            Err(error) => {
+                let _ = append_session_log(
+                    &session_log_path,
+                    &session_id,
+                    "startup.library_read_failed",
+                    &error,
+                );
+                return Err(error);
+            }
+        };
+        let _ = append_session_log(
+            &session_log_path,
+            &session_id,
+            "startup.library_loaded",
+            &format!("tracks={}", tracks.len()),
+        );
+        let projects: Vec<Project> = match read_json(&data_dir.join("projects.json")) {
+            Ok(value) => value.unwrap_or_default(),
+            Err(error) => {
+                let _ = append_session_log(
+                    &session_log_path,
+                    &session_id,
+                    "startup.projects_read_failed",
+                    &error,
+                );
+                return Err(error);
+            }
+        };
+        let _ = append_session_log(
+            &session_log_path,
+            &session_id,
+            "startup.projects_loaded",
+            &format!("projects={}", projects.len()),
+        );
+        let project_folders: Vec<ProjectFolder> =
+            match read_json(&data_dir.join("project-folders.json")) {
+                Ok(value) => value.unwrap_or_default(),
+                Err(error) => {
+                    let _ = append_session_log(
+                        &session_log_path,
+                        &session_id,
+                        "startup.project_folders_read_failed",
+                        &error,
+                    );
+                    return Err(error);
+                }
+            };
         cleanup_stale_remote_imports(&imports_dir, &tracks);
-        let mut settings = read_json_map(&data_dir.join("settings.json"))?.unwrap_or_default();
+        let _ = append_session_log(
+            &session_log_path,
+            &session_id,
+            "startup.remote_imports_cleaned",
+            "ok",
+        );
+        let mut settings = match read_json_map(&data_dir.join("settings.json")) {
+            Ok(value) => value.unwrap_or_default(),
+            Err(error) => {
+                let _ = append_session_log(
+                    &session_log_path,
+                    &session_id,
+                    "startup.settings_read_failed",
+                    &error,
+                );
+                return Err(error);
+            }
+        };
         if let Some(legacy_key) = settings
             .get(STEMSPLIT_API_KEY)
             .and_then(|value| value.as_str())
@@ -257,6 +355,12 @@ impl AppState {
             if save_stem_split_api_key(&data_dir, &legacy_key).is_ok() {
                 settings.remove(STEMSPLIT_API_KEY);
                 write_json_atomic(&data_dir.join("settings.json"), &settings)?;
+                let _ = append_session_log(
+                    &session_log_path,
+                    &session_id,
+                    "startup.legacy_settings_migrated",
+                    "ok",
+                );
             }
         }
         *self
@@ -265,6 +369,8 @@ impl AppState {
             .map_err(|_| "estado indisponível".to_string())? = StateData {
             data_dir,
             session_marker_path,
+            session_log_path: session_log_path.clone(),
+            session_id: session_id.clone(),
             models_dir,
             cache_dir,
             imports_dir,
@@ -273,13 +379,75 @@ impl AppState {
             project_folders,
             settings,
         };
+        let _ = append_session_log(&session_log_path, &session_id, "startup.state_ready", "ok");
         Ok(())
+    }
+
+    pub fn record_session_event(&self, event: &str, detail: &str) {
+        let Ok(data) = self.data.lock() else {
+            return;
+        };
+        let _ = append_session_log(&data.session_log_path, &data.session_id, event, detail);
     }
 }
 
-fn unexpected_shutdown_report(previous_session: &str) -> String {
+const SESSION_LOG_MAX_BYTES: u64 = 64 * 1024;
+
+pub fn append_session_log(
+    path: &Path,
+    session_id: &str,
+    event: &str,
+    detail: &str,
+) -> Result<(), String> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| format!("{}.{:03}", duration.as_secs(), duration.subsec_millis()))
+        .unwrap_or_else(|_| "0.000".to_string());
+    let detail = detail.replace('\r', " ").replace('\n', " ");
+    let line =
+        format!("timestamp={timestamp} session={session_id} event={event} detail={detail}\n");
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|error| error.to_string())?;
+    file.write_all(line.as_bytes())
+        .map_err(|error| error.to_string())?;
+    file.flush().map_err(|error| error.to_string())
+}
+
+fn previous_session_log(data_dir: &Path, previous_session: &str) -> Option<String> {
+    let log_file = previous_session
+        .lines()
+        .find_map(|line| line.strip_prefix("log_file="))?;
+    let path = Path::new(log_file);
+    if path.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::ParentDir
+                | std::path::Component::RootDir
+                | std::path::Component::Prefix(_)
+        )
+    }) {
+        return None;
+    }
+    read_limited_text(&data_dir.join("logs").join(path), SESSION_LOG_MAX_BYTES)
+}
+
+fn read_limited_text(path: &Path, max_bytes: u64) -> Option<String> {
+    let file = fs::File::open(path).ok()?;
+    let mut bytes = Vec::new();
+    file.take(max_bytes).read_to_end(&mut bytes).ok()?;
+    let text = String::from_utf8_lossy(&bytes).trim().to_string();
+    (!text.is_empty()).then_some(text)
+}
+
+fn unexpected_shutdown_report(previous_session: &str, previous_log: Option<&str>) -> String {
+    let log = previous_log
+        .map(|value| format!("\n\nLog da sessão anterior:\n{value}"))
+        .unwrap_or_default();
     format!(
-        "O Griffin não registrou o encerramento normal da sessão anterior.\n\n{previous_session}"
+        "O Griffin não registrou o encerramento normal da sessão anterior.\n\n{previous_session}{log}"
     )
 }
 
@@ -528,7 +696,7 @@ mod tests {
 
     #[test]
     fn creates_a_report_for_an_unexpected_previous_session() {
-        let report = super::unexpected_shutdown_report("started_at=123\nversion=1.2.2");
+        let report = super::unexpected_shutdown_report("started_at=123\nversion=1.2.2", None);
         assert!(report.contains("encerramento normal"));
         assert!(report.contains("started_at=123"));
         assert!(report.contains("version=1.2.2"));

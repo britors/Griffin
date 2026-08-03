@@ -1,7 +1,8 @@
 use crate::{
     state::{
-        load_stem_split_api_key, remove_stem_split_api_key, save_stem_split_api_key,
-        write_json_atomic, AppState, RemoteAsset, StateData, YoutubePreview,
+        append_session_log, load_stem_split_api_key, remove_stem_split_api_key,
+        save_stem_split_api_key, write_json_atomic, AppState, RemoteAsset, StateData,
+        YoutubePreview,
     },
     types::*,
 };
@@ -1083,10 +1084,20 @@ pub fn window_toggle_maximize(window: Window) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn window_close(window: Window, state: State<'_, AppState>) -> Result<(), String> {
-    if let Ok(data) = state.data.lock() {
-        let _ = fs::remove_file(&data.session_marker_path);
+    state.record_session_event("shutdown.requested", "window_close");
+    let result = window.close().map_err(|e| e.to_string());
+    if result.is_ok() {
+        if let Ok(data) = state.data.lock() {
+            let _ = append_session_log(
+                &data.session_log_path,
+                &data.session_id,
+                "shutdown.marker_removed",
+                "ok",
+            );
+            let _ = fs::remove_file(&data.session_marker_path);
+        }
     }
-    window.close().map_err(|e| e.to_string())
+    result
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -2816,6 +2827,34 @@ fn record_diagnostic_error(state: &AppState, message: &str) {
         message
     );
     let _ = fs::write(data.data_dir.join("last-error.txt"), content);
+    let _ = append_session_log(
+        &data.session_log_path,
+        &data.session_id,
+        "error.diagnostic",
+        &message,
+    );
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn diagnostics_log(
+    state: State<'_, AppState>,
+    event: String,
+    detail: Option<String>,
+) -> Result<(), String> {
+    let data = state.data.lock().map_err(lock_error)?;
+    let event = event
+        .chars()
+        .filter(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
+        })
+        .take(80)
+        .collect::<String>();
+    if event.is_empty() {
+        return Err("Evento de diagnóstico inválido.".into());
+    }
+    let detail = detail.unwrap_or_default();
+    let detail = redact_diagnostic_text(&detail, &data.data_dir);
+    append_session_log(&data.session_log_path, &data.session_id, &event, &detail)
 }
 
 #[tauri::command]
@@ -2823,11 +2862,12 @@ pub async fn diagnostics_collect(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let (data_dir, models_dir, settings, model_bytes, cache_bytes) = {
+    let (data_dir, models_dir, session_log_path, settings, model_bytes, cache_bytes) = {
         let data = state.data.lock().map_err(lock_error)?;
         (
             data.data_dir.clone(),
             data.models_dir.clone(),
+            data.session_log_path.clone(),
             data.settings.clone(),
             directory_size(&data.models_dir),
             directory_size(&data.cache_dir),
@@ -2850,7 +2890,9 @@ pub async fn diagnostics_collect(
         .unwrap_or("não instalado ou incompleto");
     let yt_dlp = managed_yt_dlp_path(&state).is_file();
     let gpu = nvidia_diagnostic().await;
-    let unexpected_shutdown = read_diagnostic_file(&data_dir.join("unexpected-shutdown.txt"));
+    let unexpected_shutdown = read_diagnostic_file(&data_dir.join("unexpected-shutdown.txt"))
+        .map(|value| redact_diagnostic_text(&value, &data_dir));
+    let session_log = read_diagnostic_file(&session_log_path);
     let last_error = read_diagnostic_file(&data_dir.join("last-error.txt"))
         .map(|value| redact_diagnostic_text(&value, &data_dir));
     let previous_note = unexpected_shutdown
@@ -2879,6 +2921,7 @@ ultima_separacao_provider={}\n\
 ultima_separacao_duracao={}\n\
 encerramento_anterior_inesperado={}\n\
 ultimo_erro={}\n\
+log_sessao={}\n\
 \nNenhuma chave de API, áudio ou caminho pessoal foi incluído neste relatório.",
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -2904,6 +2947,7 @@ ultimo_erro={}\n\
         last_duration,
         previous_note,
         last_error.unwrap_or_else(|| "nenhum registrado".to_string()),
+        session_log.unwrap_or_else(|| "nenhum registrado".to_string()),
     );
     Ok(report)
 }
@@ -2911,9 +2955,10 @@ ultimo_erro={}\n\
 #[tauri::command]
 pub fn diagnostics_previous(state: State<'_, AppState>) -> Result<Option<String>, String> {
     let data_dir = state.data.lock().map_err(lock_error)?.data_dir.clone();
-    Ok(read_diagnostic_file(
-        &data_dir.join("unexpected-shutdown.txt"),
-    ))
+    Ok(
+        read_diagnostic_file(&data_dir.join("unexpected-shutdown.txt"))
+            .map(|value| redact_diagnostic_text(&value, &data_dir)),
+    )
 }
 
 #[tauri::command]
