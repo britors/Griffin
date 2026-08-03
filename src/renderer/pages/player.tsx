@@ -28,6 +28,8 @@ export function PlayerPage() {
   const [error, setError] = useState<string | null>(null)
   const [modelStatus, setModelStatus] = useState<SeparationStatus | null>(null)
   const [cancelling, setCancelling] = useState(false)
+  const [pausing, setPausing] = useState(false)
+  const [paused, setPaused] = useState(false)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
   const [target, setTarget] = useState<SeparationTarget>('all')
   const [provider, setProvider] = useState<SeparationProvider>('local')
@@ -51,8 +53,10 @@ export function PlayerPage() {
 
   const targetStems = modelStatus?.sixStemAvailable ? ALL_STEMS : CORE_STEMS
   const targetLabel = target === 'all' ? 'todos os stems' : STEM_LABELS[target]
-  const canSeparate = provider === 'remote' ? remoteAvailable : Boolean(modelStatus?.available)
+  const canSeparate = provider === 'remote' ? remoteAvailable : Boolean(selected)
   const hasSeparatedStems = Boolean(selected?.stems && Object.values(selected.stems).some(Boolean))
+  const preparingModel = Boolean(progress && modelDownload.progress?.kind === 'standard' && progress.stage.includes('Preparando'))
+  const canRetryPreparation = Boolean(error && (error.includes('preparar o Griffin') || error.includes('baixar o modelo')))
 
   const separate = async (useProvider: SeparationProvider = provider, retryTransient = true) => {
     if (!selected || progress) return
@@ -62,10 +66,12 @@ export function PlayerPage() {
       const costLine = estimate ? `Estimativa mínima: ~$${estimate.estimatedUsd.toFixed(2)} (${Math.round(estimate.durationSeconds)}s de áudio, a partir de ~$0,10/min). O pacote escolhido pode ter outro valor por minuto.` : 'Não foi possível estimar o custo agora.'
       const consented = await confirmDialog(remoteConsentMessage(costLine), { confirmLabel: 'Enviar para a nuvem' })
       if (!consented) return
-    } else if (!modelStatus?.available) return
+    }
     setError(null)
     setLastRemoteError(false)
     setCancelling(false)
+    setPausing(false)
+    setPaused(false)
     setPlaying(false)
     getActiveStemAudioPlayer()?.unload()
     setProgress({ trackId: selected.id, progress: 0, stage: `Preparando ${targetLabel}` })
@@ -76,6 +82,10 @@ export function PlayerPage() {
       await alertDialog(`A separação de ${targetLabel} de “${separated.name}” foi concluída.`)
     } catch (reason) {
       const message = errorMessage(reason, 'Não foi possível extrair o stem.')
+      if (message.includes('Preparação pausada.')) {
+        setError(null)
+        return
+      }
       if (useProvider === 'local' && retryTransient && isTransientLocalSeparationError(message)) {
         await new Promise((resolve) => window.setTimeout(resolve, 350))
         await separate(useProvider, false)
@@ -85,7 +95,38 @@ export function PlayerPage() {
       setLastRemoteError(useProvider === 'remote')
     } finally {
       setCancelling(false)
+      setPausing(false)
+      setPaused(false)
       setProgress(null)
+    }
+  }
+
+  const pause = async () => {
+    if (!selected || !progress || pausing || cancelling || paused) return
+    setPausing(true)
+    try {
+      if (preparingModel) await modelDownload.pause('standard')
+      else await api.separation.pause(selected.id)
+      setPaused(true)
+      setProgress({ ...progress, stage: 'Pausado' })
+    } catch (reason) {
+      setError(errorMessage(reason, 'Não foi possível pausar a separação.'))
+    } finally {
+      setPausing(false)
+    }
+  }
+
+  const resume = async () => {
+    if (!selected || !progress || pausing || cancelling || !paused) return
+    setPausing(true)
+    try {
+      await api.separation.resume(selected.id)
+      setPaused(false)
+      setProgress({ ...progress, stage: 'Retomando separação…' })
+    } catch (reason) {
+      setError(errorMessage(reason, 'Não foi possível retomar a separação.'))
+    } finally {
+      setPausing(false)
     }
   }
 
@@ -93,7 +134,8 @@ export function PlayerPage() {
     if (!selected || !progress || cancelling) return
     setCancelling(true)
     setProgress({ ...progress, stage: 'Cancelando separação' })
-    await api.separation.cancel(selected.id)
+    if (preparingModel) await modelDownload.cancel('standard')
+    else await api.separation.cancel(selected.id)
   }
 
   return <main className="player-page">
@@ -101,20 +143,20 @@ export function PlayerPage() {
       <div><span className="eyebrow">STUDIO</span><h1>Pratique com precisão</h1><p>Ajuste cada detalhe da sua faixa.</p></div>
       {selected && (progress ? <div className="separation-action">
         <div className="separation-progress"><div className="separation-progress-meta" aria-live="polite"><span>{progress.stage}</span><strong>{Math.round(progress.progress * 100)}%</strong></div><div className="separation-progress-track" role="progressbar" aria-label="Progresso da separação" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress.progress * 100)}><span style={{ width: `${Math.round(progress.progress * 100)}%` }} /></div></div>
-        <button className="secondary-button" disabled={cancelling} onClick={() => void cancel()}>{cancelling ? 'Cancelando…' : 'Cancelar'}</button>
+        <div className="separation-controls"><button className="secondary-button" disabled={cancelling || pausing} onClick={() => void (paused ? resume() : pause())}>{pausing ? 'Aguarde…' : paused ? 'Retomar' : 'Pausar'}</button><button className="secondary-button" disabled={cancelling || pausing} onClick={() => void cancel()}>{cancelling ? 'Cancelando…' : 'Cancelar'}</button></div>
       </div> : !hasSeparatedStems && <div className="separation-controls">
         {remoteAvailable && <label>MOTOR<select value={provider} onChange={(event) => setProvider(event.target.value as SeparationProvider)}><option value="local">Local</option><option value="remote">Nuvem (StemSplit)</option></select></label>}
         <label>EXTRAIR<select value={target} disabled={!canSeparate} onChange={(event) => setTarget(event.target.value as SeparationTarget)}><option value="all">Todos os stems</option>{targetStems.map((stem) => <option key={stem} value={stem}>{STEM_LABELS[stem]}{selected.stems?.[stem] ? ' · já extraído' : ''}</option>)}</select></label>
         <button className="primary-button" disabled={!canSeparate} onClick={() => void separate()}>{target === 'all' ? 'Separar stems' : `Extrair ${STEM_LABELS[target]}`}</button>
       </div>)}
     </div>
-    {error && <div className="error-banner">{error}{lastRemoteError && <button className="secondary-button compact-control" onClick={() => void separate('local')}>Tentar localmente</button>}</div>}
+    {error && <div className="error-banner">{error}{lastRemoteError && <button className="secondary-button compact-control" onClick={() => void separate('local')}>Tentar localmente</button>}{canRetryPreparation && <button className="secondary-button compact-control" onClick={() => void separate('local')}>Tentar novamente</button>}</div>}
     {analysisError && <div className="error-banner">{analysisError}</div>}
     {selected && modelStatus && !modelStatus.available && <div className="model-notice">
-      <span className="model-status-dot" /><span>{modelStatus.message}</span>
+      <span className="model-status-dot" /><span>O Griffin fará uma preparação única na primeira separação. Você pode continuar usando a CPU enquanto isso.</span>
       {modelDownload.status && !modelDownload.status.standardInstalled && (modelDownload.progress?.kind === 'standard'
-        ? <div className="model-download-progress"><div className="separation-progress-meta" aria-live="polite"><span>{modelDownload.progress.stage}</span><strong>{Math.round(modelDownload.progress.progress * 100)}%</strong></div><div className="separation-progress-track" role="progressbar" aria-label="Progresso do download do modelo" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(modelDownload.progress.progress * 100)}><span style={{ width: `${Math.round(modelDownload.progress.progress * 100)}%` }} /></div></div>
-        : <button className="secondary-button compact-control" disabled={modelDownload.status.downloading !== null} onClick={() => void modelDownload.download('standard')}>Baixar modelo (~1 GB)</button>)}
+        ? <div className="model-download-progress"><div className="separation-progress-meta" aria-live="polite"><span>{modelDownload.progress.stage}</span><strong>{Math.round(modelDownload.progress.progress * 100)}%</strong></div><div className="separation-progress-track" role="progressbar" aria-label="Progresso do download do modelo" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(modelDownload.progress.progress * 100)}><span style={{ width: `${Math.round(modelDownload.progress.progress * 100)}%` }} /></div><button className="text-button" onClick={() => void modelDownload.pause('standard')}>Pausar</button></div>
+        : <button className="secondary-button compact-control" disabled={modelDownload.status.downloading !== null} onClick={() => void modelDownload.download('standard')}>{modelDownload.status.paused === 'standard' ? 'Retomar modelo (~1 GB)' : 'Baixar modelo (~1 GB)'}</button>)}
       {modelDownload.error && <span className="model-download-error">{modelDownload.error}</span>}
     </div>}
     {hasSeparatedStems && <PlayerTransport />}

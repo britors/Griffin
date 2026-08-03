@@ -206,12 +206,14 @@ export interface ModelDownloadStatus {
   standardInstalled: boolean
   extendedInstalled: boolean
   downloading: ModelDownloadKind | null
+  paused: ModelDownloadKind | null
 }
 
 export interface CudaRuntimeStatus {
   supported: boolean
   installed: boolean
   downloading: boolean
+  paused: boolean
   state?: 'installed' | 'installing' | 'incomplete' | 'error'
   downloadBytes?: number
   version?: string
@@ -238,6 +240,10 @@ export interface LocalResourcesSummary {
   cacheBytes: number
   modelPath: string
   modelBytes: number
+}
+
+export interface DiagnosticsSaveResult {
+  path: string
 }
 
 export interface RemoteAudioAsset {
@@ -275,6 +281,7 @@ export interface YoutubeImportProgress {
 export interface YtDlpStatus {
   installed: boolean
   downloading: boolean
+  paused: boolean
   asset: string
   version?: string
   path?: string
@@ -283,7 +290,12 @@ export interface YtDlpStatus {
 
 export interface YtDlpProgress {
   progress: number
-  stage: 'downloading' | 'ready'
+  stage: 'downloading' | 'verifying' | 'ready'
+  message: string
+}
+
+export interface PreparationProgress {
+  progress: number
   message: string
 }
 
@@ -301,6 +313,7 @@ export interface GriffinAPI {
     remove: (trackId: string) => Promise<void>
     chooseFile: () => Promise<Track | null>
     chooseFiles: () => Promise<Track[]>
+    rename: (trackId: string, name: string) => Promise<Track>
     previewUrl: (url: string) => Promise<RemoteAudioPreview>
     importUrl: (assetId: string) => Promise<Track>
     cancelRemoteImport: (assetId: string) => Promise<void>
@@ -313,7 +326,12 @@ export interface GriffinAPI {
     status: () => Promise<YtDlpStatus>
     download: () => Promise<void>
     cancel: () => Promise<void>
+    pause: () => Promise<void>
     onProgress: (callback: (progress: YtDlpProgress) => void) => () => void
+  }
+  preparation: {
+    resumePending: () => Promise<boolean>
+    onProgress: (callback: (progress: PreparationProgress) => void) => () => void
   }
   projects: {
     list: () => Promise<Project[]>
@@ -340,6 +358,8 @@ export interface GriffinAPI {
     status: () => Promise<SeparationStatus>
     start: (track: Track, target?: StemName, provider?: SeparationProvider) => Promise<Track>
     cancel: (trackId: string) => Promise<void>
+    pause: (trackId: string) => Promise<void>
+    resume: (trackId: string) => Promise<void>
     onProgress: (callback: (progress: SeparationProgress) => void) => () => void
   }
   remoteProvider: {
@@ -352,12 +372,15 @@ export interface GriffinAPI {
     status: () => Promise<ModelDownloadStatus>
     download: (kind: ModelDownloadKind) => Promise<void>
     cancel: (kind: ModelDownloadKind) => Promise<void>
+    pause: (kind: ModelDownloadKind) => Promise<void>
     onProgress: (callback: (progress: ModelDownloadProgress) => void) => () => void
   }
   cudaRuntime: {
     status: () => Promise<CudaRuntimeStatus>
     install: () => Promise<void>
+    update: () => Promise<void>
     cancel: () => Promise<void>
+    pause: () => Promise<void>
     onProgress: (callback: (progress: CudaRuntimeProgress) => void) => () => void
   }
   updates: {
@@ -376,6 +399,12 @@ export interface GriffinAPI {
   resources: {
     summary: () => Promise<LocalResourcesSummary>
     clearCache: () => Promise<LocalResourcesSummary>
+  }
+  diagnostics: {
+    collect: () => Promise<string>
+    previous: () => Promise<string | null>
+    clearPrevious: () => Promise<void>
+    save: (report: string) => Promise<DiagnosticsSaveResult>
   }
   analysis: {
     analyze: (trackId: string) => Promise<Track>

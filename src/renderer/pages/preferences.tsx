@@ -168,23 +168,29 @@ function ProcessingSection({ settings, status, resources, onChange, onCacheClear
       <div className="preference-inline-controls">
         <select className="preference-control" value={modelProfile} onChange={(event) => void onChange('modelProfile', event.target.value)}><option value="four-stem">4 stems · padrão</option><option value="six-stem" disabled={!status?.sixStemAvailable}>6 stems · guitarra/piano{status?.sixStemAvailable ? '' : ' · não instalado'}</option></select>
         {modelDownload.status && !modelDownload.status.extendedInstalled && (modelDownload.progress?.kind === 'extended'
-          ? <span className="preference-value">{modelDownload.progress.stage} · {Math.round(modelDownload.progress.progress * 100)}%</span>
-          : <button className="secondary-button compact-control" disabled={modelDownload.status.downloading !== null} onClick={() => void modelDownload.download('extended')}>Ativar guitarra e piano</button>)}
+          ? <span className="preference-value">{modelDownload.progress.stage} · {Math.round(modelDownload.progress.progress * 100)}% <button className="text-button" onClick={() => void modelDownload.pause('extended')}>Pausar</button></span>
+          : <button className="secondary-button compact-control" disabled={modelDownload.status.downloading !== null} onClick={() => void modelDownload.download('extended')}>{modelDownload.status.paused === 'extended' ? 'Retomar guitarra e piano' : 'Ativar guitarra e piano'}</button>)}
       </div>
     </PreferenceRow>
     <PreferenceRow label="Status do modelo" description="O modelo é carregado por um processo nativo separado para limitar o uso de memória da interface."><span className={`status-pill ${status?.available ? 'ready' : ''}`}>{status?.available ? 'Disponível' : status?.message ?? 'Verificando…'}</span></PreferenceRow>
+    <details className="processing-advanced">
+      <summary>Opções avançadas</summary>
+      <div className="processing-advanced-content">
     <PreferenceRow label="Provider ONNX" description="O worker tenta CUDA quando solicitado e retorna para CPU se o runtime ou driver não estiver disponível."><span className="preference-value">{status?.provider === 'cuda' ? 'CUDA / GPU' : 'CPU'}{status?.memoryBytes ? ` · ${formatBytes(status.memoryBytes)}` : ''}{status?.lastDurationMs ? ` · último ${formatDurationMs(status.lastDurationMs)}` : ''}</span></PreferenceRow>
     <PreferenceRow label="Perfil de separação" description="Qualidade prioriza htdemucs_ft; Balanceado e Rápido priorizam o modelo single-file quando disponível."><select className="preference-control" value={profile} onChange={(event) => void onChange('processingProfile', event.target.value)}><option value="quality">Qualidade máxima</option><option value="balanced">Balanceado</option><option value="speed">Velocidade</option></select></PreferenceRow>
     <PreferenceRow label="Aceleração" description="Automático e Preferir GPU tentam CUDA e usam CPU como fallback; a mudança vale para a próxima separação."><select className="preference-control" value={provider} onChange={(event) => void onChange('executionProvider', event.target.value)}><option value="auto">Automático</option><option value="cpu">Somente CPU</option><option value="cuda">Preferir GPU</option></select></PreferenceRow>
     <PreferenceRow label="Runtime NVIDIA" description={`${cudaRuntime.status?.message ?? 'Verificando suporte NVIDIA…'}${cudaRuntime.status?.downloadBytes ? ` Download aproximado: ${formatBytes(cudaRuntime.status.downloadBytes)}.` : ''}`}>
       <div className="preference-inline-controls">
         {cudaRuntime.status?.installed && !cudaRuntime.progress && <span className="status-pill ready">Instalado{cudaRuntime.status.version ? ` · cuDNN ${cudaRuntime.status.version}` : ''}</span>}
+        {cudaRuntime.status?.paused && !cudaRuntime.progress && <span className="status-pill">Pausado</span>}
         {cudaRuntime.progress && <span className="preference-value">{cudaRuntime.progress.stage} · {Math.round(cudaRuntime.progress.progress * 100)}%</span>}
-        {cudaRuntime.status?.supported && !cudaRuntime.status.installed && !cudaRuntime.progress && <button className="primary-button compact-control" disabled={cudaRuntime.installing || cudaRuntime.status.downloading} onClick={() => void cudaRuntime.install()}>Instalar suporte NVIDIA</button>}
-        {cudaRuntime.progress && <button className="text-button" onClick={() => void cudaRuntime.cancel()}>Cancelar</button>}
+        {cudaRuntime.status?.supported && !cudaRuntime.progress && <button className="primary-button compact-control" disabled={cudaRuntime.installing || cudaRuntime.status.downloading} onClick={() => void (cudaRuntime.status?.installed ? cudaRuntime.update() : cudaRuntime.install())}>{cudaRuntime.status?.paused ? 'Retomar download' : cudaRuntime.status?.installed ? 'Atualizar cuDNN' : 'Instalar suporte NVIDIA'}</button>}
+        {cudaRuntime.progress && <><button className="text-button" onClick={() => void cudaRuntime.pause()}>Pausar</button><button className="text-button" onClick={() => void cudaRuntime.cancel()}>Cancelar</button></>}
       </div>
     </PreferenceRow>
     {cudaRuntime.error && <PreferenceRow label="Erro no runtime NVIDIA" description={cudaRuntime.error}><span className="status-pill" /></PreferenceRow>}
+      </div>
+    </details>
     <PreferenceRow label="Cache de stems" description={`Evita recalcular uma faixa já processada. ${resources ? `${formatBytes(resources.cacheBytes)} armazenados.` : 'Calculando tamanho…'}`}><div className="preference-inline-controls"><span className="preference-value">Ativo</span><button className="secondary-button compact-control" onClick={() => void clearCache()}>Limpar cache</button>{cacheError && <span className="model-download-error">{cacheError}</span>}</div></PreferenceRow>
     <PreferenceRow label="Local do cache" description="Os stems separados ficam neste diretório local."><span className="preference-path">{resources?.cachePath ?? 'Calculando…'}</span></PreferenceRow>
     <PreferenceRow label="Uso do modelo" description="O modelo ONNX também permanece somente neste computador."><span className="preference-value">{resources ? formatBytes(resources.modelBytes) : 'Calculando…'}</span></PreferenceRow>
@@ -198,7 +204,11 @@ function YtDlpSection() {
   const [progress, setProgress] = useState<YtDlpProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const refresh = () => { void api.ytDlp.status().then(setStatus) }
+  const refresh = () => {
+    void api.ytDlp.status().then(setStatus).catch((reason) => {
+      setError(reason instanceof Error ? reason.message : 'Não foi possível consultar o yt-dlp.')
+    })
+  }
   useEffect(() => {
     refresh()
     return api.ytDlp.onProgress((next) => {
@@ -210,16 +220,23 @@ function YtDlpSection() {
   const download = async () => {
     setError(null)
     setProgress({ progress: 0, stage: 'downloading', message: 'Preparando download…' })
-    try { await api.ytDlp.download(); refresh() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível baixar o yt-dlp.') } finally { setProgress(null) }
+    try { await api.ytDlp.download(); refresh() } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'Não foi possível baixar o yt-dlp.'
+      if (!message.includes('Download pausado.')) setError(message)
+    } finally { setProgress(null) }
+  }
+  const pause = async () => {
+    try { await api.ytDlp.pause(); refresh() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível pausar o download.') }
   }
   const busy = Boolean(progress)
   return <PreferenceSection title="Importação do YouTube" description="Baixe e mantenha o yt-dlp dentro da pasta de dados do Griffin. O binário é verificado por SHA-256 antes de ser usado.">
     <PreferenceRow label="yt-dlp" description={status?.message ?? 'Verificando…'}>
       <div className="preference-inline-controls">
         {status?.installed && !busy && <span className="status-pill ready">Instalado{status.version ? ` · ${status.version}` : ''}</span>}
+        {status?.paused && !busy && <span className="status-pill">Pausado</span>}
         {busy && <span className="preference-value">{progress ? `${progress.message} · ${Math.round(progress.progress * 100)}%` : 'Baixando…'}</span>}
-        {!busy && <button className={status?.installed ? 'secondary-button compact-control' : 'primary-button compact-control'} onClick={() => void download()}>{status?.installed ? 'Atualizar' : 'Baixar yt-dlp'}</button>}
-        {busy && <button className="text-button" onClick={() => void api.ytDlp.cancel()}>Cancelar</button>}
+        {!busy && <button className={status?.installed ? 'secondary-button compact-control' : 'primary-button compact-control'} onClick={() => void download()}>{status?.paused ? 'Retomar download' : status?.installed ? 'Atualizar' : 'Baixar yt-dlp'}</button>}
+        {busy && <><button className="text-button" onClick={() => void pause()}>Pausar</button><button className="text-button" onClick={() => void api.ytDlp.cancel()}>Cancelar</button></>}
       </div>
     </PreferenceRow>
     {error && <PreferenceRow label="Erro" description={error}><span className="status-pill" /></PreferenceRow>}
@@ -282,7 +299,42 @@ function formatDurationMs(milliseconds: number) { return milliseconds < 1000 ? `
 
 function AboutSection() {
   const [version, setVersion] = useState<string | null>(null)
+  const [previousShutdown, setPreviousShutdown] = useState<string | null>(null)
+  const [diagnosticBusy, setDiagnosticBusy] = useState(false)
+  const [diagnosticMessage, setDiagnosticMessage] = useState<string | null>(null)
+  const [diagnosticError, setDiagnosticError] = useState<string | null>(null)
   useEffect(() => { void api.version().then(setVersion) }, [])
+  useEffect(() => { void api.diagnostics.previous().then(setPreviousShutdown).catch(() => undefined) }, [])
+
+  const collectDiagnostic = async (save: boolean) => {
+    setDiagnosticBusy(true)
+    setDiagnosticMessage(null)
+    setDiagnosticError(null)
+    try {
+      const report = await api.diagnostics.collect()
+      if (save) {
+        const result = await api.diagnostics.save(report)
+        setDiagnosticMessage(`Relatório salvo em ${result.path}`)
+      } else {
+        await navigator.clipboard.writeText(report)
+        setDiagnosticMessage('Diagnóstico copiado. Cole-o no relato do bug.')
+      }
+    } catch (reason) {
+      setDiagnosticError(reason instanceof Error ? reason.message : 'Não foi possível gerar o diagnóstico agora.')
+    } finally {
+      setDiagnosticBusy(false)
+    }
+  }
+
+  const clearPreviousShutdown = async () => {
+    try {
+      await api.diagnostics.clearPrevious()
+      setPreviousShutdown(null)
+    } catch (reason) {
+      setDiagnosticError(reason instanceof Error ? reason.message : 'Não foi possível dispensar o aviso.')
+    }
+  }
+
   return <PreferenceSection title="Sobre" description="Informações desta instalação do Griffin Music.">
     <PreferenceRow label="Versão" description="Versão atual do aplicativo."><span className="preference-value">{version ? `v${version}` : 'Consultando…'}</span></PreferenceRow>
     <PreferenceRow label="Arquitetura" description="Aplicativo desktop com processamento local."><span className="preference-value">Tauri + Rust + React</span></PreferenceRow>
@@ -290,6 +342,17 @@ function AboutSection() {
     <PreferenceRow label="Contato" description="Dúvidas, sugestões ou problemas."><a className="preference-value" href="mailto:rodrigo@w3ti.com.br">rodrigo@w3ti.com.br</a></PreferenceRow>
     <PreferenceRow label="Licença" description="Código aberto sob os termos da GPLv3."><a className="preference-value" href="https://github.com/britors/Griffin/blob/main/LICENSE" target="_blank" rel="noreferrer">GPLv3</a></PreferenceRow>
     <PreferenceRow label="Privacidade" description={`${LOCAL_PRIVACY_DESCRIPTION} A separação StemSplit envia somente a faixa escolhida.`}><span className="status-pill ready">{LOCAL_PRIVACY_LABEL}</span></PreferenceRow>
+    <PreferenceRow label="Diagnóstico" description="Gera informações técnicas para investigar bugs. Nenhum áudio, chave de API ou caminho pessoal é incluído.">
+      <div className="preference-inline-controls">
+        <button className="secondary-button compact-control" disabled={diagnosticBusy} onClick={() => void collectDiagnostic(false)}>{diagnosticBusy ? 'Coletando…' : 'Copiar diagnóstico'}</button>
+        <button className="secondary-button compact-control" disabled={diagnosticBusy} onClick={() => void collectDiagnostic(true)}>Salvar relatório</button>
+      </div>
+    </PreferenceRow>
+    {previousShutdown && <PreferenceRow label="Sessão anterior" description="O Griffin detectou que a sessão anterior terminou sem registrar um encerramento normal. Gere o diagnóstico e envie-o junto com o relato do problema.">
+      <button className="text-button" onClick={() => void clearPreviousShutdown()}>Dispensar aviso</button>
+    </PreferenceRow>}
+    {diagnosticMessage && <span className="export-success">{diagnosticMessage}</span>}
+    {diagnosticError && <span className="export-error">{diagnosticError}</span>}
     <UpdateRow />
     <PreferenceRow label="Apoie o projeto" description="Contribua com qualquer valor via Pix para ajudar a manter o Griffin Music."><PixDonation /></PreferenceRow>
   </PreferenceSection>

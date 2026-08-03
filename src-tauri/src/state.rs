@@ -7,7 +7,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Manager};
 use tokio::{process::Child, sync::Mutex};
@@ -25,11 +25,15 @@ pub struct AppState {
     pub active_separations: std::sync::Mutex<HashSet<String>>,
     pub separation_cache_gate: tokio::sync::RwLock<()>,
     pub model_cancelled: Arc<std::sync::Mutex<HashSet<String>>>,
+    pub model_paused: Arc<std::sync::Mutex<HashSet<String>>>,
     pub model_downloading: Arc<std::sync::Mutex<Option<String>>>,
     pub export_cancelled: Arc<std::sync::Mutex<HashSet<String>>>,
     pub yt_dlp_cancelled: Arc<std::sync::Mutex<HashSet<String>>>,
+    pub yt_dlp_paused: Arc<std::sync::Mutex<bool>>,
     pub cuda_runtime_cancelled: Arc<std::sync::Mutex<bool>>,
+    pub cuda_runtime_paused: Arc<std::sync::Mutex<bool>>,
     pub cuda_runtime_installing: Arc<std::sync::Mutex<bool>>,
+    pub preparation_auto_resuming: Arc<std::sync::Mutex<bool>>,
 }
 
 #[derive(Default)]
@@ -54,6 +58,7 @@ pub struct YoutubePreview {
 
 pub struct StateData {
     pub data_dir: PathBuf,
+    pub session_marker_path: PathBuf,
     pub models_dir: PathBuf,
     pub cache_dir: PathBuf,
     pub imports_dir: PathBuf,
@@ -174,6 +179,7 @@ impl Default for AppState {
         Self {
             data: std::sync::Mutex::new(StateData {
                 data_dir: PathBuf::new(),
+                session_marker_path: PathBuf::new(),
                 models_dir: PathBuf::new(),
                 cache_dir: PathBuf::new(),
                 imports_dir: PathBuf::new(),
@@ -192,11 +198,15 @@ impl Default for AppState {
             active_separations: std::sync::Mutex::new(HashSet::new()),
             separation_cache_gate: tokio::sync::RwLock::new(()),
             model_cancelled: Arc::new(std::sync::Mutex::new(HashSet::new())),
+            model_paused: Arc::new(std::sync::Mutex::new(HashSet::new())),
             model_downloading: Arc::new(std::sync::Mutex::new(None)),
             export_cancelled: Arc::new(std::sync::Mutex::new(HashSet::new())),
             yt_dlp_cancelled: Arc::new(std::sync::Mutex::new(HashSet::new())),
+            yt_dlp_paused: Arc::new(std::sync::Mutex::new(false)),
             cuda_runtime_cancelled: Arc::new(std::sync::Mutex::new(false)),
+            cuda_runtime_paused: Arc::new(std::sync::Mutex::new(false)),
             cuda_runtime_installing: Arc::new(std::sync::Mutex::new(false)),
+            preparation_auto_resuming: Arc::new(std::sync::Mutex::new(false)),
         }
     }
 }
@@ -212,12 +222,30 @@ impl AppState {
         let models_dir = data_dir.join("models");
         let cache_dir = data_dir.join("stems");
         let imports_dir = data_dir.join("imports");
+        let session_marker_path = data_dir.join("session.active");
         fs::create_dir_all(&models_dir).map_err(|e| e.to_string())?;
         fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
         fs::create_dir_all(&imports_dir).map_err(|e| e.to_string())?;
+        let previous_session = fs::read_to_string(&session_marker_path).ok();
+        if let Some(previous_session) = previous_session {
+            let report = unexpected_shutdown_report(&previous_session);
+            let _ = fs::write(data_dir.join("unexpected-shutdown.txt"), report);
+        }
+        let session = format!(
+            "started_at={}\nversion={}\nos={}\narch={}\n",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|duration| duration.as_secs())
+                .unwrap_or_default(),
+            app.package_info().version,
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+        );
+        fs::write(&session_marker_path, session).map_err(|e| e.to_string())?;
         let tracks: Vec<Track> = read_json(&data_dir.join("library.json"))?.unwrap_or_default();
         let projects = read_json(&data_dir.join("projects.json"))?.unwrap_or_default();
-        let project_folders = read_json(&data_dir.join("project-folders.json"))?.unwrap_or_default();
+        let project_folders =
+            read_json(&data_dir.join("project-folders.json"))?.unwrap_or_default();
         cleanup_stale_remote_imports(&imports_dir, &tracks);
         let mut settings = read_json_map(&data_dir.join("settings.json"))?.unwrap_or_default();
         if let Some(legacy_key) = settings
@@ -236,6 +264,7 @@ impl AppState {
             .lock()
             .map_err(|_| "estado indisponível".to_string())? = StateData {
             data_dir,
+            session_marker_path,
             models_dir,
             cache_dir,
             imports_dir,
@@ -246,6 +275,12 @@ impl AppState {
         };
         Ok(())
     }
+}
+
+fn unexpected_shutdown_report(previous_session: &str) -> String {
+    format!(
+        "O Griffin não registrou o encerramento normal da sessão anterior.\n\n{previous_session}"
+    )
 }
 
 const STALE_REMOTE_IMPORT_AGE: Duration = Duration::from_secs(30 * 60);
@@ -489,6 +524,14 @@ mod tests {
         fs::write(&path, b"{").expect("corrupt primary");
         assert!(read_json::<Fixture>(&path).is_err());
         let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn creates_a_report_for_an_unexpected_previous_session() {
+        let report = super::unexpected_shutdown_report("started_at=123\nversion=1.2.2");
+        assert!(report.contains("encerramento normal"));
+        assert!(report.contains("started_at=123"));
+        assert!(report.contains("version=1.2.2"));
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]

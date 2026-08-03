@@ -7,13 +7,14 @@ import { RemoteImport } from '../components/remote-import'
 import { YoutubeImport } from '../components/youtube-import'
 import { formatDuration } from '../../shared/utils'
 import type { Track } from '../../shared/types'
-import { confirmDialog } from '../components/dialog-store'
+import { alertDialog, confirmDialog, promptDialog } from '../components/dialog-store'
+import { errorMessage } from '../error-message'
 import { ProjectPicker } from '../components/project-picker'
 
 type LibraryFilter = 'all' | 'favorites' | 'recent'
 
 export function LibraryPage({ filter = 'all' }: { filter?: LibraryFilter }) {
-  const { tracks, projects, activeProjectId, favoriteIds, recentTrackIds, selected, setTracks, setProjects, setFavoriteIds, setRecentTrackIds, select, toggleFavorite } = usePlayer()
+  const { tracks, projects, activeProjectId, favoriteIds, recentTrackIds, selected, setTracks, setProjects, setFavoriteIds, setRecentTrackIds, select, replaceSelected, toggleFavorite } = usePlayer()
   const restoredProject = useRef<string | null>(null)
   const [search, setSearch] = useState('')
   useEffect(() => { void api.library.list().then(setTracks) }, [setTracks])
@@ -56,6 +57,18 @@ export function LibraryPage({ filter = 'all' }: { filter?: LibraryFilter }) {
     await Promise.all([api.settings.set('favoriteTrackIds', nextFavorites), api.settings.set('recentTrackIds', nextRecent)])
   }
 
+  const renameTrack = async (track: Track) => {
+    const name = (await promptDialog('Digite o novo nome da faixa.', track.name, { confirmLabel: 'Renomear faixa', inputLabel: 'Nome da faixa' }))?.trim()
+    if (!name || name === track.name) return
+    try {
+      const updated = await api.library.rename(track.id, name)
+      setTracks(tracks.map((item) => item.id === updated.id ? updated : item))
+      if (selected?.id === updated.id) replaceSelected(updated)
+    } catch (reason) {
+      await alertDialog(errorMessage(reason, 'Não foi possível renomear a faixa.'))
+    }
+  }
+
   const updateFavorite = (trackId: string) => {
     toggleFavorite(trackId)
     const next = usePlayer.getState().favoriteIds
@@ -75,6 +88,6 @@ export function LibraryPage({ filter = 'all' }: { filter?: LibraryFilter }) {
     {filter === 'all' && <BatchSeparation tracks={tracks} activeProjectId={activeProjectId} onTracksChanged={refreshLibrary} />}
     {filter === 'all' && <RemoteImport activeProjectId={activeProjectId} onTracksChanged={refreshLibrary} />}
     {filter === 'all' && <YoutubeImport activeProjectId={activeProjectId} onTracksChanged={refreshLibrary} />}
-    {projectTracks.length === 0 ? <ImportDropzone /> : visible.length === 0 ? <div className="empty-state">{emptyMessage}</div> : <div className="track-list">{visible.map((track, index) => <div className={`track-row ${selected?.id === track.id ? 'selected' : ''}`} key={track.id} role="button" tabIndex={0} onClick={() => select(track)} onKeyDown={(event) => onTrackKeyDown(event, track)}><span className="track-number">{String(index + 1).padStart(2, '0')}</span><span className="track-art">{track.name.slice(0, 1).toUpperCase()}</span><span className="track-name"><strong>{track.name}</strong><small>{track.stems ? 'Stems prontos' : 'Ainda não separado'}</small></span><span className="track-duration">{formatDuration(track.duration)}</span><button className="track-favorite" title={favoriteIds.includes(track.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'} aria-label={favoriteIds.includes(track.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'} aria-pressed={favoriteIds.includes(track.id)} onClick={(event) => { event.stopPropagation(); updateFavorite(track.id) }}>{favoriteIds.includes(track.id) ? '★' : '☆'}</button><button className="track-remove" title={`Remover ${track.name}`} aria-label={`Remover ${track.name}`} onClick={(event) => { event.stopPropagation(); void removeTrack(track) }}>×</button></div>)}</div>}
+    {projectTracks.length === 0 ? <ImportDropzone /> : visible.length === 0 ? <div className="empty-state">{emptyMessage}</div> : <div className="track-list">{visible.map((track, index) => <div className={`track-row ${selected?.id === track.id ? 'selected' : ''}`} key={track.id} role="button" tabIndex={0} onClick={() => select(track)} onKeyDown={(event) => onTrackKeyDown(event, track)}><span className="track-number">{String(index + 1).padStart(2, '0')}</span><span className="track-art">{track.name.slice(0, 1).toUpperCase()}</span><span className="track-name"><strong>{track.name}</strong><small>{track.stems ? 'Stems prontos' : 'Ainda não separado'}</small></span><span className="track-duration">{formatDuration(track.duration)}</span><button className="track-rename" title={`Renomear ${track.name}`} aria-label={`Renomear ${track.name}`} onClick={(event) => { event.stopPropagation(); void renameTrack(track) }}>✎</button><button className="track-favorite" title={favoriteIds.includes(track.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'} aria-label={favoriteIds.includes(track.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'} aria-pressed={favoriteIds.includes(track.id)} onClick={(event) => { event.stopPropagation(); updateFavorite(track.id) }}>{favoriteIds.includes(track.id) ? '★' : '☆'}</button><button className="track-remove" title={`Remover ${track.name}`} aria-label={`Remover ${track.name}`} onClick={(event) => { event.stopPropagation(); void removeTrack(track) }}>×</button></div>)}</div>}
   </main>
 }
