@@ -299,6 +299,7 @@ export const api: GriffinAPI = {
     clearCache: () => invoke('resources_clear_cache'),
   },
   diagnostics: {
+    log: (event: string, detail?: string) => invoke('diagnostics_log', { event, detail }),
     collect: () => invoke<string>('diagnostics_collect'),
     previous: () => invoke<string | null>('diagnostics_previous'),
     clearPrevious: () => invoke('diagnostics_clear_previous'),

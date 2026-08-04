@@ -1,6 +1,6 @@
 [package]
 name = "griffin-music"
-version = "2.0.0"
+version = "2.0.2"
 description = "Separação de stems e prática instrumental"
 authors = ["W3TI"]
 edition = "2021"
