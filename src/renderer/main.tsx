@@ -39,6 +39,7 @@ function App() {
 
   const [view, setView] = useState<View>('library')
   const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>('all')
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.localStorage.getItem('griffin.sidebarOpen') !== 'false')
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const [preparation, setPreparation] = useState<PreparationProgress | null>(null)
   const { selected, recentTrackIds, setProgress, setFavoriteIds, setRecentTrackIds, setResetPlaybackOnTrackChange, setMetronomeEnabled, setMetronomeSubdivision, setMetronomeVolume, setCountInEnabled, setCountInBars } = usePlayer()
@@ -123,6 +124,10 @@ function App() {
 
   useEffect(() => api.separation.onProgress(setProgress), [setProgress])
 
+  useEffect(() => {
+    window.localStorage.setItem('griffin.sidebarOpen', String(sidebarOpen))
+  }, [sidebarOpen])
+
   const showLibrary = (filter: LibraryFilter = 'all') => { setLibraryFilter(filter); setView('library') }
   const showPreferences = () => setView('preferences')
 
@@ -131,13 +136,23 @@ function App() {
     <KeyboardShortcuts />
     <Metronome />
     <AudioPlayback />
-    <aside className="sidebar">
-      <div className="brand"><img className="brand-logo" src="./logo.svg" alt="Griffin Music" /><div><strong>Griffin</strong><span>Music</span></div></div>
+    <aside id="main-sidebar" className={`sidebar${sidebarOpen ? '' : ' collapsed'}`} aria-label="Menu principal">
+      <div className="brand">
+        <div className="brand-identity"><img className="brand-logo" src="./logo.svg" alt="Griffin Music" /><div className="brand-name"><strong>Griffin</strong><span>Music</span></div></div>
+        <button
+          className="sidebar-toggle"
+          title={sidebarOpen ? 'Ocultar menu' : 'Mostrar menu'}
+          aria-label={sidebarOpen ? 'Ocultar menu lateral' : 'Mostrar menu lateral'}
+          aria-controls="main-sidebar"
+          aria-expanded={sidebarOpen}
+          onClick={() => setSidebarOpen((open) => !open)}
+        ><svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="m15 18-6-6 6-6" /></svg></button>
+      </div>
       <nav>
-        <button className={view === 'library' && libraryFilter === 'all' ? 'active' : ''} onClick={() => showLibrary()}>⌂ <span>Biblioteca</span></button>
-        <button className={view === 'library' && libraryFilter === 'favorites' ? 'active' : ''} onClick={() => showLibrary('favorites')}>◈ <span>Favoritos</span></button>
-        <button className={view === 'library' && libraryFilter === 'recent' ? 'active' : ''} onClick={() => showLibrary('recent')}>◌ <span>Recentes</span></button>
-        <button className={view === 'preferences' ? 'active' : ''} onClick={showPreferences}>⚙ <span>Preferências</span></button>
+        <button className={view === 'library' && libraryFilter === 'all' ? 'active' : ''} title="Biblioteca" onClick={() => showLibrary()}><span className="nav-icon">⌂</span><span className="nav-label">Biblioteca</span></button>
+        <button className={view === 'library' && libraryFilter === 'favorites' ? 'active' : ''} title="Favoritos" onClick={() => showLibrary('favorites')}><span className="nav-icon">◈</span><span className="nav-label">Favoritos</span></button>
+        <button className={view === 'library' && libraryFilter === 'recent' ? 'active' : ''} title="Recentes" onClick={() => showLibrary('recent')}><span className="nav-icon">◌</span><span className="nav-label">Recentes</span></button>
+        <button className={view === 'preferences' ? 'active' : ''} title="Preferências" onClick={showPreferences}><span className="nav-icon">⚙</span><span className="nav-label">Preferências</span></button>
       </nav>
       <div className="sidebar-footer"><div><span className="offline-dot" />Processamento local</div><div className="version">{appVersion ? `v${appVersion}` : 'v—'}</div></div>
     </aside>

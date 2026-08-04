@@ -159,10 +159,10 @@ export function PlayerPage() {
         : <button className="secondary-button compact-control" disabled={modelDownload.status.downloading !== null} onClick={() => void modelDownload.download('standard')}>{modelDownload.status.paused === 'standard' ? 'Retomar modelo (~1 GB)' : 'Baixar modelo (~1 GB)'}</button>)}
       {modelDownload.error && <span className="model-download-error">{modelDownload.error}</span>}
     </div>}
-    {hasSeparatedStems && <PlayerTransport />}
+    {selected && <PlayerTransport />}
     <LyricsPanel />
-    <StemMixer />
-    {hasSeparatedStems && <GraphicEqualizer />}
+    {hasSeparatedStems && <StemMixer />}
+    {selected && <GraphicEqualizer />}
     <PerformanceRecorder />
     <ExportPanel />
   </main>

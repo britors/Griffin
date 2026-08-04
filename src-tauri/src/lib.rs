@@ -37,6 +37,7 @@ pub fn run() {
             diagnostics_previous,
             diagnostics_clear_previous,
             diagnostics_save,
+            diagnostics_open_logs,
             library_list,
             library_import,
             library_import_many,

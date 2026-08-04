@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { ALL_STEMS, type EqualizerBands, type OutputRoute, type PlayerSnapshot, type Project, type ProjectFolder, type ProjectSnapshot, type SeparationProgress, type StemName, type Track } from '../shared/types'
+import { ALL_STEMS, type EqualizerBands, type OutputRoute, type PlaybackChannel, type PlayerSnapshot, type Project, type ProjectFolder, type ProjectSnapshot, type SeparationProgress, type StemName, type Track } from '../shared/types'
 
 export type MetronomeSubdivision = 1 | 2 | 4
 
@@ -37,7 +37,7 @@ interface PlayerState {
   volumes: Partial<Record<StemName, number>>
   pans: Partial<Record<StemName, number>>
   routes: Partial<Record<StemName, OutputRoute>>
-  equalizer: Partial<Record<StemName, EqualizerBands>>
+  equalizer: Partial<Record<PlaybackChannel, EqualizerBands>>
   muted: Partial<Record<StemName, boolean>>
   solo: StemName | null
   setTracks: (tracks: Track[]) => void
@@ -70,7 +70,7 @@ interface PlayerState {
   setVolume: (stem: StemName, volume: number) => void
   setPan: (stem: StemName, pan: number) => void
   setRoute: (stem: StemName, route: OutputRoute) => void
-  setEqualizerBand: (stem: StemName, band: number, gain: number) => void
+  setEqualizerBand: (channel: PlaybackChannel, band: number, gain: number) => void
   toggleMute: (stem: StemName) => void
   toggleMuteAll: () => void
   toggleSolo: (stem: StemName) => void
@@ -85,7 +85,7 @@ export const usePlayer = create<PlayerState>((set) => ({
   volumes: Object.fromEntries(ALL_STEMS.map((stem) => [stem, 0.82])),
   pans: Object.fromEntries(ALL_STEMS.map((stem) => [stem, 0])),
   routes: Object.fromEntries(ALL_STEMS.map((stem) => [stem, 'stereo'])),
-  equalizer: Object.fromEntries(ALL_STEMS.map((stem) => [stem, Array(12).fill(0)])),
+  equalizer: Object.fromEntries([...ALL_STEMS, 'original'].map((channel) => [channel, Array(12).fill(0)])),
   muted: Object.fromEntries(ALL_STEMS.map((stem) => [stem, false])), solo: null,
   setTracks: (tracks) => set({ tracks }),
   setProjects: (projects) => set((state) => ({ projects, activeProjectId: projects.some((project) => project.id === state.activeProjectId) ? state.activeProjectId : projects[0]?.id ?? null })),
@@ -114,7 +114,7 @@ export const usePlayer = create<PlayerState>((set) => ({
   setVolume: (stem, volume) => set((state) => ({ volumes: { ...state.volumes, [stem]: volume } })),
   setPan: (stem, pan) => set((state) => ({ pans: { ...state.pans, [stem]: Math.max(-1, Math.min(1, pan)) } })),
   setRoute: (stem, route) => set((state) => ({ routes: { ...state.routes, [stem]: route } })),
-  setEqualizerBand: (stem, band, gain) => set((state) => ({ equalizer: { ...state.equalizer, [stem]: (state.equalizer[stem] ?? Array(12).fill(0)).map((value, index) => index === band ? Math.max(-12, Math.min(12, gain)) : value) } })),
+  setEqualizerBand: (channel, band, gain) => set((state) => ({ equalizer: { ...state.equalizer, [channel]: (state.equalizer[channel] ?? Array(12).fill(0)).map((value, index) => index === band ? Math.max(-12, Math.min(12, gain)) : value) } })),
   toggleMute: (stem) => set((state) => ({ muted: { ...state.muted, [stem]: !(state.muted[stem] ?? false) } })),
   toggleMuteAll: () => set((state) => {
     const nextMuted = !Object.values(state.muted).every(Boolean)
@@ -128,7 +128,7 @@ export const usePlayer = create<PlayerState>((set) => ({
 }))
 
 function restorePlayerState(state: PlayerState, player: PlayerSnapshot): Partial<PlayerState> {
-  return { selected: state.tracks.find((track) => track.id === player.selectedTrackId) ?? null, takePath: player.takePath ?? null, takeName: player.takeName ?? null, position: player.position, pitch: player.pitch, tempo: player.tempo, loopEnabled: player.loopEnabled, loopStart: player.loopStart, loopEnd: player.loopEnd, volumes: player.volumes, pans: player.pans, routes: player.routes ?? state.routes, equalizer: player.equalizer ?? state.equalizer, muted: player.muted, solo: player.solo }
+  return { selected: state.tracks.find((track) => track.id === player.selectedTrackId) ?? null, takePath: player.takePath ?? null, takeName: player.takeName ?? null, position: player.position, pitch: player.pitch, tempo: player.tempo, loopEnabled: player.loopEnabled, loopStart: player.loopStart, loopEnd: player.loopEnd, volumes: player.volumes, pans: player.pans, routes: player.routes ?? state.routes, equalizer: { ...state.equalizer, ...player.equalizer }, muted: player.muted, solo: player.solo }
 }
 
 export function playerSnapshot(state: PlayerState): PlayerSnapshot {

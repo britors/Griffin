@@ -2,7 +2,7 @@
 
 O Griffin Music é um aplicativo desktop para separar músicas em stems e estudar uma faixa com controle de velocidade, tonalidade, loop, metrônomo e mixagem. Ele funciona localmente por padrão: os arquivos, a separação, a análise, o cache e as preferências permanecem no computador.
 
-Este manual descreve a versão 1.0.5 do projeto.
+Este manual descreve a versão 3.0.1 do projeto.
 
 ## 1. Instalação
 
@@ -42,7 +42,7 @@ Requisitos recomendados:
 - Node.js 22.x e npm;
 - Rust e Cargo;
 - dependências de compilação do Tauri para Linux;
-- cerca de 1 GB livre para o modelo ONNX e espaço adicional para os artefatos de build.
+- pelo menos 2 GB livres para baixar, verificar e instalar o modelo ONNX, além de espaço para os artefatos de build.
 
 ```bash
 git clone git@github.com:britors/Griffin.git
@@ -56,12 +56,12 @@ O primeiro build pode demorar mais porque compila o worker ONNX. Os modelos não
 ## 2. Primeiro uso
 
 1. Abra o Griffin Music.
-2. Na primeira execução, aceite o download do modelo de separação, aproximadamente 1 GB. Também é possível iniciar o download depois na tela de separação ou em **Preferências → Processamento**.
-3. Entre em **Biblioteca** e clique em **＋ Importar faixa**.
-4. Escolha um arquivo de áudio local.
-5. Selecione a faixa importada. O Griffin analisa BPM, tonalidade, afinação, seções e acordes localmente.
-6. Na tela **Studio**, clique em **Separar stems**.
-7. Quando terminar, use o player e o mixer para estudar a faixa.
+2. Entre em **Biblioteca** e clique em **＋ Importar faixa**.
+3. Escolha um arquivo de áudio local.
+4. Selecione a faixa importada. O Griffin analisa BPM, tonalidade, afinação, seções e acordes localmente.
+5. Na tela **Studio**, reproduza a faixa original imediatamente ou clique em **Separar stems**.
+6. Na primeira separação, o Griffin baixa e verifica automaticamente o modelo, com download aproximado de 1 GB. O progresso pode ser pausado, cancelado e retomado.
+7. Quando a separação terminar, use o mixer para estudar os stems individualmente.
 
 O perfil padrão gera quatro stems: vocal, bateria, baixo e outros. Depois de instalar o modelo estendido em **Preferências → Processamento → Ativar guitarra e piano**, o perfil de seis stems também oferece guitarra e piano.
 
@@ -73,6 +73,8 @@ A barra lateral contém:
 - **Favoritos**: faixas marcadas com a estrela;
 - **Recentes**: faixas reproduzidas recentemente;
 - **Preferências**: aparência, reprodução, processamento, YouTube, separação na nuvem, OBS e atualizações.
+
+O botão na borda superior da barra lateral oculta ou mostra os textos do menu. No modo compacto, os ícones continuam disponíveis e exibem o nome da seção como dica. A escolha é preservada neste computador.
 
 Na Biblioteca, use o campo **Buscar na biblioteca** para filtrar faixas pelo nome. Uma faixa pode ser selecionada clicando em qualquer parte da linha. O botão `☆` adiciona aos favoritos e `×` remove a entrada da biblioteca.
 
@@ -115,7 +117,7 @@ No painel **Importar do YouTube**:
 3. Confirme que o vídeo é seu, está sob licença compatível ou que você tem autorização.
 4. Clique em **Baixar e importar**.
 
-O Griffin não contorna DRM, playlists ou restrições técnicas. A importação depende do `yt-dlp`. O botão **Baixar yt-dlp** em **Preferências → Processamento → Importação do YouTube** instala o binário dentro da pasta de dados do Griffin e verifica o SHA-256 antes do uso. Python e FFmpeg não são exigidos pelo fluxo suportado no Windows.
+O Griffin não contorna DRM, playlists ou restrições técnicas. A importação depende do `yt-dlp`. A seção **Preferências → Importação do YouTube** instala o binário dentro da pasta de dados do Griffin e verifica o SHA-256 antes do uso. Python e FFmpeg não são exigidos pelo fluxo suportado no Windows.
 
 Consulte os Termos de Serviço do YouTube e a legislação aplicável antes de usar essa função.
 
@@ -145,7 +147,7 @@ O cache registra o provider usado. Assim, uma separação feita em CPU não é r
 
 ### Separação remota opcional
 
-O StemSplit só aparece como opção depois que uma chave verificada é configurada em **Preferências → Processamento → Separação na nuvem (opcional)**.
+O StemSplit só aparece como opção depois que uma chave verificada é configurada em **Preferências → Separação na nuvem (opcional)**.
 
 1. Crie uma conta no StemSplit e gere sua própria API key.
 2. Cole a chave e clique em **Salvar e testar**.
@@ -170,7 +172,7 @@ O painel do Studio oferece:
 - **Pitch**: ajusta a tonalidade em semitons, de -12 a +12;
 - **Tempo**: ajusta a velocidade entre 50% e 150%.
 
-O pitch e o tempo são aplicados durante a reprodução e na exportação, sem alterar o arquivo original.
+Antes da separação, esses controles atuam diretamente na reprodução do arquivo original. Depois da separação, atuam nos stems sincronizados. Pitch e tempo não alteram os arquivos gravados em disco; na exportação dos stems, os valores atuais são aplicados ao WAV gerado.
 
 ### 6.2 Análise e seções
 
@@ -180,9 +182,11 @@ As seções detectadas aparecem como marcadores. Clique no nome de uma seção p
 
 Quando houver acordes, o acorde atual e o próximo aparecem no timeline. Clique em um acorde para navegar até ele e edite o nome diretamente. Os acordes podem ser exportados em **MIDI** ou **PDF**.
 
-### 6.3 Mixer de stems
+### 6.3 Reprodução original e mixer de stems
 
-Cada stem disponível possui:
+Uma faixa importada pode ser tocada sem esperar pela separação. Nesse estado, o player usa um canal **Original**, com equalização própria. Ele é separado do stem **Outros** (`other`).
+
+Depois que a faixa possui stems, o Studio troca para a reprodução multicanal e libera o mixer. Cada stem disponível possui:
 
 - volume individual;
 - panorama (centro, esquerda ou direita);
@@ -190,11 +194,11 @@ Cada stem disponível possui:
 - **M** para mute;
 - **SOLO** para ouvir somente um stem.
 
-O mixer, o EQ e o loop são aplicados também ao áudio exportado.
+O mixer, o EQ e o loop são aplicados também ao áudio exportado. Exportação, gravação de take e prática que depende de canais separados só ficam disponíveis depois da separação.
 
 ### 6.4 Equalizador
 
-Use o equalizador gráfico para ajustar as bandas de cada stem. Os presets facilitam correções rápidas; ajustes manuais ficam associados ao estado atual do player e podem ser preservados em um snapshot ou projeto `.gfn`.
+Use o equalizador gráfico para ajustar as bandas. Antes da separação, escolha **Original**; depois dela, escolha o stem desejado. Os presets facilitam correções rápidas, e o Griffin preserva ajustes independentes para o original e para cada stem no estado atual do player. Snapshots e projetos `.gfn` guardam esse estado.
 
 ### 6.5 Metrônomo e contagem
 
@@ -294,15 +298,14 @@ Configure o reinício da posição ao trocar de faixa, o metrônomo, a subdivis�
 
 Nesta seção você pode:
 
-- instalar ou verificar os modelos;
+- acompanhar a preparação automática, pausar, retomar ou cancelar downloads;
+- instalar ou verificar os modelos e conferir o espaço necessário;
 - ativar o perfil de seis stems;
 - escolher qualidade, velocidade e provider ONNX;
 - instalar o runtime NVIDIA por usuário;
 - ajustar threads;
 - consultar espaço usado por modelo e cache;
-- limpar o cache de stems;
-- configurar o `yt-dlp`;
-- configurar a separação remota opcional.
+- limpar o cache de stems.
 
 O botão **Limpar cache** preserva faixas originais, projetos e modelos. Aguarde qualquer separação terminar antes de limpar o cache.
 
@@ -321,7 +324,9 @@ Se o OBS não listar o Griffin, use uma saída virtual do Windows como fallback 
 
 ### Sobre e atualizações
 
-Em **Sobre**, consulte versão, licença e atualização. O atualizador usa manifesto e artefatos assinados publicados nas releases. Atualize por cima da instalação existente; os dados do usuário devem ser preservados. A chave privada de assinatura nunca faz parte do instalador ou do repositório.
+Em **Sobre**, consulte versão, licença e atualização. O atualizador verifica automaticamente o manifesto assinado ao abrir o app e aproximadamente a cada seis horas; baixar e instalar continuam sob seu controle. Atualize por cima da instalação existente para preservar os dados do usuário. A chave privada de assinatura nunca faz parte do instalador ou do repositório.
+
+Na mesma seção, **Copiar diagnóstico** coloca um relatório técnico na área de transferência, **Salvar relatório** grava uma cópia no local escolhido e **Abrir logs** abre a pasta de logs. Nada é enviado automaticamente. Se a sessão anterior terminou de forma inesperada, o app mostra um aviso e inclui os eventos locais disponíveis no diagnóstico.
 
 ## 11. Atalhos de teclado
 
@@ -355,7 +360,7 @@ Feche outros aplicativos pesados, reduza **Threads de processamento**, escolha o
 
 ### O áudio não toca
 
-Confirme que a faixa possui stems prontos, que o volume não está em zero e que nenhum stem está em mute. Se uma saída individual foi selecionada, volte para **Estéreo**. Reabra a faixa ou desative **Reiniciar posição ao trocar de faixa** conforme a necessidade.
+Não é necessário ter stems para tocar uma faixa importada. Confirme se o arquivo de origem ainda existe no caminho usado pela biblioteca e se o dispositivo de saída do sistema está disponível. Quando houver stems, confira mute, solo e volume de cada canal; se uma saída individual foi selecionada, volte para **Estéreo**.
 
 ### O projeto abriu com faixas ausentes
 
@@ -363,7 +368,7 @@ O `.gfn` guarda referências, não cópias dos áudios. Restaure os arquivos nos
 
 ### O YouTube não importa
 
-Verifique se o `yt-dlp` está instalado e atualizado em **Preferências → Processamento**. Use um vídeo individual acessível publicamente e autorizado. Playlists, DRM e restrições técnicas não são contornados.
+Verifique se o `yt-dlp` está instalado e atualizado em **Preferências → Importação do YouTube**. Use um vídeo individual acessível publicamente e autorizado. Playlists, DRM e restrições técnicas não são contornados.
 
 ### O microfone não aparece
 
@@ -381,17 +386,17 @@ Use **Preferências → Processamento → Limpar cache**. Isso remove stems reca
 
 Não há telemetria, analytics ou servidor próprio do Griffin. Separação, análise, reprodução, mixagem, exportação, projetos e preferências são locais.
 
-As únicas funções que podem acessar a internet são o download de modelos e `yt-dlp`, importação por URL ou YouTube, verificação de atualizações e separação remota opcional. A separação remota exige uma confirmação explícita antes de cada envio. Consulte a [Política de Privacidade](../PRIVACY.md) e a documentação de [provedores remotos](REMOTE_PROVIDERS.md).
+As funções que podem acessar a internet são a verificação de atualizações, a preparação de modelos/runtime NVIDIA/`yt-dlp`, a importação por URL ou YouTube e a separação remota opcional. Downloads técnicos incompletos podem ser retomados na abertura seguinte. A separação remota exige uma confirmação explícita antes de cada envio. Consulte a [Política de Privacidade](../PRIVACY.md) e a documentação de [provedores remotos](REMOTE_PROVIDERS.md).
 
 ## 14. Desenvolvimento e validação
 
 ```bash
 npm run typecheck
 npm test
+npm run build:frontend
 npm run validate:tauri
 npm run validate:version
-npm run build
-cargo test --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features gui
 ```
 
 Para gerar pacotes:
@@ -406,6 +411,6 @@ Os artefatos são gravados em `release/`. O processo de publicação e assinatur
 
 ## 15. Ajuda e contribuições
 
-Para relatar um problema, inclua sistema operacional, versão do Griffin, formato e duração da faixa, provider efetivo (`CPU` ou `CUDA`) e a mensagem exibida pelo aplicativo. Não publique API keys, arquivos de áudio privados ou logs que contenham dados sensíveis.
+Para relatar um problema, inclua sistema operacional, versão do Griffin, formato e duração da faixa, provider efetivo (`CPU` ou `CUDA`) e a mensagem exibida pelo aplicativo. Em **Preferências → Sobre**, use **Copiar diagnóstico** e revise o texto antes de anexá-lo; **Abrir logs** ajuda a localizar os arquivos da sessão. Não publique API keys, arquivos de áudio privados ou logs que contenham dados sensíveis.
 
 Abra uma issue no [repositório do Griffin](https://github.com/britors/Griffin) e consulte [CONTRIBUTING.md](../CONTRIBUTING.md) antes de enviar uma contribuição.

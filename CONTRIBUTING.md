@@ -22,7 +22,7 @@
 
    Use `feature/` para funcionalidades, `fix/` para bugs, `chore/` para manutenção e `docs/` para documentação.
 
-4. Implemente, teste e faça commits pequenos e claros.
+4. Implemente, teste e faça commits pequenos e claros. Preserve alterações locais sem relação com a issue.
 5. Envie a branch e abra um PR:
 
    ```bash
@@ -39,8 +39,30 @@
 - Uma branch por issue.
 - Não misturar refatorações sem relação com a issue.
 - Atualizar testes e documentação quando o comportamento mudar.
-- Antes do PR, executar `npm run typecheck`, `npm test` e `npm run build`.
+- Antes do PR, executar as validações proporcionais à mudança. O conjunto padrão está abaixo.
 - Usar `Closes #N` ou `Fixes #N` no PR quando a mudança resolver a issue.
+- Não versionar modelos ONNX, runtimes, áudios, relatórios, chaves de API, chaves de assinatura ou diretórios de build.
+- Mudanças em rede, arquivos ou processos externos devem manter validação de entrada, limites, cancelamento e mensagens sem dados sensíveis.
+
+## Validação local
+
+Para alterações no renderer ou nos contratos compartilhados:
+
+```bash
+npm run typecheck
+npm test
+npm run build:frontend
+```
+
+Para alterações em Rust, comandos Tauri, persistência, downloads ou worker:
+
+```bash
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features gui
+npm run validate:tauri
+```
+
+Antes de preparar uma release, acrescente `npm run validate:version`, `npm run test:updater-manifest` e as validações de pacote descritas em [`docs/RELEASE.md`](docs/RELEASE.md). `npm run build` gera o aplicativo Tauri completo; para validar apenas a interface, prefira `npm run build:frontend`.
 
 ## Modelo de commits
 

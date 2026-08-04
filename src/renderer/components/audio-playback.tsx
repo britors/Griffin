@@ -73,6 +73,7 @@ export function AudioPlayback() {
         player.setOutputRoute(stem, state.routes[stem] ?? 'stereo', state.pans[stem] ?? 0)
         player.setEqualizer(stem, state.equalizer[stem] ?? [])
       }
+      player.setEqualizer('original', state.equalizer.original ?? [])
       if (!resetPlaybackOnTrackChange && player.length > 0) player.seek(requestedPosition * player.length, false, tempo, pitch)
       if (state.playing && state.selected?.id === selected.id) void player.play(state.position * player.length, state.tempo, state.pitch, () => handlePlaybackEnded(player))
     }).catch(() => setPlaying(false))
@@ -84,11 +85,12 @@ export function AudioPlayback() {
     for (const stem of ALL_STEMS) player.setMix(stem, volumes[stem] ?? 0, muted[stem] ?? false, solo)
     for (const stem of ALL_STEMS) player.setOutputRoute(stem, routes[stem] ?? 'stereo', pans[stem] ?? 0)
     for (const stem of ALL_STEMS) player.setEqualizer(stem, equalizer[stem] ?? [])
+    player.setEqualizer('original', equalizer.original ?? [])
   }, [volumes, pans, routes, equalizer, muted, solo])
 
   useEffect(() => {
     const player = engine.current
-    if (!player || !selected?.stems || !player.isLoaded) return
+    if (!player || !selected || !player.isLoaded) return
     if (playing) {
       void player.play(position * player.length, tempo, pitch, () => handlePlaybackEnded(player))
     } else {

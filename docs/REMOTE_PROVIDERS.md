@@ -1,33 +1,44 @@
 # Provedores remotos de separação
 
-## Decisão
+Avaliação revisada em **4 de agosto de 2026**. Preços, limites e políticas de terceiros podem mudar; confira as fontes antes de alterar a integração ou o texto exibido ao usuário.
 
-O Griffin mantém a separação local como caminho padrão e oferece a separação remota como opção explícita. O primeiro provedor integrado é o StemSplit, por ter uma API pública orientada a separação de stems, suporte a 4 e 6 stems, chave de API por usuário e cobrança por créditos sem assinatura obrigatória.
+## Decisão atual
 
-AudioShake e LALAL.AI ficam registrados como alternativas avaliadas, mas não são integrados nesta versão. A integração pode ser adicionada atrás do mesmo contrato de separação remota sem alterar o fluxo local.
+O Griffin mantém a separação local como caminho padrão. A única integração remota implementada é o **StemSplit**, escolhida por oferecer API REST self-service, chave por usuário, quatro ou seis stems e créditos sem assinatura obrigatória.
+
+AudioShake e LALAL.AI continuam como alternativas técnicas, mas não possuem adaptador no runtime atual. Uma futura integração deve reutilizar as garantias de consentimento, segredo, limite, cancelamento, cache e fallback local.
 
 ## Comparativo
 
-| Provedor | API e saída | Modelo comercial observado | Decisão |
+| Provedor | API e saída | Modelo comercial observado | Situação no Griffin |
 | --- | --- | --- | --- |
-| StemSplit | REST; upload presigned; polling; 2, 4 e 6 stems; WAV, MP3 e FLAC | Créditos por duração, sem assinatura obrigatória; 5 minutos iniciais e pacotes publicados de $0,10–$0,20/min | Integrado no runtime Tauri/Rust |
-| LALAL.AI | API para stem splitting e redução de ruído; também oferece desktop e VST | A página de preços indica assinatura; acesso à API aparece no plano Pro | Adiado: revisar contrato comercial e fluxo de cobrança antes de integrar |
-| AudioShake | API/SDK para separação e uso profissional; oferta pública também inclui plano Indie | Preços públicos variam por produto; a página Indie publica cobrança por stem, enquanto o acesso de API/SDK exige validação comercial | Adiado: falta um caminho self-service claro para o caso do Griffin |
+| StemSplit | REST, upload assinado, job com polling, quatro ou seis stems; WAV, MP3 e FLAC | 5 minutos iniciais; pacotes pay-as-you-go publicados entre US$ 0,10 e US$ 0,20 por minuto, sem assinatura | Integrado em Tauri/Rust |
+| LALAL.AI | API de stem splitting e limpeza; produtos web, desktop e plugin | Acesso à API incluído no plano Pro; assinatura e franquia de minutos | Adiado: cobrança fixa e contrato precisam ser revistos |
+| AudioShake | API para separação e serviços profissionais; produto Indie separado | Portal de desenvolvedores oferece 10 créditos de teste e opção pay-as-you-go | Adiado: avaliar preços efetivos, termos, retenção e UX de créditos |
 
-## Critérios de integração
+## Limites: provedor versus aplicativo
 
-- O usuário precisa configurar a própria chave; ela é armazenada no cofre do sistema quando disponível.
-- A opção remota só aparece quando a chave foi verificada.
-- Antes de cada operação remota, o Griffin informa que o áudio deixará o computador e mostra uma estimativa de custo.
-- A interface mostra fila, processamento, conclusão, falhas, expiração e cancelamento.
-- Os stems retornados entram no cache local e a separação local continua funcionando sem rede ou chave.
-- O Griffin mantém limites próprios de 100 MB e 60 minutos para proteger memória e previsibilidade, mesmo que o provedor publique limites maiores.
+A documentação do StemSplit publica limite de **500 MB e 120 minutos** por arquivo, além de 60 requisições por minuto. O Griffin deliberadamente aplica limites menores, de **100 MB e 60 minutos**, para manter previsibilidade de memória, upload, custo e tempo de espera. Mensagens e testes devem chamar esses valores de “limites do Griffin”, não de limites máximos do StemSplit.
 
-## Referências
+## Requisitos para qualquer integração
 
-- [StemSplit API — documentação](https://stemsplit.io/developers/docs)
+- A separação local permanece funcional sem rede, conta ou chave.
+- O usuário fornece sua própria credencial, que nunca entra em `settings.json` ou no diagnóstico.
+- A interface só oferece o provedor após verificar a credencial.
+- Cada envio exige confirmação com destino, custo estimado, retenção e efeito do cancelamento.
+- Somente a faixa escolhida pode ser enviada.
+- O backend valida tamanho, duração, formato, URLs, redirecionamentos e tamanho dos resultados.
+- Fila, progresso, conclusão, falha e expiração precisam ser visíveis.
+- Os stems retornados entram no cache local e são persistidos como os resultados locais.
+- A ausência de endpoint remoto de cancelamento deve ser explicada antes do envio.
+- Termos, preços e privacidade precisam ser revistos antes de cada release que altere o provedor.
+
+## Referências oficiais
+
+- [StemSplit API](https://stemsplit.io/developers/docs)
 - [StemSplit — preços](https://stemsplit.io/pricing)
-- [LALAL.AI API](https://www.lalal.ai/api/)
+- [StemSplit — privacidade](https://stemsplit.io/legal/privacy-policy)
+- [LALAL.AI API](https://www.lalal.ai/api/v1/docs/)
 - [LALAL.AI — preços](https://www.lalal.ai/pricing/)
-- [AudioShake — portal de desenvolvedores](https://www.audioshake.ai/developer-home)
+- [AudioShake — portal de desenvolvedores](https://developer.audioshake.ai/)
 - [AudioShake Indie — preços](https://indie.audioshake.ai/pricing)
