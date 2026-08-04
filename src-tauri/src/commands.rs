@@ -3041,8 +3041,6 @@ pub fn diagnostics_open_logs(state: State<'_, AppState>) -> Result<(), String> {
         .map_err(|error| format!("Não foi possível preparar a pasta de logs: {error}"))?;
     let program = if cfg!(target_os = "windows") {
         "explorer.exe"
-    } else if cfg!(target_os = "macos") {
-        "open"
     } else {
         "xdg-open"
     };
@@ -5703,13 +5701,6 @@ fn yt_dlp_release_asset() -> (&'static str, &'static str) {
             "yt-dlp.exe",
         )
     }
-    #[cfg(target_os = "macos")]
-    {
-        (
-            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos",
-            "yt-dlp_macos",
-        )
-    }
     #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     {
         (
@@ -5724,7 +5715,7 @@ fn yt_dlp_release_asset() -> (&'static str, &'static str) {
             "yt-dlp_linux",
         )
     }
-    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         (
             "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp",

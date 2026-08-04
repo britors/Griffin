@@ -32,7 +32,7 @@ sha2 = "0.10"
 hex = "0.4"
 url = "2.5"
 tokio = { version = "1", features = ["macros", "process", "io-util", "sync", "time"] }
-keyring = { version = "3.6.3", default-features = false, features = ["apple-native", "windows-native"], optional = true }
+keyring = { version = "3.6.3", default-features = false, features = ["windows-native"], optional = true }
 tauri-plugin-process = { version = "2.3.1", optional = true }
 tauri-plugin-updater = { version = "2.10.1", optional = true }
 
