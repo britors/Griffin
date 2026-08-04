@@ -33,6 +33,7 @@ pub fn run() {
             window_toggle_maximize,
             window_close,
             diagnostics_collect,
+            diagnostics_log,
             diagnostics_previous,
             diagnostics_clear_previous,
             diagnostics_save,
@@ -114,6 +115,7 @@ pub fn run() {
         .setup(|app| {
             let state = app.state::<AppState>();
             state.initialize(app.handle())?;
+            state.record_session_event("startup.setup_complete", "ok");
             Ok(())
         })
         .run(tauri::generate_context!())

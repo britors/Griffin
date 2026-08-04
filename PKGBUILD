@@ -1,5 +1,5 @@
 pkgname=griffin-music
-pkgver=0.1.3
+pkgver=2.0.2
 pkgrel=1
 pkgdesc='Local music stem separation and practice desktop app'
 arch=('x86_64')

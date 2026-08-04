@@ -369,7 +369,7 @@ fn model_content_hash(names: &[String], models: &[PathBuf]) -> Result<String, St
         hasher.update(name.as_bytes());
         hasher.update([0]);
         let mut file = File::open(model).map_err(|error| error.to_string())?;
-        let mut buffer = [0u8; 1024 * 1024];
+        let mut buffer = vec![0u8; 1024 * 1024];
         loop {
             let read =
                 std::io::Read::read(&mut file, &mut buffer).map_err(|error| error.to_string())?;
@@ -541,7 +541,7 @@ fn choose_model(
 fn source_hash(path: &Path) -> Result<String, String> {
     let mut file = File::open(path).map_err(|e| e.to_string())?;
     let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 1024 * 1024];
+    let mut buffer = vec![0u8; 1024 * 1024];
     loop {
         let read = std::io::Read::read(&mut file, &mut buffer).map_err(|e| e.to_string())?;
         if read == 0 {
