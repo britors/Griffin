@@ -30,7 +30,7 @@
     "createUpdaterArtifacts": true,
     "externalBin": ["binaries/griffin-onnx-worker"],
     "resources": ["binaries/"],
-    "targets": "all",
+    "targets": ["deb", "rpm", "nsis"],
     "icon": [
       "../resources/32x32.png",
       "../resources/128x128.png",
