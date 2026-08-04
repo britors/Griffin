@@ -48,7 +48,7 @@ Essas regras pertencem ao provedor e podem mudar. Consulte a [política vigente 
 
 ## Credencial
 
-No Windows e macOS, a chave usa o cofre nativo quando disponível. No Linux, o fallback é um arquivo separado com permissão restrita ao usuário. Ela não é retornada por `settings_get`, não entra em `settings.json`, não aparece no diagnóstico e nunca deve ser incluída em issue, screenshot ou commit.
+No Windows, a chave usa o cofre nativo quando disponível. No Linux, o fallback é um arquivo separado com permissão restrita ao usuário. Ela não é retornada por `settings_get`, não entra em `settings.json`, não aparece no diagnóstico e nunca deve ser incluída em issue, screenshot ou commit.
 
 ## Referências
 

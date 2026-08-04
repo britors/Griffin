@@ -1,5 +1,5 @@
 use crate::types::{Project, ProjectFolder, Track};
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(target_os = "windows")]
 use keyring::Entry;
 use std::{
     collections::{HashMap, HashSet},
@@ -70,11 +70,11 @@ pub struct StateData {
     pub settings: serde_json::Map<String, serde_json::Value>,
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(target_os = "windows")]
 const SECRET_SERVICE: &str = "com.w3ti.griffinmusic";
 const STEMSPLIT_API_KEY: &str = "stemSplitApiKey";
 
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(target_os = "windows")]
 fn stem_split_entry() -> Result<Entry, String> {
     Entry::new(SECRET_SERVICE, STEMSPLIT_API_KEY)
         .map_err(|error| format!("cofre do sistema indisponível: {error}"))
@@ -84,11 +84,11 @@ pub fn load_stem_split_api_key(
     data_dir: &Path,
     settings: &serde_json::Map<String, serde_json::Value>,
 ) -> Option<String> {
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     let stored = stem_split_entry()
         .ok()
         .and_then(|entry| entry.get_password().ok());
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    #[cfg(not(target_os = "windows"))]
     let stored = fs::read_to_string(secret_file(data_dir)).ok();
     stored.filter(|value| !value.trim().is_empty()).or_else(|| {
         settings
@@ -100,7 +100,7 @@ pub fn load_stem_split_api_key(
 }
 
 pub fn save_stem_split_api_key(data_dir: &Path, key: &str) -> Result<(), String> {
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
         return stem_split_entry()?
             .set_password(key.trim())
@@ -108,7 +108,7 @@ pub fn save_stem_split_api_key(data_dir: &Path, key: &str) -> Result<(), String>
                 format!("não foi possível salvar a chave no cofre do sistema: {error}")
             });
     }
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    #[cfg(not(target_os = "windows"))]
     {
         let path = secret_file(data_dir);
         if let Some(parent) = path.parent() {
@@ -154,14 +154,14 @@ pub fn save_stem_split_api_key(data_dir: &Path, key: &str) -> Result<(), String>
 }
 
 pub fn remove_stem_split_api_key(data_dir: &Path) -> Result<(), String> {
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
         if let Ok(entry) = stem_split_entry() {
             let _ = entry.delete_credential();
         }
         return Ok(());
     }
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    #[cfg(not(target_os = "windows"))]
     {
         match fs::remove_file(secret_file(data_dir)) {
             Ok(()) => Ok(()),
@@ -171,7 +171,7 @@ pub fn remove_stem_split_api_key(data_dir: &Path) -> Result<(), String> {
     }
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(not(target_os = "windows"))]
 fn secret_file(data_dir: &Path) -> PathBuf {
     data_dir.join("secrets").join(STEMSPLIT_API_KEY)
 }
@@ -702,7 +702,7 @@ mod tests {
         assert!(report.contains("version=1.2.2"));
     }
 
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn saves_secret_atomically_with_restricted_permissions() {
         let directory = fixture_dir();
