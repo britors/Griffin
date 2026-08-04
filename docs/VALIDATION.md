@@ -32,12 +32,19 @@ npm run test:updater-manifest
 ## Preparação de recursos
 
 - Inicie sem o modelo padrão e execute a primeira separação.
-- Confirme a mensagem de espaço necessário e mantenha pelo menos 2 GB livres.
+- Confirme a mensagem de espaço em disco necessário e mantenha pelo menos 2 GiB livres.
 - Pause e retome o download; feche e reabra o app com um arquivo parcial e confirme a retomada.
 - Cancele e confirme que a interface volta a um estado utilizável.
 - Corrompa apenas uma cópia descartável do recurso e confirme que a verificação oferece/realiza o reparo.
 - Repita para o modelo estendido, `yt-dlp` e runtime NVIDIA quando aplicável.
 - Confirme que o cálculo de espaço desconta bytes parciais válidos e nunca mostra valor negativo.
+
+## Orçamento de memória da separação
+
+- Confirme que menos de 8 GiB de RAM disponível bloqueia o worker com uma mensagem que menciona memória, não disco.
+- Com pelo menos 8 GiB disponíveis, processe um trecho de 30 segundos em CPU e registre o RSS máximo com a ferramenta do sistema (`/usr/bin/time -v` no Linux). A referência atual para um único stem é 8.353.508 KiB (aproximadamente 7,97 GiB).
+- Repita com uma faixa longa e confirme que o orçamento após a decodificação considera os buffers estéreo proporcionais à duração.
+- Trate 16 GB de RAM total como recomendação ao usuário, pois sistema e outros aplicativos precisam deixar 8 GiB efetivamente disponíveis para o worker.
 
 ## Biblioteca e reprodução original
 
