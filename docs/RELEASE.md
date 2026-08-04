@@ -1,10 +1,14 @@
-# Release 2.0.1
+# Release 2.0.2
 
-Esta versão reúne a preparação automática para usuários não técnicos, retomada de downloads após reinício, reparo de modelos/runtime/yt-dlp corrompidos, pausa e retomada durante downloads e separação, projetos `.gfn` com organização em pastas e melhorias de estabilidade do worker ONNX. Os diagnósticos continuam locais e manuais; nenhum relatório é enviado automaticamente.
+Esta versão corrige um crash (estouro de pilha) que podia fechar o Griffin sem aviso ao baixar ou atualizar o yt-dlp ou o runtime CUDA/cuDNN: os buffers de 1 MiB usados na verificação de integridade (sha256) e na cópia dos downloads estavam alocados na pilha em vez do heap. Também ajusta a faixa de "preparação" no topo da janela para desaparecer imediatamente após a verificação, em vez de permanecer visível por mais alguns segundos.
 
-Os artefatos de produção devem ser gerados pelos workflows Linux e Windows disparados pela tag `v2.0.1`. Antes da publicação, valide `npm run validate:version`, `npm run validate:tauri`, os testes e os pacotes gerados.
+Os artefatos de produção devem ser gerados pelos workflows Linux e Windows disparados pela tag `v2.0.2`. Antes da publicação, valide `npm run validate:version`, `npm run validate:tauri`, os testes e os pacotes gerados.
 
 ## Histórico
+
+### Release 2.0.1
+
+Esta versão reúne a preparação automática para usuários não técnicos, retomada de downloads após reinício, reparo de modelos/runtime/yt-dlp corrompidos, pausa e retomada durante downloads e separação, projetos `.gfn` com organização em pastas e melhorias de estabilidade do worker ONNX. Os diagnósticos continuam locais e manuais; nenhum relatório é enviado automaticamente.
 
 ### Release 1.2.1
 

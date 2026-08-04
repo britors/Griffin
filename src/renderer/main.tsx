@@ -95,11 +95,7 @@ function App() {
     void api.preparation.resumePending().then((resumed) => {
       if (!active) return
       logRendererEvent('startup.resume_pending_finished', `resumed=${resumed}`)
-      if (!resumed) {
-        setPreparation(null)
-        return
-      }
-      window.setTimeout(() => { if (active) setPreparation(null) }, 1800)
+      setPreparation(null)
     }).catch((reason) => {
       logRendererEvent('startup.resume_pending_failed', errorDetail(reason))
       if (active) {

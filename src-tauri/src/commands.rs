@@ -5127,7 +5127,7 @@ fn copy_with_progress<R: Read, W: std::io::Write, F: FnMut(u64) -> Result<(), St
     expected: Option<u64>,
     mut report: F,
 ) -> Result<u64, String> {
-    let mut buffer = [0u8; 1024 * 1024];
+    let mut buffer = vec![0u8; 1024 * 1024];
     let mut total = 0u64;
     loop {
         let read = reader.read(&mut buffer).map_err(|e| e.to_string())?;
@@ -5683,7 +5683,7 @@ fn download_checksum(url: &str, asset_url: &str) -> Result<String, String> {
 fn sha256_file(path: &Path) -> Result<String, String> {
     let mut file = fs::File::open(path).map_err(|e| e.to_string())?;
     let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 1024 * 1024];
+    let mut buffer = vec![0u8; 1024 * 1024];
     loop {
         let read = file.read(&mut buffer).map_err(|e| e.to_string())?;
         if read == 0 {
