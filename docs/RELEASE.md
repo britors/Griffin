@@ -1,6 +1,14 @@
 # Releases do Griffin Music
 
-A versão base do repositório é **3.0.1**. Releases são disparadas por tags `v*` e publicam pacotes Linux, instalador Windows, assinaturas e o manifesto do atualizador no GitHub Releases.
+A versão base do repositório é **3.0.2**. Releases são disparadas por tags `v*` e publicam pacotes Linux, instalador Windows, assinaturas e o manifesto do atualizador no GitHub Releases.
+
+## Release 3.0.2
+
+Esta versão melhora a experiência de separação local e refina a identidade visual:
+
+- reduz para 2 GiB o piso de memória disponível exigido para iniciar a separação, mantendo no manual o alerta sobre o consumo real;
+- amplia de 30 minutos para 3 horas o tempo máximo de uma separação local;
+- adota um menu lateral roxo mais escuro e prolonga seu degradê até a área principal nos temas escuro e claro.
 
 ## Release 3.0.1
 

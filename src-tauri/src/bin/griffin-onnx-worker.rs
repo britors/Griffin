@@ -24,7 +24,14 @@ use symphonia::{
 const SAMPLE_RATE: u32 = 44_100;
 const CHUNK_SIZE: usize = 343_980;
 const HOP_SIZE: usize = CHUNK_SIZE / 2;
-const MIN_AVAILABLE_MEMORY_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+// Decisão de produto: piso reduzido de 8 GiB para 2 GiB para não bloquear
+// usuários com menos RAM. Pico real medido (04/08/2026, /usr/bin/time -v,
+// htdemucs.onnx, perfil "speed", 1 stem, 4 threads, CPU) foi de ~6,18 GiB —
+// ou seja, este piso é apenas um pré-requisito mínimo de partida, não uma
+// garantia de que a separação não vai estourar a RAM disponível em máquinas
+// modestas. Assumido conscientemente; se voltar a incomodar usuários com
+// crashes no meio da separação, é esse o motivo.
+const MIN_AVAILABLE_MEMORY_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const CORE_ORDER: [&str; 4] = ["drums", "bass", "other", "vocals"];
 const EXTENDED_ORDER: [&str; 6] = ["drums", "bass", "other", "vocals", "guitar", "piano"];
 
