@@ -57,3 +57,19 @@ describe('repetição do loop', () => {
     expect(usePlayer.getState().loopIteration).toBe(2)
   })
 })
+
+describe('equalização da faixa original', () => {
+  it('mantém o canal original independente do stem other', () => {
+    usePlayer.setState({
+      equalizer: {
+        original: Array(12).fill(0),
+        other: Array(12).fill(0),
+      },
+    })
+
+    usePlayer.getState().setEqualizerBand('original', 4, 6)
+
+    expect(usePlayer.getState().equalizer.original?.[4]).toBe(6)
+    expect(usePlayer.getState().equalizer.other?.[4]).toBe(0)
+  })
+})

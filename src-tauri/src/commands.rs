@@ -42,6 +42,7 @@ const ALL_STEMS: [&str; 6] = ["vocals", "drums", "bass", "other", "guitar", "pia
 const MAX_REMOTE_DURATION_SECONDS: f64 = 60.0 * 60.0;
 const MAX_MODEL_DOWNLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MIN_PREPARATION_DISK_SPACE: u64 = 2 * 1024 * 1024 * 1024;
+const MIN_PREPARATION_DISK_MARGIN: u64 = 512 * 1024 * 1024;
 const MAX_PUBLIC_REDIRECTS: usize = 5;
 const REMOTE_PREVIEW_TTL: Duration = Duration::from_secs(30 * 60);
 const MAX_REMOTE_PREVIEWS: usize = 32;
@@ -177,15 +178,59 @@ async fn available_disk_bytes(path: &Path) -> Option<u64> {
     }
 }
 
-async fn ensure_preparation_disk_space(path: &Path) -> Result<(), String> {
-    check_preparation_disk_space(available_disk_bytes(path).await)
+fn partial_file_bytes(path: &Path) -> u64 {
+    fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
 }
 
-fn check_preparation_disk_space(free: Option<u64>) -> Result<(), String> {
-    if let Some(free) = free.filter(|free| *free < MIN_PREPARATION_DISK_SPACE) {
+fn model_partial_bytes(models_dir: &Path, kind: &str) -> u64 {
+    let paths = if kind == "extended" {
+        vec![models_dir.join("htdemucs_6s.download")]
+    } else {
+        let mut paths = vec![models_dir.join("htdemucs.download")];
+        paths.extend(CORE_STEMS.iter().map(|stem| {
+            models_dir
+                .join("htdemucs-ft")
+                .join(format!("htdemucs_ft_{stem}_fp16weights.download"))
+        }));
+        paths
+    };
+    paths.iter().map(|path| partial_file_bytes(path)).sum()
+}
+
+fn cuda_runtime_partial_bytes(data_dir: &Path, assets: &[CudaRuntimeAsset]) -> u64 {
+    let runtime_parent = data_dir.join("runtimes").join("cuda");
+    assets
+        .iter()
+        .map(|asset| {
+            partial_file_bytes(
+                &runtime_parent
+                    .join(asset.archive_name)
+                    .with_extension("download"),
+            )
+        })
+        .sum()
+}
+
+fn required_preparation_disk_space(partial_bytes: u64) -> u64 {
+    MIN_PREPARATION_DISK_SPACE
+        .saturating_sub(partial_bytes)
+        .max(MIN_PREPARATION_DISK_MARGIN)
+}
+
+async fn ensure_preparation_disk_space(path: &Path, partial_bytes: u64) -> Result<(), String> {
+    check_preparation_disk_space(
+        available_disk_bytes(path).await,
+        required_preparation_disk_space(partial_bytes),
+    )
+}
+
+fn check_preparation_disk_space(free: Option<u64>, required: u64) -> Result<(), String> {
+    if let Some(free) = free.filter(|free| *free < required) {
         return Err(format!(
             "Há pouco espaço livre para preparar o Griffin. Libere pelo menos {} (disponível: {}).",
-            format_diagnostic_bytes(MIN_PREPARATION_DISK_SPACE),
+            format_diagnostic_bytes(required),
             format_diagnostic_bytes(free)
         ));
     }
@@ -762,7 +807,8 @@ async fn cuda_runtime_install_impl(
     {
         return Ok(());
     }
-    ensure_preparation_disk_space(&data_dir).await?;
+    let partial_bytes = cuda_runtime_partial_bytes(&data_dir, &assets);
+    ensure_preparation_disk_space(&data_dir, partial_bytes).await?;
     *cancelled.lock().map_err(lock_error)? = false;
     let progress_app = app.clone();
     let install_data_dir = data_dir.clone();
@@ -1767,6 +1813,9 @@ async fn yt_dlp_download_impl(
         };
         (tools_dir.clone(), tools_dir.join(name))
     };
+    let data_dir = state.data.lock().map_err(lock_error)?.data_dir.clone();
+    let partial_bytes = partial_file_bytes(&destination.with_extension("download"));
+    ensure_preparation_disk_space(&data_dir, partial_bytes).await?;
     let asset = asset.to_string();
     let checksum_asset = checksum_asset.to_string();
     tokio::task::spawn_blocking(move || {
@@ -2985,6 +3034,28 @@ pub fn diagnostics_save(report: String) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "path": path }))
 }
 
+#[tauri::command]
+pub fn diagnostics_open_logs(state: State<'_, AppState>) -> Result<(), String> {
+    let logs_dir = state.data.lock().map_err(lock_error)?.data_dir.join("logs");
+    fs::create_dir_all(&logs_dir)
+        .map_err(|error| format!("Não foi possível preparar a pasta de logs: {error}"))?;
+    let program = if cfg!(target_os = "windows") {
+        "explorer.exe"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    let mut command = std::process::Command::new(program);
+    command.arg(&logs_dir).spawn().map_err(|error| {
+        format!(
+            "Não foi possível abrir a pasta de logs em {}: {error}",
+            logs_dir.display()
+        )
+    })?;
+    Ok(())
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub fn lyrics_get(state: State<'_, AppState>, track_id: String) -> Result<Vec<LyricsLine>, String> {
     let data = state.data.lock().map_err(lock_error)?;
@@ -4191,7 +4262,8 @@ async fn models_download_impl(
         return Err("Tipo de modelo inválido.".into());
     }
     let models_dir = state.data.lock().map_err(lock_error)?.models_dir.clone();
-    ensure_preparation_disk_space(&models_dir).await?;
+    let partial_bytes = model_partial_bytes(&models_dir, &kind);
+    ensure_preparation_disk_space(&models_dir, partial_bytes).await?;
     {
         let mut downloading = state.model_downloading.lock().map_err(lock_error)?;
         if downloading.is_some() {
@@ -6549,11 +6621,48 @@ mod tests {
 
     #[test]
     fn rejects_low_disk_space_but_allows_unknown_measurements() {
-        let error = check_preparation_disk_space(Some(MIN_PREPARATION_DISK_SPACE - 1))
-            .expect_err("low disk space must block preparation");
+        let error = check_preparation_disk_space(
+            Some(MIN_PREPARATION_DISK_SPACE - 1),
+            MIN_PREPARATION_DISK_SPACE,
+        )
+        .expect_err("low disk space must block preparation");
         assert!(error.contains("pouco espaço"));
-        assert!(check_preparation_disk_space(Some(MIN_PREPARATION_DISK_SPACE)).is_ok());
-        assert!(check_preparation_disk_space(None).is_ok());
+        assert!(check_preparation_disk_space(
+            Some(MIN_PREPARATION_DISK_SPACE),
+            MIN_PREPARATION_DISK_SPACE,
+        )
+        .is_ok());
+        assert!(check_preparation_disk_space(None, MIN_PREPARATION_DISK_SPACE).is_ok());
+    }
+
+    #[test]
+    fn partial_downloads_reduce_required_space_but_keep_installation_margin() {
+        assert_eq!(
+            required_preparation_disk_space(768 * 1024 * 1024),
+            MIN_PREPARATION_DISK_SPACE - 768 * 1024 * 1024,
+        );
+        assert_eq!(
+            required_preparation_disk_space(MIN_PREPARATION_DISK_SPACE),
+            MIN_PREPARATION_DISK_MARGIN,
+        );
+    }
+
+    #[test]
+    fn counts_existing_partial_model_downloads() {
+        let temp = TempDir::new("partial-model-space");
+        let models = temp.path().join("models");
+        fs::create_dir_all(models.join("htdemucs-ft")).unwrap();
+        fs::write(models.join("htdemucs.download"), vec![0_u8; 7]).unwrap();
+        fs::write(
+            models
+                .join("htdemucs-ft")
+                .join("htdemucs_ft_vocals_fp16weights.download"),
+            vec![0_u8; 11],
+        )
+        .unwrap();
+
+        assert_eq!(model_partial_bytes(&models, "standard"), 18);
+        assert_eq!(model_partial_bytes(&models, "extended"), 0);
     }
 
     #[test]

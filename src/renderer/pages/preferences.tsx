@@ -335,6 +335,17 @@ function AboutSection() {
     }
   }
 
+  const openLogs = async () => {
+    setDiagnosticMessage(null)
+    setDiagnosticError(null)
+    try {
+      await api.diagnostics.openLogs()
+      setDiagnosticMessage('Pasta de logs aberta.')
+    } catch (reason) {
+      setDiagnosticError(reason instanceof Error ? reason.message : 'Não foi possível abrir a pasta de logs.')
+    }
+  }
+
   return <PreferenceSection title="Sobre" description="Informações desta instalação do Griffin Music.">
     <PreferenceRow label="Versão" description="Versão atual do aplicativo."><span className="preference-value">{version ? `v${version}` : 'Consultando…'}</span></PreferenceRow>
     <PreferenceRow label="Arquitetura" description="Aplicativo desktop com processamento local."><span className="preference-value">Tauri + Rust + React</span></PreferenceRow>
@@ -346,6 +357,7 @@ function AboutSection() {
       <div className="preference-inline-controls">
         <button className="secondary-button compact-control" disabled={diagnosticBusy} onClick={() => void collectDiagnostic(false)}>{diagnosticBusy ? 'Coletando…' : 'Copiar diagnóstico'}</button>
         <button className="secondary-button compact-control" disabled={diagnosticBusy} onClick={() => void collectDiagnostic(true)}>Salvar relatório</button>
+        <button className="secondary-button compact-control" onClick={() => void openLogs()}>Abrir logs</button>
       </div>
     </PreferenceRow>
     {previousShutdown && <PreferenceRow label="Sessão anterior" description="O Griffin detectou que a sessão anterior terminou sem registrar um encerramento normal. Gere o diagnóstico e envie-o junto com o relato do problema.">
@@ -408,7 +420,6 @@ function PixDonation() {
 
   return <div className="pix-donation">
     {qrCode ? <img className="pix-qrcode" src={qrCode} alt="QR Code para apoiar o Griffin Music via Pix" /> : <span className="pix-qrcode-placeholder">Gerando QR Code…</span>}
-    <code className="pix-key">{PIX_KEY}</code>
   </div>
 }
 

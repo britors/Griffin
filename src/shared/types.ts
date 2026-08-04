@@ -1,4 +1,5 @@
 export type StemName = 'vocals' | 'drums' | 'bass' | 'other' | 'guitar' | 'piano'
+export type PlaybackChannel = StemName | 'original'
 export const CORE_STEMS: StemName[] = ['vocals', 'drums', 'bass', 'other']
 export const ALL_STEMS: StemName[] = [...CORE_STEMS, 'guitar', 'piano']
 export type SeparationTarget = StemName | 'all'
@@ -150,7 +151,7 @@ export interface PlayerSnapshot {
   volumes: Partial<Record<StemName, number>>
   pans: Partial<Record<StemName, number>>
   routes: Partial<Record<StemName, OutputRoute>>
-  equalizer: Partial<Record<StemName, EqualizerBands>>
+  equalizer: Partial<Record<PlaybackChannel, EqualizerBands>>
   muted: Partial<Record<StemName, boolean>>
   solo: StemName | null
 }
@@ -406,6 +407,7 @@ export interface GriffinAPI {
     previous: () => Promise<string | null>
     clearPrevious: () => Promise<void>
     save: (report: string) => Promise<DiagnosticsSaveResult>
+    openLogs: () => Promise<void>
   }
   analysis: {
     analyze: (trackId: string) => Promise<Track>

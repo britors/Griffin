@@ -1,48 +1,111 @@
-# Release 2.0.2
+# Releases do Griffin Music
 
-Esta versão corrige um crash (estouro de pilha) que podia fechar o Griffin sem aviso ao baixar ou atualizar o yt-dlp ou o runtime CUDA/cuDNN: os buffers de 1 MiB usados na verificação de integridade (sha256) e na cópia dos downloads estavam alocados na pilha em vez do heap. Também ajusta a faixa de "preparação" no topo da janela para desaparecer imediatamente após a verificação, em vez de permanecer visível por mais alguns segundos.
+A versão base do repositório é **3.0.1**. Releases são disparadas por tags `v*` e publicam pacotes Linux, instalador Windows, assinaturas e o manifesto do atualizador no GitHub Releases.
 
-Os artefatos de produção devem ser gerados pelos workflows Linux e Windows disparados pela tag `v2.0.2`. Antes da publicação, valide `npm run validate:version`, `npm run validate:tauri`, os testes e os pacotes gerados.
+## Release 3.0.1
 
-## Histórico
+Esta versão reúne a evolução da interface e do fluxo de estudo:
 
-### Release 2.0.1
+- reprodução do arquivo original antes da separação, com pitch, tempo, loop e EQ próprios;
+- menu lateral destacado e compacto, preservando os ícones;
+- painel principal fluido, que preenche a área disponível ao maximizar, restaurar ou recolher o menu;
+- verificação de espaço considerando downloads parciais de modelo, runtime NVIDIA e `yt-dlp`;
+- ação para abrir a pasta de logs e melhorias no diagnóstico local;
+- documentação alinhada ao runtime atual.
 
-Esta versão reúne a preparação automática para usuários não técnicos, retomada de downloads após reinício, reparo de modelos/runtime/yt-dlp corrompidos, pausa e retomada durante downloads e separação, projetos `.gfn` com organização em pastas e melhorias de estabilidade do worker ONNX. Os diagnósticos continuam locais e manuais; nenhum relatório é enviado automaticamente.
+## Release 2.0.2
 
-### Release 1.2.1
+Corrige um estouro de pilha que podia fechar o Griffin durante o download ou atualização de `yt-dlp` e CUDA/cuDNN. Buffers de 1 MiB usados em SHA-256 e cópia passaram da pilha para o heap. A faixa de preparação também desaparece assim que a verificação termina.
 
-Esta versão corrige o empacotamento de produção: o aplicativo não tenta mais conectar ao servidor Vite de desenvolvimento em `127.0.0.1:1420`; essa configuração ficou isolada no modo de desenvolvimento. Também torna robustos os downloads públicos do Griffin: modelos ONNX, CUDA/cuDNN, yt-dlp, prévias de áudio e stems remotos passam a seguir redirecionamentos públicos com validação de segurança. O download do runtime NVIDIA mantém a retomada por partes. Em builds Windows, os processos auxiliares não exibem mais janelas de console que possam parecer um prompt suspeito.
+## Release 2.0.1
 
-O workflow de release é disparado por tags `v*` e publica `.deb`, `.rpm`, instalador NSIS x64 e o manifesto assinado do updater. Os modelos ONNX não são mais empacotados no instalador: o próprio aplicativo os baixa sob demanda em runtime (`userData/models`), na primeira execução ou via Preferências.
+Inclui preparação automática para usuários não técnicos, retomada e reparo de downloads, pausa durante download/separação, projetos `.gfn` com pastas e melhorias de estabilidade do worker ONNX. Diagnósticos permanecem locais e manuais.
 
-## Projetos `.gfn`
+## Empacotamento
 
-O arquivo `.gfn` é um manifesto JSON versionado que preserva o projeto, a árvore de pastas/subpastas e as referências das bibliotecas. Os áudios continuam armazenados na biblioteca local; ao abrir um projeto em outro local, o Griffin informa quais arquivos não foram encontrados sem descartar o projeto carregado.
+O Tauri gera:
 
-O empacotamento é feito pelo Tauri: o instalador Windows usa NSIS e as distribuições Linux geram `.deb` e `.rpm`. MSI não é anunciado pelo updater enquanto não houver um MSI real publicado. Cada artefato de atualização recebe assinatura Tauri e o `latest.json` é gerado a partir dos arquivos publicados no GitHub Releases. No Linux, o updater escolhe o `.deb` ou `.rpm` de acordo com o tipo do bundle instalado; o OBS continua disponível como canal de distribuição do RPM.
+- Linux x86_64: `.deb` e `.rpm`;
+- Windows 10/11 x64: instalador NSIS `.exe`;
+- artefatos assinados aceitos pelo updater;
+- `latest.json`, montado a partir dos assets reunidos em `release/`.
 
-## Publicação no OBS
+Os modelos ONNX, o runtime NVIDIA e `yt-dlp` não são empacotados. O aplicativo os baixa por usuário quando necessário. MSI não deve ser anunciado até existir um pacote MSI real.
 
-O pacote do Griffin Music fica no projeto pessoal `home:rodrigosbrito`, fora de qualquer projeto Lyra. O nome do pacote é `griffin-music`; não usar `home:rodrigosbrito:lyra` nem `griffin` como destino. A publicação da versão 1.2.1 deve atualizar `home:rodrigosbrito/griffin-music`.
+Projetos `.gfn` são manifestos JSON versionados. Eles preservam projeto, árvore de pastas e referências da biblioteca, mas não copiam os áudios. Uma release não deve alterar esse contrato sem migração e testes de compatibilidade.
 
-## Chaves de assinatura
+## Assinatura e confiança
 
-A chave pública do updater fica versionada em `src-tauri/tauri.conf.json`. A chave privada nunca deve entrar no repositório: configure `TAURI_SIGNING_PRIVATE_KEY` e, se aplicável, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` como secrets do repositório GitHub. Sem a chave privada, o workflow falha antes de publicar uma release incompleta.
+A chave privada nunca deve entrar no repositório. O workflow usa:
 
-O instalador inicial Linux descobre os assets pela API da release, baixa o `.sig` correspondente e verifica o arquivo com `minisign` usando a mesma chave pública antes de chamar `apt`, `dnf` ou `zypper`. A máquina precisa ter `curl` e `minisign`; a ausência do verificador encerra a instalação sem instalar um pacote não verificado.
+- `TAURI_SIGNING_PRIVATE_KEY`;
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, quando a chave exigir senha.
 
-O spec usado pelo OBS fica versionado em `packaging/griffin.spec`. O CI executa `scripts/validate-obs-spec.sh` contra o RPM gerado e verifica versão, binários, worker ONNX, providers, desktop entry e ícones. Assim, uma alteração manual no checkout do OBS não é necessária para uma publicação válida.
+A chave pública do updater Tauri fica em `src-tauri/tauri.conf.json`. O instalador Linux possui outra chave embutida em `scripts/install.sh`, substituível por `GRIFFIN_UPDATER_PUBLIC_KEY`.
 
-Para gerar uma nova chave, use `npx tauri signer generate -w caminho/griffin-music.key`. A perda da chave privada impede que instalações existentes aceitem atualizações futuras.
+**Atenção:** no código atual, essas duas chaves públicas embutidas não são idênticas. Antes de uma nova publicação, defina qual cadeia de assinatura será suportada, confirme que cada chave corresponde ao assinante usado no respectivo artefato e teste uma instalação/atualização real. Não troque uma chave já distribuída sem um plano de migração: instalações existentes deixarão de aceitar as novas assinaturas.
 
-Validação local:
+Para gerar uma chave Tauri:
 
 ```bash
-npm run typecheck
-npm run build
-npm run package:linux
-npm run validate:packages
+npx tauri signer generate -w caminho/griffin-music.key
 ```
 
-O teste do instalador Windows deve ser executado em runner Windows ou máquina Windows 10/11 x64. O yt-dlp é baixado pelo próprio Griffin em runtime e armazenado por usuário.
+A perda da chave privada impede que instalações vinculadas à chave pública correspondente aceitem atualizações futuras.
+
+O instalador Linux exige `curl` e `minisign`, baixa o pacote e o `.sig`, verifica a assinatura e somente depois chama `apt`, `dnf` ou `zypper`. Ausência do verificador ou assinatura inválida deve encerrar a instalação.
+
+## Publicação no Open Build Service
+
+O destino atual é:
+
+- projeto: `home:rodrigosbrito`;
+- pacote: `griffin-music`;
+- spec versionado: `packaging/griffin.spec`.
+
+Não use o projeto antigo `home:rodrigosbrito:lyra` nem o nome de pacote `griffin`. O script `scripts/validate-obs-spec.sh` confere versão, binários, worker ONNX, providers, desktop entry e ícones contra o RPM gerado.
+
+## Validação antes da tag
+
+Em uma árvore limpa e com dependências instaladas:
+
+```bash
+npm ci
+npm run validate:version
+npm run validate:tauri
+npm run test:updater-manifest
+npm run typecheck
+npm test
+npm run build:frontend
+cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features gui
+```
+
+No Linux, gere e valide os artefatos:
+
+```bash
+npm run package:linux
+npm run validate:packages
+npm run validate:obs-spec
+```
+
+No Windows 10/11 x64 ou no runner Windows:
+
+```powershell
+npm run package:win
+./scripts/validate-windows-build.ps1
+bash scripts/validate-packages.sh release windows
+```
+
+Além dos testes automatizados, execute o roteiro de [VALIDATION.md](VALIDATION.md), confira instalação sobre uma versão anterior, atualização assinada, desinstalação sem `--purge` e inicialização sem servidor Vite.
+
+## Publicação
+
+1. Atualize a versão de todos os manifestos cobertos por `npm run validate:version`.
+2. Atualize esta documentação e as notas destinadas ao usuário.
+3. Confirme secrets, chaves públicas e assinaturas em uma release de teste.
+4. Crie e envie a tag `vX.Y.Z`.
+5. Aguarde os jobs Linux e Windows e verifique os artefatos reunidos.
+6. Confirme o `latest.json`, suas URLs, targets e assinaturas antes de divulgar.
+7. Atualize `home:rodrigosbrito/griffin-music` no OBS e aguarde os builds publicados.
+
+O workflow falha se a chave privada estiver ausente, se os pacotes esperados não forem encontrados ou se uma validação de layout falhar. Não publique manualmente um conjunto parcial como release estável.

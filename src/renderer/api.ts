@@ -304,5 +304,6 @@ export const api: GriffinAPI = {
     previous: () => invoke<string | null>('diagnostics_previous'),
     clearPrevious: () => invoke('diagnostics_clear_previous'),
     save: (report: string) => invoke<DiagnosticsSaveResult>('diagnostics_save', { report }),
+    openLogs: () => invoke('diagnostics_open_logs'),
   },
 }
