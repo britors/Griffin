@@ -64,9 +64,9 @@ Pitch, tempo, posição, loop e equalização são coordenados pelo estado do pl
 4. O worker verifica memória e formato, carrega o modelo e processa os stems sequencialmente.
 5. Rust combina resultados novos com os stems em cache, atualiza `library.json` e devolve a faixa serializada.
 
-O contrato principal usa entrada `mix [1, 2, 343980]`. O Demucs retorna `drums`, `bass`, `other` e `vocals`; o modelo opcional `htdemucs_6s.onnx` acrescenta `guitar` e `piano`. Processar um stem por vez limita o pico de RAM.
+O contrato principal usa entrada `mix [1, 2, 343980]`. O Demucs retorna `drums`, `bass`, `other` e `vocals`; o modelo opcional `htdemucs_6s.onnx` acrescenta `guitar` e `piano`. Processar um stem por vez limita o pico de RAM. Antes de decodificar a faixa, o worker exige 8 GiB de RAM disponível e, depois da decodificação, acrescenta ao orçamento os buffers estéreo da faixa. Uma medição de referência em CPU, com 30 segundos e um único stem, atingiu 8.353.508 KiB (aproximadamente 7,97 GiB) de RSS máximo; por isso, 8 GiB é um limite operacional, não uma estimativa de disco.
 
-Modelos, runtime NVIDIA e `yt-dlp` são baixados por usuário, com verificação de integridade, progresso, pausa/cancelamento e retomada quando o servidor suporta intervalos. O modo automático tenta CUDA quando o runtime está pronto e volta para CPU se necessário.
+Modelos, runtime NVIDIA e `yt-dlp` são baixados por usuário, com verificação de integridade, progresso, pausa/cancelamento e retomada quando o servidor suporta intervalos. A preparação usa um orçamento de disco separado: 2 GiB menos os bytes parciais já válidos, com margem mínima de 512 MiB. O modo automático tenta CUDA quando o runtime está pronto e volta para CPU se necessário.
 
 ## Separação remota
 

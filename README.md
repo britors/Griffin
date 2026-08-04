@@ -16,6 +16,13 @@ O Griffin Music é um aplicativo para separar músicas em faixas e praticar inst
 - Exportar a mixagem ou faixas individuais em WAV.
 - Copiar ou salvar um diagnóstico local e abrir a pasta de logs quando precisar relatar um problema.
 
+## Requisitos para separação local
+
+- **Memória:** o worker ONNX precisa de pelo menos **8 GiB de RAM disponível** no início da separação. Um computador com **16 GB de RAM total** é recomendado para deixar essa capacidade disponível depois do sistema e dos demais aplicativos.
+- **Disco:** mantenha pelo menos **2 GiB livres** para baixar, verificar e instalar os modelos e recursos. Ao retomar um download parcial, o Griffin desconta os bytes já recebidos, mas preserva uma margem mínima de 512 MiB.
+
+RAM disponível e espaço livre em disco são verificações diferentes. O cache dos stems também cresce conforme a duração das músicas e pode ser limpo em **Preferências → Processamento → Limpar cache**.
+
 ## Instalação
 
 Baixe a versão mais recente na [página de releases](https://github.com/britors/Griffin/releases/latest) e escolha o arquivo correspondente ao seu sistema.
@@ -28,7 +35,7 @@ Os instaladores são para computadores de 64 bits (x86_64/amd64).
 2. Abra o arquivo e siga as instruções na tela.
 3. Inicie o Griffin Music pelo menu Iniciar ou pelo atalho criado.
 
-Não é necessário instalar Node.js, Python ou outros programas para usar o instalador. Na primeira separação, o Griffin baixa e verifica automaticamente o modelo necessário. O download pode ter aproximadamente 1 GB; mantenha pelo menos 2 GB livres para o arquivo parcial, a verificação e a instalação.
+Não é necessário instalar Node.js, Python ou outros programas para usar o instalador. Na primeira separação, o Griffin baixa e verifica automaticamente o modelo necessário. O download pode ter aproximadamente 1 GB; consulte os requisitos de memória e disco acima.
 
 Para desinstalar, abra **Configurações → Aplicativos → Aplicativos instalados**, encontre **Griffin Music** e escolha **Desinstalar**. Seus projetos e preferências são preservados.
 

@@ -35,14 +35,20 @@ sudo bash scripts/uninstall.sh --purge
 
 O modo `--purge` é irreversível. Exporte ou copie seus projetos antes de usá-lo.
 
-### 1.2 Desenvolvimento a partir do código
+### 1.2 Requisitos de memória e disco
+
+A separação local exige pelo menos **8 GiB de RAM disponível** quando o worker ONNX inicia. Esse valor não significa 8 GiB livres no disco. Como o sistema operacional e outros aplicativos também consomem memória, recomenda-se um computador com **16 GB de RAM total**. Feche aplicativos pesados antes de separar quando a memória disponível estiver próxima do limite.
+
+Para preparar modelos, runtime NVIDIA e ferramentas, o Griffin exige inicialmente **2 GiB livres no disco**. Em uma retomada, os bytes do arquivo parcial são descontados desse valor, mantendo-se uma margem mínima de 512 MiB. Os stems e demais itens do cache ocupam espaço adicional proporcional à duração e à quantidade de faixas; use **Preferências → Processamento → Limpar cache** para liberar esse espaço.
+
+### 1.3 Desenvolvimento a partir do código
 
 Requisitos recomendados:
 
 - Node.js 22.x e npm;
 - Rust e Cargo;
 - dependências de compilação do Tauri para Linux;
-- pelo menos 2 GB livres para baixar, verificar e instalar o modelo ONNX, além de espaço para os artefatos de build.
+- os requisitos de RAM e disco da separação local descritos acima, além de espaço para os artefatos de build.
 
 ```bash
 git clone git@github.com:britors/Griffin.git
@@ -356,7 +362,7 @@ Isso pode ser normal. Em **Preferências → Processamento**, confira **Acelera�
 
 ### A separação falha ou fica sem memória
 
-Feche outros aplicativos pesados, reduza **Threads de processamento**, escolha o perfil **Balanceado** ou **Velocidade** e processe um stem por vez. Verifique se há espaço livre para o modelo e os stems temporários.
+O worker precisa de pelo menos 8 GiB de RAM disponível no início da separação. Feche outros aplicativos pesados, reduza **Threads de processamento**, escolha o perfil **Balanceado** ou **Velocidade** e processe um stem por vez. Se a mensagem mencionar espaço de armazenamento, verifique separadamente o disco usado pelos modelos e stems temporários.
 
 ### O áudio não toca
 
