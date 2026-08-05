@@ -1,6 +1,16 @@
 # Releases do Griffin Music
 
-A versão base do repositório é **3.0.2**. Releases são disparadas por tags `v*` e publicam pacotes Linux, instalador Windows, assinaturas e o manifesto do atualizador no GitHub Releases.
+A versão base do repositório é **3.0.3**. Releases são disparadas por tags `v*` e publicam pacotes Linux, instalador Windows, assinaturas e o manifesto do atualizador no GitHub Releases.
+
+## Release 3.0.3
+
+Esta versão torna projetos Griffin portáteis entre computadores:
+
+- exporta `.gfn` com áudio original, stems, análises, letras, gravações e snapshots;
+- preserva pitch, tempo, loop, mixer, roteamento, equalização e mute/solo;
+- importa as mídias para o armazenamento gerenciado do Griffin;
+- continua abrindo os manifestos `.gfn` das versões anteriores;
+- valida caminhos e limites do pacote antes da extração.
 
 ## Release 3.0.2
 
@@ -40,7 +50,7 @@ O Tauri gera:
 
 Os modelos ONNX, o runtime NVIDIA e `yt-dlp` não são empacotados. O aplicativo os baixa por usuário quando necessário. MSI não deve ser anunciado até existir um pacote MSI real.
 
-Projetos `.gfn` são manifestos JSON versionados. Eles preservam projeto, árvore de pastas e referências da biblioteca, mas não copiam os áudios. Uma release não deve alterar esse contrato sem migração e testes de compatibilidade.
+Projetos `.gfn` atuais são pacotes ZIP versionados que incluem manifesto, áudios e stems. O Griffin continua importando os manifestos JSON versionados das releases anteriores; mudanças nesse contrato exigem migração e testes de compatibilidade.
 
 ## Assinatura e confiança
 
