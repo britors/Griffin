@@ -1,6 +1,10 @@
 # Releases do Griffin Music
 
-A versão base do repositório é **3.0.3**. Releases são disparadas por tags `v*` e publicam pacotes Linux, instalador Windows, assinaturas e o manifesto do atualizador no GitHub Releases.
+A versão base do repositório é **3.0.4**. Releases são disparadas por tags `v*` e publicam pacotes Linux, instalador Windows, assinaturas e o manifesto do atualizador no GitHub Releases.
+
+## Release 3.0.4
+
+Esta versão restaura a exigência de **8 GiB de RAM disponível** para iniciar a separação local, evitando que o worker ONNX comece sem margem de memória suficiente.
 
 ## Release 3.0.3
 

@@ -2,7 +2,7 @@
 
 O Griffin Music é um aplicativo desktop para separar músicas em stems e estudar uma faixa com controle de velocidade, tonalidade, loop, metrônomo e mixagem. Ele funciona localmente por padrão: os arquivos, a separação, a análise, o cache e as preferências permanecem no computador.
 
-Este manual descreve a versão 3.0.3 do projeto.
+Este manual descreve a versão 3.0.4 do projeto.
 
 ## 1. Instalação
 
@@ -362,7 +362,7 @@ Isso pode ser normal. Em **Preferências → Processamento**, confira **Acelera�
 
 ### A separação falha ou fica sem memória
 
-O worker exige pelo menos 2 GiB de RAM disponível no início da separação, mas esse é só um piso mínimo de partida — o uso real pode passar de 6 GiB dependendo do perfil e da faixa. Se a separação travar ou o processo morrer no meio, feche outros aplicativos pesados, reduza **Threads de processamento**, escolha o perfil **Balanceado** ou **Velocidade** e processe um stem por vez. Se a mensagem mencionar espaço de armazenamento, verifique separadamente o disco usado pelos modelos e stems temporários.
+O worker exige pelo menos 8 GiB de RAM disponível no início da separação. Se esse volume não estiver livre, feche outros aplicativos pesados antes de tentar novamente. Para reduzir o consumo durante o processamento, reduza **Threads de processamento**, escolha o perfil **Balanceado** ou **Velocidade** e processe um stem por vez. Se a mensagem mencionar espaço de armazenamento, verifique separadamente o disco usado pelos modelos e stems temporários.
 
 ### O áudio não toca
 
