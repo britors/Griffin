@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
     fs,
-    io::Read,
+    io::{Read, Write},
     net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
     process::Stdio,
@@ -2455,26 +2455,11 @@ pub fn projects_open(state: State<'_, AppState>) -> Result<Option<ProjectOpenRes
     else {
         return Ok(None);
     };
-    let bytes =
-        fs::read(&path).map_err(|error| format!("Não foi possível abrir o projeto: {error}"))?;
-    let mut document: GriffinProjectFile = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("Arquivo .gfn inválido: {error}"))?;
-    if document.format != "griffin-project" || document.version != 1 {
-        return Err("Versão de projeto .gfn não suportada.".into());
-    }
+    let data_dir = state.data.lock().map_err(lock_error)?.data_dir.clone();
+    let (mut document, missing_tracks) = load_project_file(&path, &data_dir)?;
     document.project.file_path = Some(path.to_string_lossy().to_string());
-    let project_directory = path.parent().unwrap_or_else(|| Path::new("."));
-    for track in &mut document.tracks {
-        resolve_project_track_paths(track, project_directory);
-    }
-    let missing_tracks = document
-        .tracks
-        .iter()
-        .filter(|track| track_files_missing(track))
-        .map(|track| track.name.clone())
-        .collect::<Vec<_>>();
     let mut data = state.data.lock().map_err(lock_error)?;
-    data.project_folders = document.folders.clone();
+    merge_project_folders(&mut data.project_folders, &document.folders);
     data.tracks.retain(|track| {
         !document
             .tracks
@@ -2507,21 +2492,29 @@ fn save_project_file(
     project_id: &str,
     path: &Path,
 ) -> Result<Project, String> {
-    let mut data = state.data.lock().map_err(lock_error)?;
-    let project_index = data
-        .projects
-        .iter()
-        .position(|project| project.id == project_id)
-        .ok_or_else(|| "Projeto não encontrado.".to_string())?;
-    let mut project = data.projects[project_index].clone();
+    let (mut project, tracks, folders, project_before_export) = {
+        let data = state.data.lock().map_err(lock_error)?;
+        let project = data
+            .projects
+            .iter()
+            .find(|project| project.id == project_id)
+            .cloned()
+            .ok_or_else(|| "Projeto não encontrado.".to_string())?;
+        (
+            project.clone(),
+            data.tracks.clone(),
+            data.project_folders.clone(),
+            project,
+        )
+    };
     // Older versions could leave a project pointing at a track that was
     // removed from the library. Keep the project saveable and repair those
     // stale references while preserving the rest of its state.
-    let missing_track_ids = remove_missing_track_references(&mut project, &data.tracks);
+    let missing_track_ids = remove_missing_track_references(&mut project, &tracks);
     let tracks = project
         .track_ids
         .iter()
-        .filter_map(|track_id| data.tracks.iter().find(|track| &track.id == track_id))
+        .filter_map(|track_id| tracks.iter().find(|track| &track.id == track_id))
         .cloned()
         .collect::<Vec<_>>();
     if !missing_track_ids.is_empty() {
@@ -2531,22 +2524,37 @@ fn save_project_file(
     project.file_path = Some(path.to_string_lossy().to_string());
     project.updated_at = saved_at.clone();
     project.file_saved_at = Some(saved_at.clone());
-    let project_directory = path.parent().unwrap_or_else(|| Path::new("."));
-    let document = GriffinProjectFile {
-        format: "griffin-project".into(),
-        version: 1,
-        saved_at,
-        project: project.clone(),
-        folders: data.project_folders.clone(),
-        tracks: tracks
-            .iter()
-            .map(|track| project_track_for_save(track, project_directory))
-            .collect(),
+    write_portable_project(
+        path,
+        &project,
+        &portable_project_folders(&project, &folders),
+        &tracks,
+        &saved_at,
+    )?;
+
+    let mut data = state.data.lock().map_err(lock_error)?;
+    let current = data
+        .projects
+        .iter_mut()
+        .find(|current| current.id == project_id)
+        .ok_or_else(|| "Projeto não encontrado.".to_string())?;
+    let unchanged_during_export = match (
+        serde_json::to_vec(&*current),
+        serde_json::to_vec(&project_before_export),
+    ) {
+        (Ok(current), Ok(before)) => current == before,
+        _ => false,
     };
-    write_json_atomic(path, &document)?;
-    data.projects[project_index] = project.clone();
+    if unchanged_during_export {
+        *current = project;
+    } else {
+        // A change made while a large package was being written remains dirty.
+        current.file_path = Some(path.to_string_lossy().to_string());
+        current.file_saved_at = Some(saved_at);
+    }
+    let result = current.clone();
     save_projects_locked(&data)?;
-    Ok(project)
+    Ok(result)
 }
 
 fn remove_track_references_from_projects(
@@ -2661,15 +2669,393 @@ fn validate_project_name(value: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
-fn project_track_for_save(track: &Track, project_directory: &Path) -> Track {
-    let mut result = track.clone();
-    result.path = project_path_for_save(&result.path, project_directory);
-    if let Some(stems) = result.stems.as_mut() {
-        for path in stems.values_mut() {
-            *path = project_path_for_save(path, project_directory);
+const PORTABLE_PROJECT_VERSION: u32 = 2;
+const PROJECT_MANIFEST_NAME: &str = "manifest.json";
+const MAX_PROJECT_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_PROJECT_ASSETS: usize = 1024;
+const MAX_PROJECT_ASSET_BYTES: u64 = 20 * 1024 * 1024 * 1024;
+const MAX_PROJECT_TOTAL_BYTES: u64 = 100 * 1024 * 1024 * 1024;
+
+fn write_portable_project(
+    path: &Path,
+    project: &Project,
+    folders: &[ProjectFolder],
+    tracks: &[Track],
+    saved_at: &str,
+) -> Result<(), String> {
+    let mut assets = Vec::<(PathBuf, String)>::new();
+    let mut registered = HashMap::<PathBuf, String>::new();
+    let mut portable_tracks = Vec::with_capacity(tracks.len());
+    for track in tracks {
+        let mut portable = track.clone();
+        portable.path = register_project_asset(&track.path, &mut assets, &mut registered)?;
+        if let Some(stems) = portable.stems.as_mut() {
+            let mut names = stems.keys().cloned().collect::<Vec<_>>();
+            names.sort();
+            for name in names {
+                if let Some(source) = stems.get(&name).cloned() {
+                    stems.insert(
+                        name,
+                        register_project_asset(&source, &mut assets, &mut registered)?,
+                    );
+                }
+            }
+        }
+        portable_tracks.push(portable);
+    }
+
+    let mut portable_project = project.clone();
+    // Never leak or depend on a path from the source computer.
+    portable_project.file_path = None;
+    if let Some(player) = portable_project.player_state.as_mut() {
+        package_player_take(player, &mut assets, &mut registered)?;
+    }
+    if let Some(snapshots) = portable_project.snapshots.as_mut() {
+        for snapshot in snapshots {
+            package_player_take(&mut snapshot.player, &mut assets, &mut registered)?;
         }
     }
+    let document = GriffinProjectFile {
+        format: "griffin-project".into(),
+        version: PORTABLE_PROJECT_VERSION,
+        saved_at: saved_at.to_string(),
+        project: portable_project,
+        folders: folders.to_vec(),
+        tracks: portable_tracks,
+    };
+    let manifest = serde_json::to_vec_pretty(&document).map_err(|error| error.to_string())?;
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let temporary = path.with_file_name(format!(
+        ".{}.tmp-{}",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("project.gfn"),
+        Uuid::new_v4()
+    ));
+    let temporary_guard = TemporaryFileGuard(Some(temporary.clone()));
+    let file = fs::File::create(&temporary)
+        .map_err(|error| format!("Não foi possível criar o pacote do projeto: {error}"))?;
+    let mut archive = zip::ZipWriter::new(file);
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    archive
+        .start_file(PROJECT_MANIFEST_NAME, options)
+        .map_err(|error| format!("Não foi possível iniciar o pacote do projeto: {error}"))?;
+    archive
+        .write_all(&manifest)
+        .map_err(|error| format!("Não foi possível gravar o manifesto do projeto: {error}"))?;
+    for (source, archive_path) in assets {
+        archive
+            .start_file(&archive_path, options)
+            .map_err(|error| format!("Não foi possível adicionar {archive_path}: {error}"))?;
+        let mut input = fs::File::open(&source)
+            .map_err(|error| format!("Não foi possível abrir {}: {error}", source.display()))?;
+        std::io::copy(&mut input, &mut archive)
+            .map_err(|error| format!("Não foi possível copiar {}: {error}", source.display()))?;
+    }
+    let output = archive
+        .finish()
+        .map_err(|error| format!("Não foi possível finalizar o pacote do projeto: {error}"))?;
+    output.sync_all().map_err(|error| error.to_string())?;
+    drop(output);
+    replace_project_package(&temporary, path)?;
+    temporary_guard.keep();
+    Ok(())
+}
+
+fn register_project_asset(
+    source: &str,
+    assets: &mut Vec<(PathBuf, String)>,
+    registered: &mut HashMap<PathBuf, String>,
+) -> Result<String, String> {
+    let canonical = fs::canonicalize(source)
+        .map_err(|error| format!("Arquivo do projeto não encontrado ({source}): {error}"))?;
+    if !canonical.is_file() {
+        return Err(format!("O item do projeto não é um arquivo: {source}"));
+    }
+    if let Some(existing) = registered.get(&canonical) {
+        return Ok(existing.clone());
+    }
+    if assets.len() >= MAX_PROJECT_ASSETS {
+        return Err(format!(
+            "O projeto excede o limite de {MAX_PROJECT_ASSETS} arquivos por pacote."
+        ));
+    }
+    let file_name = canonical
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| sanitize_file_name(name, "audio"))
+        .unwrap_or_else(|| "audio".into());
+    let archive_path = format!("assets/{}-{file_name}", Uuid::new_v4());
+    registered.insert(canonical.clone(), archive_path.clone());
+    assets.push((canonical, archive_path.clone()));
+    Ok(archive_path)
+}
+
+fn package_player_take(
+    player: &mut PlayerSnapshot,
+    assets: &mut Vec<(PathBuf, String)>,
+    registered: &mut HashMap<PathBuf, String>,
+) -> Result<(), String> {
+    if let Some(path) = player
+        .take_path
+        .clone()
+        .filter(|path| !path.trim().is_empty())
+    {
+        player.take_path = Some(register_project_asset(&path, assets, registered)?);
+    }
+    Ok(())
+}
+
+fn replace_project_package(temporary: &Path, destination: &Path) -> Result<(), String> {
+    let backup = destination.with_file_name(format!(
+        ".{}.bak",
+        destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("project.gfn")
+    ));
+    let had_destination = destination.exists();
+    if had_destination {
+        remove_file_if_exists(&backup)?;
+        fs::rename(destination, &backup).map_err(|error| error.to_string())?;
+    }
+    if let Err(error) = fs::rename(temporary, destination) {
+        if had_destination {
+            let _ = fs::rename(&backup, destination);
+        }
+        return Err(error.to_string());
+    }
+    #[cfg(unix)]
+    if let Some(parent) = destination.parent() {
+        fs::File::open(parent)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| error.to_string())?;
+    }
+    if had_destination {
+        let _ = remove_file_if_exists(&backup);
+    }
+    Ok(())
+}
+
+fn load_project_file(
+    path: &Path,
+    data_dir: &Path,
+) -> Result<(GriffinProjectFile, Vec<String>), String> {
+    let mut input = fs::File::open(path)
+        .map_err(|error| format!("Não foi possível abrir o projeto: {error}"))?;
+    let mut signature = [0u8; 4];
+    let bytes_read = input
+        .read(&mut signature)
+        .map_err(|error| error.to_string())?;
+    drop(input);
+    if bytes_read >= 2 && signature[..2] == *b"PK" {
+        return load_portable_project(path, data_dir).map(|document| (document, Vec::new()));
+    }
+
+    let bytes =
+        fs::read(path).map_err(|error| format!("Não foi possível abrir o projeto: {error}"))?;
+    let mut document: GriffinProjectFile = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Arquivo .gfn inválido: {error}"))?;
+    if document.format != "griffin-project" || document.version != 1 {
+        return Err("Versão de projeto .gfn não suportada.".into());
+    }
+    let project_directory = path.parent().unwrap_or_else(|| Path::new("."));
+    for track in &mut document.tracks {
+        resolve_project_track_paths(track, project_directory);
+    }
+    let missing_tracks = document
+        .tracks
+        .iter()
+        .filter(|track| track_files_missing(track))
+        .map(|track| track.name.clone())
+        .collect();
+    Ok((document, missing_tracks))
+}
+
+fn load_portable_project(path: &Path, data_dir: &Path) -> Result<GriffinProjectFile, String> {
+    let file = fs::File::open(path)
+        .map_err(|error| format!("Não foi possível abrir o pacote: {error}"))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|error| format!("Pacote .gfn inválido: {error}"))?;
+    if archive.len() > MAX_PROJECT_ASSETS + 1 {
+        return Err("O pacote .gfn contém arquivos demais.".into());
+    }
+    let manifest = {
+        let entry = archive
+            .by_name(PROJECT_MANIFEST_NAME)
+            .map_err(|_| "O pacote .gfn não contém manifest.json.".to_string())?;
+        if entry.size() > MAX_PROJECT_MANIFEST_BYTES {
+            return Err("O manifesto do pacote .gfn é grande demais.".into());
+        }
+        let mut bytes = Vec::with_capacity(entry.size() as usize);
+        entry
+            .take(MAX_PROJECT_MANIFEST_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("Não foi possível ler o manifesto: {error}"))?;
+        bytes
+    };
+    let mut document: GriffinProjectFile = serde_json::from_slice(&manifest)
+        .map_err(|error| format!("Manifesto .gfn inválido: {error}"))?;
+    if document.format != "griffin-project" || document.version != PORTABLE_PROJECT_VERSION {
+        return Err("Versão de pacote .gfn não suportada.".into());
+    }
+    let mut asset_paths = portable_asset_paths(&document)?;
+    asset_paths.sort();
+    asset_paths.dedup();
+    if asset_paths.len() > MAX_PROJECT_ASSETS {
+        return Err(format!(
+            "O pacote excede o limite de {MAX_PROJECT_ASSETS} arquivos."
+        ));
+    }
+    let mut total_bytes = 0u64;
+    for asset_path in &asset_paths {
+        let entry = archive
+            .by_name(asset_path)
+            .map_err(|_| format!("Arquivo ausente no pacote: {asset_path}"))?;
+        if entry.is_dir() || entry.size() > MAX_PROJECT_ASSET_BYTES {
+            return Err(format!(
+                "Arquivo inválido ou grande demais no pacote: {asset_path}"
+            ));
+        }
+        total_bytes = total_bytes
+            .checked_add(entry.size())
+            .ok_or_else(|| "O tamanho do pacote é inválido.".to_string())?;
+        if total_bytes > MAX_PROJECT_TOTAL_BYTES {
+            return Err("O pacote .gfn descompactado é grande demais.".into());
+        }
+    }
+
+    let assets_parent = data_dir.join("project-assets");
+    fs::create_dir_all(&assets_parent).map_err(|error| error.to_string())?;
+    let folder_name = format!(
+        "{}-{}",
+        sanitize_file_name(&document.project.id, "project"),
+        Uuid::new_v4()
+    );
+    let destination = assets_parent.join(folder_name);
+    let staging = assets_parent.join(format!(".importing-{}", Uuid::new_v4()));
+    fs::create_dir_all(&staging).map_err(|error| error.to_string())?;
+    let staging_guard = TemporaryDirectoryGuard(Some(staging.clone()));
+    for asset_path in &asset_paths {
+        let mut entry = archive
+            .by_name(asset_path)
+            .map_err(|_| format!("Arquivo ausente no pacote: {asset_path}"))?;
+        let output_path = staging.join(Path::new(asset_path));
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        let mut output = fs::File::create(&output_path).map_err(|error| error.to_string())?;
+        let written = std::io::copy(&mut entry, &mut output)
+            .map_err(|error| format!("Não foi possível extrair {asset_path}: {error}"))?;
+        if written != entry.size() {
+            return Err(format!("O arquivo {asset_path} está incompleto."));
+        }
+        output.sync_all().map_err(|error| error.to_string())?;
+    }
+    fs::rename(&staging, &destination).map_err(|error| error.to_string())?;
+    staging_guard.keep();
+    resolve_portable_document_paths(&mut document, &destination);
+    Ok(document)
+}
+
+fn portable_asset_paths(document: &GriffinProjectFile) -> Result<Vec<String>, String> {
+    let mut paths = Vec::new();
+    for track in &document.tracks {
+        paths.push(track.path.clone());
+        if let Some(stems) = &track.stems {
+            paths.extend(stems.values().cloned());
+        }
+    }
+    if let Some(player) = &document.project.player_state {
+        if let Some(path) = &player.take_path {
+            paths.push(path.clone());
+        }
+    }
+    if let Some(snapshots) = &document.project.snapshots {
+        for snapshot in snapshots {
+            if let Some(path) = &snapshot.player.take_path {
+                paths.push(path.clone());
+            }
+        }
+    }
+    for path in &paths {
+        validate_portable_asset_path(path)?;
+    }
+    Ok(paths)
+}
+
+fn validate_portable_asset_path(path: &str) -> Result<(), String> {
+    let candidate = Path::new(path);
+    let safe = path.starts_with("assets/")
+        && !path.contains('\\')
+        && !path.contains(':')
+        && !path.chars().any(char::is_control)
+        && candidate
+            .components()
+            .all(|component| matches!(component, std::path::Component::Normal(_)));
+    if !safe {
+        return Err(format!("Caminho inseguro no pacote .gfn: {path}"));
+    }
+    Ok(())
+}
+
+fn resolve_portable_document_paths(document: &mut GriffinProjectFile, root: &Path) {
+    for track in &mut document.tracks {
+        track.path = root.join(&track.path).to_string_lossy().into_owned();
+        if let Some(stems) = track.stems.as_mut() {
+            for path in stems.values_mut() {
+                *path = root.join(&*path).to_string_lossy().into_owned();
+            }
+        }
+    }
+    if let Some(player) = document.project.player_state.as_mut() {
+        resolve_player_take(player, root);
+    }
+    if let Some(snapshots) = document.project.snapshots.as_mut() {
+        for snapshot in snapshots {
+            resolve_player_take(&mut snapshot.player, root);
+        }
+    }
+}
+
+fn resolve_player_take(player: &mut PlayerSnapshot, root: &Path) {
+    if let Some(path) = player.take_path.as_mut() {
+        *path = root.join(&*path).to_string_lossy().into_owned();
+    }
+}
+
+fn portable_project_folders(project: &Project, folders: &[ProjectFolder]) -> Vec<ProjectFolder> {
+    let mut result = Vec::new();
+    let mut current = project.folder_id.as_deref();
+    while let Some(folder_id) = current {
+        let Some(folder) = folders.iter().find(|folder| folder.id == folder_id) else {
+            break;
+        };
+        if result
+            .iter()
+            .any(|existing: &ProjectFolder| existing.id == folder.id)
+        {
+            break;
+        }
+        result.push(folder.clone());
+        current = folder.parent_id.as_deref();
+    }
+    result.reverse();
     result
+}
+
+fn merge_project_folders(existing: &mut Vec<ProjectFolder>, imported: &[ProjectFolder]) {
+    for folder in imported {
+        if let Some(current) = existing.iter_mut().find(|current| current.id == folder.id) {
+            *current = folder.clone();
+        } else {
+            existing.push(folder.clone());
+        }
+    }
 }
 
 fn resolve_project_track_paths(track: &mut Track, project_directory: &Path) {
@@ -2681,6 +3067,7 @@ fn resolve_project_track_paths(track: &mut Track, project_directory: &Path) {
     }
 }
 
+#[cfg(test)]
 fn project_path_for_save(path: &str, project_directory: &Path) -> String {
     let path = Path::new(path);
     path.strip_prefix(project_directory)
@@ -6061,6 +6448,117 @@ mod tests {
 
         assert_eq!(missing, vec!["missing"]);
         assert_eq!(project.track_ids, vec!["available"]);
+    }
+
+    #[test]
+    fn portable_project_round_trip_includes_audio_stems_take_and_player_state() {
+        let temp = TempDir::new("portable-project");
+        let original = temp.path().join("original.wav");
+        let stem = temp.path().join("vocals.wav");
+        let take = temp.path().join("ensaio.webm");
+        fs::write(&original, b"original audio").unwrap();
+        fs::write(&stem, b"vocal stem").unwrap();
+        fs::write(&take, b"recorded take").unwrap();
+
+        let player = PlayerSnapshot {
+            selected_track_id: Some("track-1".into()),
+            take_path: Some(take.to_string_lossy().into_owned()),
+            take_name: Some("Ensaio".into()),
+            position: 0.4,
+            pitch: 2.0,
+            tempo: 0.85,
+            loop_enabled: true,
+            loop_start: 0.1,
+            loop_end: 0.7,
+            volumes: HashMap::from([("vocals".into(), 0.75)]),
+            pans: HashMap::from([("vocals".into(), -0.2)]),
+            routes: HashMap::from([("vocals".into(), "left".into())]),
+            equalizer: HashMap::from([("vocals".into(), vec![1.0, -2.0, 3.0])]),
+            muted: HashMap::from([("vocals".into(), false)]),
+            solo: Some("vocals".into()),
+        };
+        let project = Project {
+            id: "project-1".into(),
+            name: "Projeto portátil".into(),
+            created_at: "1".into(),
+            updated_at: "2".into(),
+            track_ids: vec!["track-1".into()],
+            folder_id: None,
+            file_path: Some("/origem/projeto.gfn".into()),
+            file_saved_at: Some("2".into()),
+            snapshots: None,
+            player_state: Some(player),
+        };
+        let track = Track {
+            id: "track-1".into(),
+            name: "Música".into(),
+            path: original.to_string_lossy().into_owned(),
+            imported_at: "1".into(),
+            duration: Some(12.0),
+            stems: Some(HashMap::from([(
+                "vocals".into(),
+                stem.to_string_lossy().into_owned(),
+            )])),
+            analysis: Some(TrackAnalysis {
+                bpm: 120.0,
+                key: "C".into(),
+                tuning_hz: 440.0,
+                confidence: 0.9,
+                sections: None,
+                chords: None,
+            }),
+            lyrics: Some(vec![LyricsLine {
+                id: "line-1".into(),
+                text: "Olá".into(),
+                start: 0.0,
+                end: 1.0,
+            }]),
+        };
+        let package = temp.path().join("project.gfn");
+        write_portable_project(&package, &project, &[], &[track], "2").unwrap();
+
+        let imported = load_portable_project(&package, &temp.path().join("data")).unwrap();
+        assert_eq!(imported.version, PORTABLE_PROJECT_VERSION);
+        assert_eq!(imported.project.file_path, None);
+        assert_eq!(imported.tracks[0].analysis.as_ref().unwrap().bpm, 120.0);
+        assert_eq!(imported.tracks[0].lyrics.as_ref().unwrap()[0].text, "Olá");
+        assert_eq!(
+            fs::read(&imported.tracks[0].path).unwrap(),
+            b"original audio"
+        );
+        let imported_stem = imported.tracks[0]
+            .stems
+            .as_ref()
+            .unwrap()
+            .get("vocals")
+            .unwrap();
+        assert_eq!(fs::read(imported_stem).unwrap(), b"vocal stem");
+        let imported_player = imported.project.player_state.as_ref().unwrap();
+        assert_eq!(imported_player.equalizer["vocals"], vec![1.0, -2.0, 3.0]);
+        assert_eq!(
+            fs::read(imported_player.take_path.as_ref().unwrap()).unwrap(),
+            b"recorded take"
+        );
+        assert!(!fs::read(&package)
+            .unwrap()
+            .windows("/origem/projeto.gfn".len())
+            .any(|window| window == b"/origem/projeto.gfn"));
+    }
+
+    #[test]
+    fn rejects_unsafe_portable_project_paths() {
+        for path in [
+            "../escape.wav",
+            "assets/../escape.wav",
+            "assets\\escape.wav",
+            "assets/C:stream.wav",
+        ] {
+            assert!(
+                validate_portable_asset_path(path).is_err(),
+                "accepted {path}"
+            );
+        }
+        assert!(validate_portable_asset_path("assets/audio.wav").is_ok());
     }
 
     #[test]

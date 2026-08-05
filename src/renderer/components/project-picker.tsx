@@ -139,6 +139,7 @@ export function ProjectPicker() {
     if (!activeProjectId) return
     await run(async () => {
       const current = projects.find((project) => project.id === activeProjectId)
+      await api.projects.updatePlayerState(activeProjectId, playerSnapshot(usePlayer.getState()))
       const updated = await (saveAs || !current?.filePath ? api.projects.saveAs(activeProjectId) : api.projects.save(activeProjectId))
       if (!updated) return
       setProjects(projects.map((project) => project.id === updated.id ? updated : project))
@@ -156,7 +157,7 @@ export function ProjectPicker() {
       setActiveProject(opened.project.id)
       if (opened.project.playerState) applyPlayerState(opened.project.playerState)
       if (opened.missingTracks.length > 0) {
-        await alertDialog(`Projeto aberto, mas estas bibliotecas não foram encontradas:\n\n${opened.missingTracks.join('\n')}`)
+        await alertDialog(`Projeto importado, mas estas mídias do formato antigo não foram encontradas:\n\n${opened.missingTracks.join('\n')}`)
       }
     })
   }
@@ -180,9 +181,9 @@ export function ProjectPicker() {
   </div>
 
   return <section className="project-picker" aria-label="Projetos">
-    <div className="project-picker-heading"><span>PROJETOS · {current?.name ?? 'nenhum projeto'}</span><span className={`project-file-status ${dirty ? 'dirty' : ''}`}>{current?.filePath ? (dirty ? 'ALTERAÇÕES NÃO SALVAS' : 'ARQUIVO .GFN') : 'NÃO SALVO'}</span></div>
+    <div className="project-picker-heading"><span>PROJETOS · {current?.name ?? 'nenhum projeto'}</span><span className={`project-file-status ${dirty ? 'dirty' : ''}`}>{current?.filePath ? (dirty ? 'ALTERAÇÕES NÃO EXPORTADAS' : 'PACOTE .GFN') : 'NÃO EXPORTADO'}</span></div>
     <div className="project-toolbar">
-      <button disabled={busy} onClick={() => void createProject()}>＋ Projeto</button><button disabled={busy} onClick={() => void createFolder()}>＋ Pasta</button><button disabled={busy} onClick={() => void openProject()}>Abrir .gfn</button><button disabled={busy || !activeProjectId} onClick={() => void saveProject()}>Salvar</button><button disabled={busy || !activeProjectId} onClick={() => void saveProject(true)}>Salvar como</button>
+      <button disabled={busy} onClick={() => void createProject()}>＋ Projeto</button><button disabled={busy} onClick={() => void createFolder()}>＋ Pasta</button><button disabled={busy} onClick={() => void openProject()}>Importar .gfn</button><button disabled={busy || !activeProjectId} onClick={() => void saveProject()}>Atualizar pacote</button><button disabled={busy || !activeProjectId} onClick={() => void saveProject(true)}>Exportar .gfn</button>
     </div>
     <div className="project-tree" role="tree">
       {projectsIn(null).map(renderProject)}
@@ -190,7 +191,7 @@ export function ProjectPicker() {
       {projects.length === 0 && <small className="project-tree-empty">Nenhum projeto criado.</small>}
     </div>
     <div className="project-picker-actions"><button disabled={busy || !activeProjectId} onClick={() => void renameProject()}>Renomear</button><button disabled={busy || !activeProjectId} onClick={() => void moveProject()}>Mover para pasta selecionada</button><button disabled={busy || !activeProjectId} onClick={() => void removeProject()}>Remover</button></div>
-    {saved && <small className="project-saved" role="status">Projeto .gfn salvo</small>}
+    {saved && <small className="project-saved" role="status">Pacote .gfn exportado com as mídias</small>}
     {selectedFolderId && <small className="project-selection">Pasta selecionada: {folders.find((folder) => folder.id === selectedFolderId)?.name}</small>}
     <div className="snapshot-heading"><span>SNAPSHOTS</span><button title="Salvar snapshot" aria-label="Salvar snapshot" disabled={busy || !activeProjectId} onClick={() => void saveSnapshot()}>＋</button></div>
     {snapshots.length > 0 && <div className="snapshot-list">{snapshots.map((snapshot) => <div className="snapshot-row" key={snapshot.id}><button disabled={busy} title={`Restaurar ${snapshot.name}`} onClick={() => void restoreSnapshot(snapshot.id)}><strong>{snapshot.name}</strong><small>{new Date(snapshot.createdAt).toLocaleDateString('pt-BR')} · {Math.round(snapshot.player.tempo * 100)}% · {snapshot.player.pitch > 0 ? '+' : ''}{snapshot.player.pitch} st</small></button><button disabled={busy} aria-label={`Remover ${snapshot.name}`} title="Remover snapshot" onClick={() => void removeSnapshot(snapshot.id)}>×</button></div>)}</div>}

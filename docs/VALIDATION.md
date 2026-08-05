@@ -81,9 +81,10 @@ No mixer, valide volume, pan, roteamento L/R/estéreo, mute e solo. No EQ, alter
 ## Projetos e persistência
 
 - Crie pastas, subpastas, projetos e snapshots; reinicie e confirme a restauração.
-- Salve, feche e abra um `.gfn`.
-- Abra uma cópia com áudio ausente e confirme que o projeto é preservado e lista as referências quebradas.
-- Confirme que o `.gfn` não incorporou o áudio.
+- Exporte, feche e importe um `.gfn`; confirme originais, stems, análises, letras, gravações, snapshots e ajustes do player.
+- Importe o pacote em outro perfil ou computador e confirme que ele não depende dos caminhos da máquina de origem.
+- Abra um `.gfn` legado com áudio ausente e confirme que o projeto é preservado e lista as referências quebradas.
+- Confirme que caminhos absolutos da máquina de origem não aparecem no pacote portátil.
 - Interrompa uma cópia de teste durante gravação de estado e confirme a recuperação atômica/backup.
 - Limpe o cache e confirme que projetos, originais, modelos e preferências permanecem.
 

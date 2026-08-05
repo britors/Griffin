@@ -124,7 +124,7 @@ export interface ProjectFolder {
 
 export interface GriffinProjectFile {
   format: 'griffin-project'
-  version: 1
+  version: 1 | 2
   savedAt: string
   project: Project
   folders: ProjectFolder[]

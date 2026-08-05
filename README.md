@@ -13,6 +13,7 @@ O Griffin Music é um aplicativo para separar músicas em faixas e praticar inst
 - Consultar BPM, tonalidade, seções, acordes e letras sincronizadas quando essas informações estiverem disponíveis.
 - Organizar músicas e exercícios em projetos, pastas, favoritos e recentes.
 - Salvar snapshots do seu estudo para continuar depois do mesmo ponto.
+- Exportar e importar projetos portáteis `.gfn` com os áudios, stems e ajustes para continuar em outro computador.
 - Exportar a mixagem ou faixas individuais em WAV.
 - Copiar ou salvar um diagnóstico local e abrir a pasta de logs quando precisar relatar um problema.
 
@@ -100,7 +101,7 @@ makepkg -si
 3. Na primeira separação, acompanhe a preparação automática do modelo; o download pode ser pausado, cancelado e retomado.
 4. Depois da separação, use o mixer para silenciar, destacar ou ajustar cada stem.
 5. Marque um trecho com o loop A-B e ajuste velocidade, tonalidade ou metrônomo para estudar.
-6. Salve o projeto ou um snapshot para continuar mais tarde.
+6. Exporte o projeto como `.gfn` ou salve um snapshot para continuar mais tarde.
 
 Os arquivos são processados no seu computador por padrão. O Griffin só envia áudio para um serviço remoto quando você escolhe essa opção e confirma a operação. Os modelos e o cache ficam armazenados localmente.
 

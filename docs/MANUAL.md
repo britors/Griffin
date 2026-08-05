@@ -2,7 +2,7 @@
 
 O Griffin Music é um aplicativo desktop para separar músicas em stems e estudar uma faixa com controle de velocidade, tonalidade, loop, metrônomo e mixagem. Ele funciona localmente por padrão: os arquivos, a separação, a análise, o cache e as preferências permanecem no computador.
 
-Este manual descreve a versão 3.0.2 do projeto.
+Este manual descreve a versão 3.0.3 do projeto.
 
 ## 1. Instalação
 
@@ -278,17 +278,17 @@ Ao remover uma pasta, seus projetos vão para a pasta pai. Subpastas precisam se
 
 ### 9.2 Arquivo `.gfn`
 
-Use **Salvar como** para escolher o local de um arquivo `.gfn`. Depois, **Salvar** atualiza o mesmo arquivo. Use **Abrir .gfn** para abrir um projeto salvo.
+Use **Exportar .gfn** para escolher onde criar o pacote portátil. Depois, **Atualizar pacote** grava novamente no mesmo arquivo. Use **Importar .gfn** em outro computador para restaurar o projeto.
 
-O `.gfn` é um manifesto JSON versionado que contém o projeto, as pastas e referências das bibliotecas. Ele não copia os arquivos de áudio nem os stems; por isso, ao abrir em outro computador, as mesmas faixas precisam estar disponíveis nos caminhos esperados. Se isso não acontecer, o Griffin lista as faixas ausentes sem descartar o projeto.
+O `.gfn` portátil inclui os áudios originais, stems, análises, letras, snapshots, gravações associadas e o estado do player — pitch, tempo, loop, mixer, roteamento, equalização e mute/solo. Na importação, o Griffin extrai as mídias para sua área gerenciada; não é necessário recriar os caminhos da máquina de origem.
 
-Faça backup dos arquivos de áudio e do `.gfn` juntos quando quiser transportar um projeto. Não edite o `.gfn` manualmente enquanto o aplicativo estiver usando o projeto.
+Arquivos `.gfn` antigos, que continham apenas referências, continuam aceitos. Nesse caso, o Griffin informa quais mídias não estão mais nos caminhos originais. Não edite nem descompacte o pacote enquanto o aplicativo estiver exportando ou importando.
 
 ### 9.3 Snapshots
 
 No painel **Snapshots**, clique em `＋`, dê um nome e salve o estado atual. Um snapshot preserva a seleção, posição, pitch, tempo, loop, mixer, roteamento, EQ e mute/solo. Clique em um snapshot para restaurá-lo ou em `×` para removê-lo.
 
-Snapshots não substituem backup dos áudios e não criam cópias dos arquivos de origem.
+Snapshots dentro de um pacote `.gfn` acompanham as mídias exportadas; fora de um pacote, continuam sendo apenas estados salvos do projeto.
 
 ## 10. Preferências
 
